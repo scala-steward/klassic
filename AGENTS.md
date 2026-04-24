@@ -1,45 +1,50 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- SBT-based Scala 3 project with some Java runtime helpers.
-- Source: `src/main/scala/com/github/klassic/...`, Java runtime in `src/main/java/klassic/runtime`.
-- Tests: `src/test/scala/...` using ScalaTest; fixtures in `src/test/resources`.
-- Benchmarks: `src/jmh/scala/...` (JMH).
-- Examples and scripts: `examples/`, `test-programs/`, and `.kl` files at repo root.
+- Cargo workspace written in Rust.
+- Native CLI binary: `src/main.rs` and `src/cli.rs`.
+- Compiler/runtime crates: `crates/klassic-*`.
+- Integration tests: `tests/`.
+- Klassic sample programs and golden fixtures: `test-programs/`, `examples/`, and `example/` if present.
+- Migration and specification docs: `docs/`.
 
-## Build, Test, and Development Commands
-- Prerequisites: JDK 8+ (11+ recommended) and `sbt`.
-- Compile: `sbt compile` — compiles main sources.
-- Run REPL: `sbt console` — opens Scala REPL with useful imports preloaded.
-- Run tests: `sbt test` (single suite: `sbt "testOnly com.github.klassic.TypeCheckerSpec"`).
-- Assemble fat jar: `sbt assembly` — outputs `target/scala-3.3.6/klassic.jar`.
-- Run interpreter: `java -jar target/scala-3.3.6/klassic.jar -e "println(1+2)"` or with a file.
-- Benchmarks: `sbt "jmh:run -i 3 -wi 3 -f1 .*Basic.*"`.
+## Build, Test, And Development Commands
+- Build: `cargo build`.
+- Release build: `cargo build --release`.
+- Run expression: `cargo run -- -e "1 + 2"`.
+- Run file: `cargo run -- path/to/file.kl` or `cargo run -- -f path/to/file.kl`.
+- REPL: `cargo run`.
+- Test: `cargo test`.
+- Macro PEG tests only: `cargo test -p klassic-macro-peg`.
+- Formatting check: `cargo fmt --check`.
 
 ## Coding Style & Naming Conventions
-- Language: Scala 3.3.6 (plus minimal Java). Use 2-space indentation, standard Scala brace style.
-- Naming: packages lowercase; types/objects `CamelCase`; methods/vals `lowerCamelCase`; constants `UPPER_SNAKE_CASE`.
-- Organization: match package paths (e.g., `com.github.klassic` → `src/main/scala/com/github/klassic`).
-- Prefer immutable `val` and pure functions; keep side effects explicit.
-- Formatting: no enforced formatter in repo; keep diffs minimal and follow surrounding style.
+- Language: Rust 2024 edition.
+- Use idiomatic Rust modules, enums, structs, and pattern matching.
+- Keep diagnostics and source spans first-class.
+- Avoid `unsafe` unless absolutely necessary and documented.
+- Prefer small cohesive crates/modules over broad catch-all files.
+- Default to ASCII in source and docs unless the file already justifies Unicode.
 
 ## Testing Guidelines
-- Framework: ScalaTest (`AnyFunSpec` with `describe`/`it` and `Diagrams`).
-- Location: `src/test/scala/...`; name files `*Spec.scala` or `*Test.scala`.
-- Add tests for behavior changes (parser, typer, runtime); include negative tests where relevant (`intercept[...]`).
-- Run fast locally with `sbt test`; target a suite via `testOnly` while iterating.
+- Preserve language behavior through Rust unit and integration tests.
+- Ported Scala-era behavior should be represented by Rust tests, not by keeping a JVM path.
+- Add focused tests for parser, rewrite, typing, runtime, CLI, REPL, and golden `.kl` programs.
+- Use hermetic temp directories for file and directory module tests.
+- Run `cargo test` before committing core language changes.
 
 ## Commit & Pull Request Guidelines
-- Commits: imperative mood, concise subject (<72 chars), scope prefix when helpful (e.g., `parser: handle underscores`).
-- PRs: clear description, rationale, and before/after examples; link issues; include tests and doc updates.
-- CI must be green (`sbt compile test assembly` as needed). Avoid large, mixed refactors.
+- Commits: imperative mood, concise subject under 72 characters when practical.
+- PRs: include what changed, why, user-visible impact, intentionally excluded JVM interop, and validation.
+- CI must be green on the Rust-native path.
 
 ## Security & Publishing Notes
-- Do not commit secrets. Sonatype credentials are read from `~/.ivy2/.credentials` or `~/.m2/settings.xml` (see `build.sbt`).
-- Verify no sensitive data lands in sources, tests, or example programs.
+- Do not commit secrets or machine-local configuration.
+- The default build must not depend on Scala, Java, sbt, JVM, JNI, JNA, GraalVM, or embedded JVMs.
+- Java/JVM interop surfaces are explicitly out of scope unless reintroduced as a separate opt-in design.
 
 ## Agent-Specific Instructions
-- Keep changes surgical; preserve file layout and naming.
-- Prefer `rg` for search; run `sbt test` before/after modifying core logic.
-- Avoid repository-wide reformatting; match existing style in touched files.
-
+- Prefer `rg` for search.
+- Use Cargo commands for validation.
+- Keep docs synchronized when language behavior or migration scope changes.
+- Do not reintroduce Scala/JVM build or runtime dependencies.

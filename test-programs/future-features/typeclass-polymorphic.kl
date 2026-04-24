@@ -33,6 +33,12 @@ instance Show<Boolean> where {
   def show(x: Boolean): String = if(x) "true" else "false"
 }
 
+// Generic instance for lists
+instance Show<List<'a>> where Show<'a> {
+  def show(xs: List<'a>): String =
+    "[" + join(map(xs)((item) => show(item)), ",") + "]"
+}
+
 // Polymorphic function using Show constraint
 def display<'a>(x: 'a): Unit where Show<'a> = {
   println("Displaying: " + show(x))
@@ -67,7 +73,7 @@ def showList<'a>(items: List<'a>): List<String> where Show<'a> = {
 println("\n=== Testing showList ===")
 val numbers = [1, 2, 3, 4, 5]
 val strings = showList(numbers)
-println("Original: " + show(numbers))  // This would need Show<List<Int>>
+println("Original: " + show(numbers))
 println("As strings: " + join(strings, ", "))
 
 // Define a custom type
