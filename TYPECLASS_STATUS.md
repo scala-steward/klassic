@@ -28,28 +28,30 @@
    show(5)          // "Int: 5" (from Show type class)
    ```
 
-## ❌ What's Not Working Yet
+## Verified Rust Coverage
 
-1. **Polymorphic Constraints**: Can't write generic functions with type class constraints
-   ```klassic
-   // This syntax doesn't exist yet:
-   def showList<'a>(xs: List<'a>) where Show<'a> = ...
-   ```
+1. **Constrained Polymorphism**
+   - Functions such as `def display<'a>(x: 'a): String where Show<'a> = show(x)` typecheck and execute.
+   - Direct calls reject missing instances before evaluation.
 
-2. **Constraint Propagation**: Type class constraints aren't propagated through generic code
+2. **Higher-Kinded Type Classes**
+   - `Functor<List>` and `Monad<List>`-style examples are covered by Rust evaluator, CLI, and sample-program tests.
+   - Runtime dictionary binding handles result-directed methods such as `unit` inside constrained helpers.
 
-3. **Higher-Kinded Type Classes**: Advanced features like Functor/Monad
+3. **Instance Constraints**
+   - Instances such as `instance Show<List<'a>> where Show<'a>` participate in compile-time constraint solving.
 
-4. **Dictionary Passing**: No explicit dictionary passing mechanism
+4. **First-Class Typeclass Methods**
+   - Bare methods such as `show` can flow as callable values, including `xs.map(show)`-style programs.
 
 ## Implementation Details
 
-- Type class instances are compiled into callable functions at runtime
-- Instance resolution is done by the Typer based on concrete types
-- The VM Interpreter registers instance methods with names like `Show_Int_show`
-- Instance method bodies are preserved through compilation via `instanceDeclarations` in TypedAst
+- Type class instances are represented as callable runtime dictionaries.
+- Instance resolution is done by the Rust typechecker based on concrete types and active constraints.
+- The evaluator binds concrete dictionaries into constrained function call environments.
+- Instance method bodies are preserved in the Rust AST/runtime environment instead of depending on a JVM VM layer.
 
 ## Test Results
-- Before fix: 297/313 tests passing (16 failures)
-- After fix: 307/315 tests passing (8 failures)
-- Basic type class functionality is now working correctly
+- The Rust workspace test suite is green under `cargo test -q`.
+- Basic type classes, constrained polymorphism, instance-level `where`, first-class typeclass methods, and higher-kinded helpers over `List` are covered by evaluator / CLI / sample-program regressions.
+- Remaining dependent-proof work beyond the repository theorem/trust surface is tracked as future language design, not typeclass parity debt.

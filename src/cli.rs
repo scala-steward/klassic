@@ -1,0 +1,117 @@
+use std::path::PathBuf;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExecutionConfig {
+    pub deny_trust: bool,
+    pub warn_trust: bool,
+}
+
+impl ExecutionConfig {
+    pub const fn new(deny_trust: bool, warn_trust: bool) -> Self {
+        Self {
+            deny_trust,
+            warn_trust,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunAction {
+    EvaluateExpression(String),
+    EvaluateFile(PathBuf),
+    StartRepl,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParsedCommand {
+    pub action: RunAction,
+    pub config: ExecutionConfig,
+}
+
+pub fn parse_command_line(args: &[String]) -> Option<ParsedCommand> {
+    let mut deny_trust = false;
+    let mut warn_trust = false;
+    let mut others = Vec::new();
+    let mut index = 0usize;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--deny-trust" => {
+                deny_trust = true;
+                index += 1;
+            }
+            "--warn-trust" => {
+                warn_trust = true;
+                index += 1;
+            }
+            other => {
+                others.push(other.to_owned());
+                index += 1;
+            }
+        }
+    }
+
+    let config = ExecutionConfig::new(deny_trust, warn_trust);
+    let action = match others.as_slice() {
+        [] => RunAction::StartRepl,
+        [file_name] if file_name.ends_with(".kl") => {
+            RunAction::EvaluateFile(PathBuf::from(file_name))
+        }
+        [flag, file_name] if flag == "-f" => RunAction::EvaluateFile(PathBuf::from(file_name)),
+        [flag, expression] if flag == "-e" => RunAction::EvaluateExpression(expression.clone()),
+        _ => return None,
+    };
+
+    Some(ParsedCommand { action, config })
+}
+
+pub fn usage() -> &'static str {
+    "Usage: klassic [--deny-trust] [--warn-trust] (-f <fileName> | -e <expression>)\n\
+     Options:\n\
+       --deny-trust   : reject programs that depend on trusted proofs\n\
+       --warn-trust   : warn when trusted proofs are used\n\
+       <fileName>     : read a program from <fileName> and execute it\n\
+       -e <expression>: evaluate <expression>\n"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RunAction, parse_command_line};
+
+    #[test]
+    fn parses_expression_invocation() {
+        let args = vec!["-e".to_string(), "1 + 2".to_string()];
+        let parsed = parse_command_line(&args).expect("command should parse");
+        assert_eq!(
+            parsed.action,
+            RunAction::EvaluateExpression("1 + 2".to_string())
+        );
+    }
+
+    #[test]
+    fn parses_positional_file_invocation() {
+        let args = vec!["sample.kl".to_string()];
+        let parsed = parse_command_line(&args).expect("command should parse");
+        match parsed.action {
+            RunAction::EvaluateFile(path) => assert_eq!(path.to_string_lossy(), "sample.kl"),
+            other => panic!("unexpected action: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_dash_f_file_invocation() {
+        let args = vec!["-f".to_string(), "sample.kl".to_string()];
+        let parsed = parse_command_line(&args).expect("command should parse");
+        match parsed.action {
+            RunAction::EvaluateFile(path) => assert_eq!(path.to_string_lossy(), "sample.kl"),
+            other => panic!("unexpected action: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_no_args_as_repl() {
+        let args = vec![];
+        let parsed = parse_command_line(&args).expect("repl command should parse");
+        assert_eq!(parsed.action, RunAction::StartRepl);
+    }
+}

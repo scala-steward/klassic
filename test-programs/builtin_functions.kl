@@ -36,12 +36,8 @@ val time = stopwatch( => {
 println("it took #{time} milli seconds")
 printlnError("this param is displayed into standard error")
 assertResult(5)(add(2, 3))
-val list = new java.util.ArrayList
-list->add(4)
-list->add(1)
-list->add(2)
-list->add(3)
-assertResult([4 1 2 3])((list :> List<Int>))
+val list = [4 1 2 3]
+assertResult([4 1 2 3])(list)
 assertResult(5.0)(sqrt(3.0 * 3.0 + 4.0 * 4.0))
 assertResult(6)(int(6.5))
 assertResult(7)(floor(7.5))

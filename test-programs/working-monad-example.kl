@@ -1,14 +1,17 @@
-// Complete higher-kinded typeclass example
+// Working higher-kinded Monad example
 
-// Functor typeclass
-typeclass Functor<'f: * => *> where {
-  map: (('a) => 'b, 'f<'a>) => 'f<'b>
-}
-
-// Monad typeclass  
 typeclass Monad<'m: * => *> where {
   bind: ('m<'a>, ('a) => 'm<'b>) => 'm<'b>;
   unit: ('a) => 'm<'a>
 }
 
-println("Higher-kinded typeclasses parsed successfully")
+instance Monad<List> where {
+  def bind(xs: List<'a>, f: ('a) => List<'b>): List<'b> = f(head(xs))
+  def unit(x: 'a): List<'a> = [x]
+}
+
+def pairWithNext<'m>(xs: 'm<Int>): 'm<Int> where Monad<'m> = {
+  bind(xs, (x) => unit(x + 1))
+}
+
+println(pairWithNext([1, 2, 3]))

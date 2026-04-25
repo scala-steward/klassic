@@ -1,0 +1,34 @@
+[package]
+name = "klassic"
+version = "0.1.0"
+edition = "2024"
+default-run = "klassic"
+
+[workspace]
+members = [
+  "crates/klassic-span",
+  "crates/klassic-syntax",
+  "crates/klassic-rewrite",
+  "crates/klassic-types",
+  "crates/klassic-runtime",
+  "crates/klassic-eval",
+  "crates/klassic-macro-peg",
+]
+default-members = [
+  ".",
+  "crates/klassic-span",
+  "crates/klassic-syntax",
+  "crates/klassic-rewrite",
+  "crates/klassic-types",
+  "crates/klassic-runtime",
+  "crates/klassic-eval",
+  "crates/klassic-macro-peg",
+]
+resolver = "2"
+
+[dependencies]
+klassic-eval = { path = "crates/klassic-eval" }
+
+[[bin]]
+name = "klassic"
+path = "src/main.rs"
