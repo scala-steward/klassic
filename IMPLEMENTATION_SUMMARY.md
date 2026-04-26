@@ -1,72 +1,65 @@
 # Klassic Implementation Summary
 
-## What Was Fixed
+## Current State
 
-### 1. Type Class Implementation ✅
-- **Problem**: Type class instances weren't being executed - they were just placeholders
-- **Solution**: 
-  - Extended `TypedAst.Program` to preserve instance declarations
-  - Modified `VmInterpreter` to compile instance methods into executable functions
-  - Instance methods are now registered as `ClassName_TypeName_methodName`
-  - Each method is wrapped in a `NativeFunctionValue` that executes the compiled code
+Klassic is implemented as a Rust-native language workspace. The default build
+produces a native `klassic` executable and the repository test suite runs through
+Cargo.
 
-### 2. Pragmatic Language Features ✅
-Previously implemented:
-- **FileOutput module**: Write, append, delete files
-- **Dir module**: List, create, copy, move directories  
-- **Enhanced string functions**: split, join, trim, replace, etc.
+## Implemented Areas
 
-## Current Test Status
-- **Total**: 315 tests
-- **Passing**: 306 tests
-- **Failing**: 9 tests
+### Type Classes
 
-## Remaining Issues
+- Typeclass declarations and concrete instances are parsed and preserved in the AST.
+- Instance methods are represented as runtime callable dictionaries.
+- Direct method calls such as `show(42)` resolve through instance dispatch.
+- Constrained-polymorphic functions such as
+  `def display<'a>(x: 'a): String where Show<'a> = show(x)` typecheck and run.
+- Instance requirements such as `instance Show<List<'a>> where Show<'a>` are
+  checked recursively.
+- Higher-kinded examples over `List` are covered by tests.
 
-### 1. Type Classes with Record Types (1 failure)
-- Structural vs nominal typing mismatch
-- Instance for `Point` doesn't match `record { x: Int; y: Int; }`
+### Type System
 
-### 2. Polymorphic Type Classes (3 failures)
-- No support for type class constraints in function signatures
-- Can't write: `def showList<'a>(xs: List<'a>) where Show<'a>`
+- Hindley-Milner style generalization and instantiation.
+- Type annotations and undefined-variable checks.
+- Numeric compatibility checks.
+- Nominal and structural record typing.
+- Row-polymorphic field access.
+- Lightweight theorem / trust / axiom checking.
 
-### 3. Syntax Issues (2 failures)
-- No boolean negation operator `!`
-- Tests use unsupported syntax
+### Runtime
 
-### 4. Recursive Instance Methods (2 failures)
-- Instance methods can't call themselves or other type class methods
-- Would need proper dictionary passing
+- Functions, closures, recursive definitions, mutable bindings, and assignments.
+- Records, modules, imports, and typeclass dictionaries.
+- Collection literals and collection helpers.
+- String, numeric, assertion, file, directory, timing, and thread helpers.
+- REPL state persistence for bindings, schemas, and generalized types.
 
-### 5. Higher-Kinded Type Classes (1 failure)
-- Complex AST nodes like `RecordCall` not handled in method compilation
+### Tooling
 
-## Type Class Examples That Work
+- `cargo build`
+- `cargo build --release`
+- `cargo test`
+- `cargo test -p klassic-macro-peg`
+- `cargo fmt --check`
 
-```klassic
-typeclass Show<'a> where {
-  show: ('a) => String
-}
+## Test Status
 
-instance Show<Int> where {
-  def show(x: Int): String = "Int: " + x
-}
+The Rust workspace test suite is green under `cargo test`.
 
-instance Show<String> where {
-  def show(x: String): String = "String: " + x
-}
+Coverage includes:
 
-show(42)         // "Int: 42"
-show("hello")    // "String: hello"
-```
+- parser and expression regression tests
+- typechecker checks
+- CLI and REPL smoke tests
+- sample-program golden tests
+- macro PEG tests
+- file and directory behavior with temporary paths
 
-## Architecture Notes
+## Next Work
 
-The type class implementation now follows this flow:
-1. Parser creates AST with type class and instance declarations
-2. Typer resolves type class method calls to `ClassName_TypeName_methodName` identifiers
-3. VmInterpreter compiles instance method bodies and registers them as callable functions
-4. Runtime lookups work through the standard environment chain
-
-This is a working implementation for monomorphic type classes with concrete types.
+- Continue moving shared runtime pieces from `klassic-eval` into
+  `klassic-runtime` when that reduces coupling.
+- Expand the proof language beyond the current theorem/trust surface.
+- Add optimizer work only when supported by profiling or debugging needs.

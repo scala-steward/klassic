@@ -6,7 +6,7 @@
 - Compiler/runtime crates: `crates/klassic-*`.
 - Integration tests: `tests/`.
 - Klassic sample programs and golden fixtures: `test-programs/`, `examples/`, and `example/` if present.
-- Migration and specification docs: `docs/`.
+- Architecture and specification docs: `docs/`.
 
 ## Build, Test, And Development Commands
 - Build: `cargo build`.
@@ -27,24 +27,21 @@
 - Default to ASCII in source and docs unless the file already justifies Unicode.
 
 ## Testing Guidelines
-- Preserve language behavior through Rust unit and integration tests.
-- Ported Scala-era behavior should be represented by Rust tests, not by keeping a JVM path.
+- Language behavior should be represented by Rust tests.
 - Add focused tests for parser, rewrite, typing, runtime, CLI, REPL, and golden `.kl` programs.
 - Use hermetic temp directories for file and directory module tests.
 - Run `cargo test` before committing core language changes.
 
 ## Commit & Pull Request Guidelines
 - Commits: imperative mood, concise subject under 72 characters when practical.
-- PRs: include what changed, why, user-visible impact, intentionally excluded JVM interop, and validation.
+- PRs: include what changed, why, user-visible impact, and validation.
 - CI must be green on the Rust-native path.
 
 ## Security & Publishing Notes
 - Do not commit secrets or machine-local configuration.
-- The default build must not depend on Scala, Java, sbt, JVM, JNI, JNA, GraalVM, or embedded JVMs.
-- Java/JVM interop surfaces are explicitly out of scope unless reintroduced as a separate opt-in design.
+- Keep the default build and runtime path native Rust.
 
 ## Agent-Specific Instructions
 - Prefer `rg` for search.
 - Use Cargo commands for validation.
-- Keep docs synchronized when language behavior or migration scope changes.
-- Do not reintroduce Scala/JVM build or runtime dependencies.
+- Keep docs synchronized when language behavior or implementation scope changes.

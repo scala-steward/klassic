@@ -49,7 +49,7 @@
 - Type class instances are represented as callable runtime dictionaries.
 - Instance resolution is done by the Rust typechecker based on concrete types and active constraints.
 - The evaluator binds concrete dictionaries into constrained function call environments.
-- Instance method bodies are preserved in the Rust AST/runtime environment instead of depending on a JVM VM layer.
+- Instance method bodies are preserved in the Rust AST/runtime environment.
 
 ## Test Results
 - The Rust workspace test suite is green under `cargo test -q`.

@@ -113,7 +113,7 @@ Dependent types require term expressions inside types. Proposed shape:
 - Introduce a restricted "index term" language for type-level computation.
 
 Possible representation:
-```scala
+```rust
 sealed trait TypeArg
 case class TypeArgType(tpe: Type) extends TypeArg
 case class TypeArgTerm(term: Ast.Node) extends TypeArg
@@ -150,7 +150,7 @@ Level tracking feeds back into the CLI: warnings now mention `trusted<k>` explic
 
 ## Totality and Termination
 Theorem bodies must be total:
-- No `while`, `foreach`, mutation, or Java interop.
+- No `while`, `foreach`, or mutation.
 - Only recursive calls that are structurally smaller.
 - Only total functions can be called from theorems.
 
@@ -185,7 +185,7 @@ Normalization runs on the restricted index-term subset to keep it predictable.
 Proof terms are erased before runtime:
 - Values of Prop are removed or compiled to Unit.
 - Proof fields in records are erased from runtime layouts.
-- The VM never evaluates proofs (except during type checking).
+- Runtime evaluation never executes proof-only terms after erasure.
 
 ## Compiler/Typechecker Changes (High Level)
 ### Parser
@@ -217,8 +217,8 @@ Files: `crates/klassic-types/src/lib.rs`
 ### Typed IR + Runtime
 Files: `crates/klassic-types/src/lib.rs`, `crates/klassic-eval/src/lib.rs`
 - Carry proof-status metadata for bindings.
-- Erase proofs before VM compilation.
-- Add `match` compilation rules.
+- Erase proofs before runtime evaluation.
+- Add `match` evaluation rules.
  
 ## Implementation Tasks Overview
 1. **Parser / Syntax**
@@ -239,9 +239,9 @@ Files: `crates/klassic-types/src/lib.rs`, `crates/klassic-eval/src/lib.rs`
    - Enforce that theorem bodies only call verified total defs and check structural recursion.
    - Build a dependency graph to compute trusted levels and reject `--deny-trust` violations.
    - Normalize dependent indices in `match` via branch constraints so pattern matching refines types.
-5. **TypedAst & VM**
+5. **Typed IR & Runtime**
    - Carry proof metadata for erasure decisions.
-   - Compile `match` expressions while erasing prop-only branches.
+   - Evaluate `match` expressions while erasing prop-only branches.
    - Ensure total helpers are recognized as pure for normalization and erasure.
 6. **Stdlib, Tests & CLI**
    - Provide `Nat`, `Vec`, `Eq`, `Sorted`, etc., plus example theorems.
@@ -274,7 +274,7 @@ theorem addAssoc(n: Nat, m: Nat, k: Nat):
 1) Parser + AST + Type nodes for theorem/axiom/match and Prop terms.
 2) Typechecker support for dependent types and Prop/Bool lifting.
 3) Totality/termination checker and proof-status tracking.
-4) VM support for match and proof erasure.
+4) Runtime support for match and proof erasure.
 5) Stdlib additions (Nat, Eq, Vec) and tests.
 
 ## Open Questions
