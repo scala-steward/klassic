@@ -146,7 +146,7 @@ fn run_program(path: &Path) -> std::process::Output {
 }
 
 #[test]
-fn top_level_non_jvm_sample_programs_succeed() {
+fn top_level_sample_programs_succeed() {
     let root = repo_root().join("test-programs");
     let mut failures = Vec::new();
 

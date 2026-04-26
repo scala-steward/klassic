@@ -1,9 +1,7 @@
 # Klassic
 
 Klassic is a statically typed object-functional programming language written in
-Rust. The current implementation builds a native `klassic` executable with Cargo
-and has no Scala, Java, sbt, JVM, JNI, JNA, GraalVM, or embedded-JVM dependency
-in the default build or runtime path.
+Rust. The implementation builds a native `klassic` executable with Cargo.
 
 ## Features
 
@@ -17,10 +15,6 @@ in the default build or runtime path.
 - Pure Rust file, directory, string, list, map, set, time, and thread helpers
 - Native CLI and REPL
 - Standalone Rust macro PEG subsystem
-
-Java/JVM interop from the historical implementation is intentionally out of
-scope for the Rust-native port. That includes Java object construction, Java
-method dispatch, and JVM helper builtins such as `url`, `uri`, and `desktop`.
 
 ## Build And Test
 
@@ -225,7 +219,7 @@ This compiles normally, warns under `--warn-trust`, and fails under
 - `crates/klassic-macro-peg`: Rust macro PEG implementation
 - `tests/`: Rust integration tests and `.kl` golden harnesses
 - `test-programs/`: sample Klassic programs used by the test harness
-- `docs/`: migration, architecture, and spec notes
+- `docs/`: architecture, implementation, and spec notes
 
 ## Development
 

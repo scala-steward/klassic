@@ -33,5 +33,5 @@
 
 ## Tooling & DX
 - Lints: unused import, shadowed names, re‑export loops.
-- sbt tasks: `klassic/modules` (graph), `klassic/import-lint` (checks), `klassic/clean-mod-cache`.
+- Cargo tooling: module graph, import lint, and module-cache cleanup commands.
 - Docs: update README with module/alias/selective patterns and gotchas.
