@@ -331,8 +331,9 @@ static or runtime integer counts / ASCII case conversion / first-occurrence
 runtime output. `FileInput#open` callback
 folding preserves mutable callback effects, including cleanup clauses, when the
 callback's final value remains statically recoverable. `Dir#current()` emits
-runtime `getcwd` and returns a fixed-buffer runtime string, while static-path
-`Dir` helpers cover home/temp path queries, existence/type checks,
+runtime `getcwd`, `Dir#home()` reads runtime `HOME`, and `Dir#temp()` reads
+runtime `TMPDIR` with `/tmp` as its Linux fallback, all returning fixed-buffer
+runtime strings. Static-path `Dir` helpers cover existence/type checks,
 mkdir/mkdirs, list/listFull, delete, copy, and move with Linux syscalls plus the
 same compile-time virtual filesystem tracking used by static reads.
 The sample-program test harness also builds the required top-level `.kl`

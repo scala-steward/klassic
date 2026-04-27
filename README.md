@@ -216,7 +216,9 @@ lists or other runtime line lists, and `FileOutput#writeLines` can write them ba
 path buffers at runtime, with runtime directory listings exposed through the
 same sorted runtime line-list representation. Direct
 `Dir#current()` emits runtime `getcwd`, so generated native executables observe
-their execution cwd rather than the cwd used during native build.
+their execution cwd rather than the cwd used during native build. `Dir#home()`
+reads the generated executable's `HOME`, and `Dir#temp()` reads runtime `TMPDIR`
+with `/tmp` as its Linux fallback.
 `CommandLine#args()` returns the generated executable's process arguments
 excluding argv[0] as the same runtime line-list representation, including
 direct, unqualified, aliased-helper, and function-local native calls.

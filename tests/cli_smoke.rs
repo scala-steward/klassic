@@ -2570,6 +2570,72 @@ fn builds_native_executable_for_runtime_dir_current() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_dir_home_and_temp() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let home_dir = std::env::temp_dir().join(format!("klassic-native-home-{unique}"));
+    let temp_dir = std::env::temp_dir().join(format!("klassic-native-temp-{unique}"));
+    let home_text = home_dir.display().to_string();
+    let temp_text = temp_dir.display().to_string();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-home-temp-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-home-temp-{unique}"));
+    fs::create_dir_all(&home_dir).expect("home dir should be created");
+    fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+    fs::write(
+        &source_path,
+        format!(
+            "val home = Dir#home()\nval temp = Dir#temp()\nprintln(home)\nprintln(temp)\nprintln(Dir#exists(home))\nprintln(Dir#isDirectory(temp))\nassertResult(\"{home_text}\")(home)\nassertResult(\"{temp_text}\")(temp)\nassert(Dir#exists(Dir#home()))\nassert(Dir#isDirectory(Dir#temp()))\n"
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime home/temp build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .env("HOME", &home_dir)
+        .env("TMPDIR", &temp_dir)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_dir(&home_dir);
+    let _ = fs::remove_dir(&temp_dir);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime home/temp run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        format!("{home_text}\n{temp_text}\ntrue\ntrue\n")
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_command_line_args() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -57,6 +57,8 @@ the module layout is described in `docs/architecture-rust.md`.
 - `Dir#current()` emits a runtime `getcwd` syscall and returns a fixed-buffer
   runtime string, so generated native executables observe their execution cwd
   instead of the cwd used during native build.
+- `Dir#home()` reads runtime `HOME`, while `Dir#temp()` reads runtime `TMPDIR`
+  with `/tmp` as its Linux fallback.
 - `CommandLine#args()` reads the generated executable's argv at runtime and
   returns a runtime line list of user arguments excluding argv[0]. Direct calls,
   unqualified calls, aliased helper values, and calls from generated native

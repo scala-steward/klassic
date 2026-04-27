@@ -4613,7 +4613,11 @@ impl NativeCodeGenerator {
             span,
             "Environment#get",
         )?;
-        Ok(self.emit_environment_get_static_key(&key, span))
+        Ok(self.emit_environment_get_static_key(
+            &key,
+            span,
+            "Environment#get missing environment variable",
+        ))
     }
 
     fn compile_environment_exists(
@@ -4631,7 +4635,12 @@ impl NativeCodeGenerator {
         Ok(NativeValue::Bool)
     }
 
-    fn emit_environment_get_static_key(&mut self, key: &str, span: Span) -> NativeValue {
+    fn emit_environment_get_static_key(
+        &mut self,
+        key: &str,
+        span: Span,
+        missing_message: &str,
+    ) -> NativeValue {
         const RUNTIME_STRING_CAP: usize = 65_536;
         let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
         let len = self.asm.data_label_with_i64s(&[0]);
@@ -4656,8 +4665,51 @@ impl NativeCodeGenerator {
         self.emit_store_runtime_string_len_from_offset(len, offset);
         self.asm.jmp_label(done);
         self.asm.bind_text_label(not_found);
-        self.emit_runtime_error(span, "Environment#get missing environment variable");
+        self.emit_runtime_error(span, missing_message);
         self.asm.bind_text_label(done);
+
+        NativeValue::RuntimeString { data, len }
+    }
+
+    fn emit_environment_get_static_key_or_default(
+        &mut self,
+        key: &str,
+        default: &str,
+        span: Span,
+    ) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        let default_label = self.nul_terminated_data_label(default);
+
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        let found = self.emit_find_environment_static_key(key);
+        let use_default = self.asm.create_text_label();
+        let done_copy = self.asm.create_text_label();
+        self.asm.jcc_label(Condition::Equal, use_default);
+        self.asm.bind_text_label(found);
+        self.asm.add_reg_imm32(Reg::Rsi, (key.len() + 1) as i32);
+        self.emit_append_c_string_pointer_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            span,
+            "environment value exceeds 65536 bytes",
+        );
+        self.asm.jmp_label(done_copy);
+        self.asm.bind_text_label(use_default);
+        self.asm.mov_data_addr(Reg::Rsi, default_label);
+        self.emit_append_c_string_pointer_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            span,
+            "environment default value exceeds 65536 bytes",
+        );
+        self.asm.bind_text_label(done_copy);
+        self.emit_store_runtime_string_len_from_offset(len, offset);
 
         NativeValue::RuntimeString { data, len }
     }
@@ -5360,10 +5412,11 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         self.expect_static_arity("Dir#home", arguments, 0, span)?;
-        let path = std::env::var("HOME").map_err(|error| {
-            Diagnostic::compile(span, format!("native Dir#home failed: {error}"))
-        })?;
-        Ok(self.emit_static_string(path))
+        Ok(self.emit_environment_get_static_key(
+            "HOME",
+            span,
+            "failed to get home dir: environment variable HOME is not set",
+        ))
     }
 
     fn compile_dir_temp(
@@ -5372,7 +5425,7 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         self.expect_static_arity("Dir#temp", arguments, 0, span)?;
-        Ok(self.emit_static_string(std::env::temp_dir().display().to_string()))
+        Ok(self.emit_environment_get_static_key_or_default("TMPDIR", "/tmp", span))
     }
 
     fn compile_dir_exists(
@@ -9757,6 +9810,16 @@ impl NativeCodeGenerator {
                 }
                 Expr::Identifier { name, .. }
                     if self.builtin_name_for_identifier(name) == "Dir#current" =>
+                {
+                    true
+                }
+                Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "Dir#home" =>
+                {
+                    true
+                }
+                Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "Dir#temp" =>
                 {
                     true
                 }
@@ -14686,6 +14749,8 @@ fn static_expr_is_pure(expr: &Expr) -> bool {
                         | "exit"
                         | "Process#exit"
                         | "Dir#current"
+                        | "Dir#home"
+                        | "Dir#temp"
                         | "Dir#mkdir"
                         | "Dir#mkdirs"
                         | "Dir#delete"

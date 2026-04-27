@@ -272,6 +272,8 @@ cargo run -- -e "1 + 2"
   callback folding preserves mutable callback effects when final values remain
   statically recoverable. `Dir#current()` emits runtime `getcwd` and returns a
   runtime string so generated executables observe their execution cwd.
+  `Dir#home()` reads runtime `HOME`, while `Dir#temp()` reads runtime `TMPDIR`
+  with `/tmp` as its Linux fallback.
   `CommandLine#args()` reads the generated executable's argv at runtime,
   excludes argv[0], and exposes the result as a runtime line list for direct,
   unqualified, aliased-helper, and function-local native calls.
@@ -285,8 +287,8 @@ cargo run -- -e "1 + 2"
   generated-function native calls. `Environment#get(name)` / `getEnv(name)` and
   `Environment#exists(name)` / `hasEnv(name)` scan that same saved envp table for
   direct variable lookup and existence checks. Static
-  `Dir` helpers cover home/temp, existence/type checks, mkdir/mkdirs,
-  list/listFull, delete, copy, and move on static paths. Static `null` is
+  `Dir` helpers cover existence/type checks, mkdir/mkdirs, list/listFull,
+  delete, copy, and move on static paths. Static `null` is
   available for printing, equality, and `Map#get` misses. `()` is available for
   printing, static string concatenation, equality, and `assertResult`. Native
   `assertResult` covers integers, booleans, static strings, static integer
