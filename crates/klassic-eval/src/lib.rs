@@ -1349,7 +1349,7 @@ fn builtin_module_members(path: &str) -> Option<&'static [&'static str]> {
         "FileInput" => Some(&["open", "readAll", "readLines", "all", "lines"]),
         "FileOutput" => Some(&["write", "append", "exists", "delete", "writeLines"]),
         "StandardInput" => Some(&["all", "lines"]),
-        "Environment" => Some(&["vars"]),
+        "Environment" => Some(&["vars", "get", "exists"]),
         "CommandLine" => Some(&["args"]),
         "Process" => Some(&["exit"]),
         "Dir" => Some(&[
@@ -2351,6 +2351,21 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
                     .map(|(name, value)| Value::String(format!("{name}={value}")))
                     .collect(),
             ))
+        }
+        "Environment#get" => {
+            ensure_arity(name, arguments, 1, span)?;
+            let key = expect_string(&arguments[0], "Environment#get", span)?;
+            env::var(key).map(Value::String).map_err(|error| {
+                Diagnostic::runtime(
+                    span,
+                    format!("failed to read environment variable: {error}"),
+                )
+            })
+        }
+        "Environment#exists" => {
+            ensure_arity(name, arguments, 1, span)?;
+            let key = expect_string(&arguments[0], "Environment#exists", span)?;
+            Ok(Value::Bool(env::var_os(key).is_some()))
         }
         "CommandLine#args" => {
             ensure_arity(name, arguments, 0, span)?;

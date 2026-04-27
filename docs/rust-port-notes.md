@@ -69,6 +69,9 @@ the module layout is described in `docs/architecture-rust.md`.
   the same runtime line-list representation used by file input and argv helpers.
 - `Environment#vars()` / `env()` walk the generated executable's saved envp
   table and return `KEY=VALUE` runtime line-list entries.
+- `Environment#get(name)` / `getEnv(name)` and `Environment#exists(name)` /
+  `hasEnv(name)` scan that envp table for direct variable lookup and existence
+  checks.
 - Direct native printing of `FileInput#all(path)` or `FileInput#readAll(path)`
   streams runtime file bytes into the selected output fd. This deliberately
   avoids manufacturing a heap string until the native runtime has general

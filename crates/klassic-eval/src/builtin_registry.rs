@@ -57,6 +57,8 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "FileOutput#writeLines" => Some("FileOutput#writeLines"),
         "stdin" | "StandardInput#all" => Some("StandardInput#all"),
         "stdinLines" | "StandardInput#lines" => Some("StandardInput#lines"),
+        "getEnv" | "Environment#get" => Some("Environment#get"),
+        "hasEnv" | "Environment#exists" => Some("Environment#exists"),
         "env" | "Environment#vars" => Some("Environment#vars"),
         "args" | "CommandLine#args" => Some("CommandLine#args"),
         "exit" | "Process#exit" => Some("Process#exit"),
@@ -101,6 +103,8 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "FileOutput#exists"
         | "FileOutput#delete"
         | "Process#exit"
+        | "Environment#get"
+        | "Environment#exists"
         | "Dir#exists"
         | "Dir#mkdir"
         | "Dir#mkdirs"

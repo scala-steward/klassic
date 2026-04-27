@@ -226,7 +226,9 @@ argument, so generated native CLI tools can return explicit status codes.
 and `StandardInput#lines()` / `stdinLines()` expose stdin as the same runtime
 line-list representation used by native file and argv helpers.
 `Environment#vars()` / `env()` return the generated executable's environment as
-`KEY=VALUE` runtime line-list entries.
+`KEY=VALUE` runtime line-list entries. `Environment#get(name)` / `getEnv(name)`
+read a single variable value, while `Environment#exists(name)` / `hasEnv(name)`
+checks for one without failing when it is absent.
 `println(FileInput#all(path))` / `println(FileInput#readAll(path))` streams
 runtime file content without requiring the file to exist during native build.
 Immutable runtime `FileInput#all(path)` / `readAll(path)` bindings can also be

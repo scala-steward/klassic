@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+
+static SIDE_EFFECT_SAMPLE_LOCK: Mutex<()> = Mutex::new(());
 
 fn klassic_bin() -> &'static str {
     env!("CARGO_BIN_EXE_klassic")
@@ -145,6 +148,18 @@ fn run_program(path: &Path) -> std::process::Output {
         .expect("klassic binary should run")
 }
 
+fn side_effect_sample_guard(program: &str) -> Option<std::sync::MutexGuard<'static, ()>> {
+    if program == "file-output.kl" {
+        Some(
+            SIDE_EFFECT_SAMPLE_LOCK
+                .lock()
+                .expect("side-effect sample lock should not be poisoned"),
+        )
+    } else {
+        None
+    }
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn run_native_program(path: &Path, output_path: &Path) -> std::process::Output {
     let build = Command::new(klassic_bin())
@@ -190,6 +205,7 @@ fn top_level_sample_programs_succeed() {
 
     for program in sample_programs() {
         let path = root.join(program);
+        let _side_effect_guard = side_effect_sample_guard(program);
         let output = run_program(&path);
         if !output.status.success() {
             failures.push(format!(
@@ -236,6 +252,7 @@ fn native_top_level_sample_programs_match_expected_outputs() {
     let mut failures = Vec::new();
 
     for program in sample_programs() {
+        let _side_effect_guard = side_effect_sample_guard(program);
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("time should be monotonic")

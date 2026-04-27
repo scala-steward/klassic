@@ -1903,6 +1903,8 @@ impl NativeCodeGenerator {
             "StandardInput#all" => self.compile_standard_input_all(arguments, span),
             "StandardInput#lines" => self.compile_standard_input_lines(arguments, span),
             "Environment#vars" => self.compile_environment_vars(arguments, span),
+            "Environment#get" => self.compile_environment_get(arguments, span),
+            "Environment#exists" => self.compile_environment_exists(arguments, span),
             "CommandLine#args" => self.compile_command_line_args(arguments, span),
             "Process#exit" => self.compile_process_exit(arguments, span),
             "FileInput#open" => self.compile_file_input_open(arguments, span),
@@ -2038,6 +2040,8 @@ impl NativeCodeGenerator {
             "StandardInput#all" => self.compile_standard_input_all(arguments, span).map(Some),
             "StandardInput#lines" => self.compile_standard_input_lines(arguments, span).map(Some),
             "Environment#vars" => self.compile_environment_vars(arguments, span).map(Some),
+            "Environment#get" => self.compile_environment_get(arguments, span).map(Some),
+            "Environment#exists" => self.compile_environment_exists(arguments, span).map(Some),
             "CommandLine#args" => self.compile_command_line_args(arguments, span).map(Some),
             "Process#exit" => self.compile_process_exit(arguments, span).map(Some),
             "FileInput#open" => self.compile_file_input_open(arguments, span).map(Some),
@@ -4596,6 +4600,125 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(done);
         self.emit_store_runtime_string_len_from_offset(len, offset);
         NativeValue::RuntimeLinesList { data, len }
+    }
+
+    fn compile_environment_get(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.expect_static_arity("Environment#get", arguments, 1, span)?;
+        let key = self.static_string_from_argument_preserving_effects(
+            &arguments[0],
+            span,
+            "Environment#get",
+        )?;
+        Ok(self.emit_environment_get_static_key(&key, span))
+    }
+
+    fn compile_environment_exists(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.expect_static_arity("Environment#exists", arguments, 1, span)?;
+        let key = self.static_string_from_argument_preserving_effects(
+            &arguments[0],
+            span,
+            "Environment#exists",
+        )?;
+        self.emit_environment_exists_static_key(&key);
+        Ok(NativeValue::Bool)
+    }
+
+    fn emit_environment_get_static_key(&mut self, key: &str, span: Span) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+        let offset = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        let found = self.emit_find_environment_static_key(key);
+        let not_found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.asm.jcc_label(Condition::Equal, not_found);
+        self.asm.bind_text_label(found);
+        self.asm.add_reg_imm32(Reg::Rsi, (key.len() + 1) as i32);
+        self.emit_append_c_string_pointer_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            span,
+            "Environment#get result exceeds 65536 bytes",
+        );
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_found);
+        self.emit_runtime_error(span, "Environment#get missing environment variable");
+        self.asm.bind_text_label(done);
+
+        NativeValue::RuntimeString { data, len }
+    }
+
+    fn emit_environment_exists_static_key(&mut self, key: &str) {
+        let found = self.emit_find_environment_static_key(key);
+        let done = self.asm.create_text_label();
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, done);
+        self.asm.bind_text_label(found);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
+    }
+
+    fn emit_find_environment_static_key(&mut self, key: &str) -> TextLabel {
+        let mut prefix = key.as_bytes().to_vec();
+        prefix.push(b'=');
+        let prefix_len = prefix.len() as i32;
+        let prefix_label = self.asm.data_label_with_bytes(&prefix);
+        let cursor = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_data_addr(Reg::R10, self.environment_base);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        let loop_label = self.asm.create_text_label();
+        let compare_loop = self.asm.create_text_label();
+        let next_entry = self.asm.create_text_label();
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+
+        self.asm.bind_text_label(loop_label);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R10, Reg::R10, 0);
+        self.asm.load_ptr_disp32(Reg::Rsi, Reg::R10, 0);
+        self.asm.cmp_reg_imm8(Reg::Rsi, 0);
+        self.asm.jcc_label(Condition::Equal, done);
+
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.bind_text_label(compare_loop);
+        self.asm.cmp_reg_imm32(Reg::R8, prefix_len);
+        self.asm.jcc_label(Condition::Equal, found);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+        self.asm.mov_data_addr(Reg::Rdx, prefix_label);
+        self.asm.movzx_byte_indexed(Reg::Rbx, Reg::Rdx, Reg::R8);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rbx);
+        self.asm.jcc_label(Condition::NotEqual, next_entry);
+        self.asm.inc_reg(Reg::R8);
+        self.asm.jmp_label(compare_loop);
+
+        self.asm.bind_text_label(next_entry);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R8, 8);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.asm.jmp_label(loop_label);
+
+        self.asm.bind_text_label(done);
+        self.asm.cmp_reg_imm8(Reg::Rsi, 0);
+        found
     }
 
     fn compile_command_line_args(
@@ -8620,6 +8743,12 @@ impl NativeCodeGenerator {
         if name == "env" {
             return String::from("Environment#vars");
         }
+        if name == "getEnv" {
+            return String::from("Environment#get");
+        }
+        if name == "hasEnv" {
+            return String::from("Environment#exists");
+        }
         let Some((module, member)) = name.split_once('#') else {
             return name.to_string();
         };
@@ -8722,6 +8851,8 @@ impl NativeCodeGenerator {
                 | "StandardInput#all"
                 | "StandardInput#lines"
                 | "Environment#vars"
+                | "Environment#get"
+                | "Environment#exists"
                 | "CommandLine#args"
                 | "Process#exit"
                 | "FileInput#open"
@@ -9616,6 +9747,11 @@ impl NativeCodeGenerator {
             } => match callee.as_ref() {
                 Expr::Identifier { name, .. }
                     if self.builtin_name_for_identifier(name) == "StandardInput#all" =>
+                {
+                    true
+                }
+                Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "Environment#get" =>
                 {
                     true
                 }
@@ -14541,6 +14677,10 @@ fn static_expr_is_pure(expr: &Expr) -> bool {
                         | "StandardInput#lines"
                         | "env"
                         | "Environment#vars"
+                        | "getEnv"
+                        | "hasEnv"
+                        | "Environment#get"
+                        | "Environment#exists"
                         | "args"
                         | "CommandLine#args"
                         | "exit"

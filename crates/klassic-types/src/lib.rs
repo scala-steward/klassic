@@ -2064,6 +2064,16 @@ impl TypeChecker {
             false,
             Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
         );
+        self.declare_poly(
+            "getEnv".to_string(),
+            false,
+            Type::Function(vec![Type::String], Box::new(Type::String)),
+        );
+        self.declare_poly(
+            "hasEnv".to_string(),
+            false,
+            Type::Function(vec![Type::String], Box::new(Type::Bool)),
+        );
         self.install_module_imports("Environment", Some("Environment"), None, &[]);
         self.install_module_imports("CommandLine", None, None, &[]);
         self.install_module_imports("Process", None, None, &[]);
@@ -2180,10 +2190,20 @@ impl TypeChecker {
                     Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
                 ),
             ],
-            "Environment" => &[(
-                "vars",
-                Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
-            )],
+            "Environment" => &[
+                (
+                    "vars",
+                    Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+                ),
+                (
+                    "get",
+                    Type::Function(vec![Type::String], Box::new(Type::String)),
+                ),
+                (
+                    "exists",
+                    Type::Function(vec![Type::String], Box::new(Type::Bool)),
+                ),
+            ],
             "CommandLine" => &[(
                 "args",
                 Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
@@ -3078,10 +3098,20 @@ fn builtin_module_type_exports(path: &str) -> Option<ModuleTypeExports> {
                 Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
             ),
         ],
-        "Environment" => &[(
-            "vars",
-            Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
-        )],
+        "Environment" => &[
+            (
+                "vars",
+                Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+            ),
+            (
+                "get",
+                Type::Function(vec![Type::String], Box::new(Type::String)),
+            ),
+            (
+                "exists",
+                Type::Function(vec![Type::String], Box::new(Type::Bool)),
+            ),
+        ],
         "CommandLine" => &[(
             "args",
             Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
