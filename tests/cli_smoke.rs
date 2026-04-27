@@ -5631,6 +5631,64 @@ fn builds_native_executable_for_static_maps_and_sets() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_string_collection_runtime_membership() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-membership-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-membership-{unique}"));
+    fs::write(
+        &source_path,
+        "val keyword = head(args())\nval op = head(tail(args()))\nval keywords = %(\"if\", \"else\", \"while\")\nval precedence = %[\"+\": 10, \"*\": 20]\nprintln(Set#contains(keywords, keyword))\nprintln(keywords.contains(\"return\"))\nprintln(Map#containsKey(precedence, op))\nprintln(precedence.containsKey(\"/\"))\nassert(Set#contains(keywords, keyword))\nassert(!keywords.contains(\"return\"))\nassert(Map#containsKey(precedence, op))\nassert(!precedence.containsKey(\"/\"))\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime membership build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .arg("if")
+        .arg("+")
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime membership run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\nfalse\ntrue\nfalse\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_module_import_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

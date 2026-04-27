@@ -4128,6 +4128,24 @@ impl NativeCodeGenerator {
             ));
         }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
+        let before_static_scopes = self.static_scopes.clone();
+        let key_preview = self.preview_static_value_after_effectful_eval(&key_arguments[0]);
+        self.static_scopes = before_static_scopes;
+        if key_preview.is_none() {
+            let key_value = self.compile_expr(&key_arguments[0])?;
+            let Some(key) = self.native_string_ref(key_value) else {
+                return Err(unsupported(
+                    span,
+                    "native Map#containsKey for non-static key",
+                ));
+            };
+            let candidates = entries
+                .iter()
+                .filter_map(|(entry_key, _)| self.static_value_string_ref(entry_key))
+                .collect::<Vec<_>>();
+            self.emit_static_string_membership(key, candidates);
+            return Ok(NativeValue::Bool);
+        }
         let key = self.static_value_from_argument_preserving_effects(
             &key_arguments[0],
             span,
@@ -4264,6 +4282,24 @@ impl NativeCodeGenerator {
             ));
         }
         let elements = self.static_set_elements_from_expr(&set_arguments[0], span)?;
+        let before_static_scopes = self.static_scopes.clone();
+        let value_preview = self.preview_static_value_after_effectful_eval(&value_arguments[0]);
+        self.static_scopes = before_static_scopes;
+        if value_preview.is_none() {
+            let value = self.compile_expr(&value_arguments[0])?;
+            let Some(value) = self.native_string_ref(value) else {
+                return Err(unsupported(
+                    span,
+                    "native Set#contains for non-static value",
+                ));
+            };
+            let candidates = elements
+                .iter()
+                .filter_map(|element| self.static_value_string_ref(element))
+                .collect::<Vec<_>>();
+            self.emit_static_string_membership(value, candidates);
+            return Ok(NativeValue::Bool);
+        }
         let value = self.static_value_from_argument_preserving_effects(
             &value_arguments[0],
             span,
@@ -4274,6 +4310,35 @@ impl NativeCodeGenerator {
             .any(|element| self.static_value_equal_user(element, &value));
         self.asm.mov_imm64(Reg::Rax, u64::from(contains));
         Ok(NativeValue::Bool)
+    }
+
+    fn static_value_string_ref(&self, value: &StaticValue) -> Option<NativeStringRef> {
+        let StaticValue::StaticString { label, len } = value else {
+            return None;
+        };
+        Some(NativeStringRef {
+            data: *label,
+            len: NativeStringLen::Immediate(*len),
+        })
+    }
+
+    fn emit_static_string_membership(
+        &mut self,
+        needle: NativeStringRef,
+        candidates: impl IntoIterator<Item = NativeStringRef>,
+    ) {
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for candidate in candidates {
+            self.emit_native_string_equality(needle, candidate);
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::NotEqual, found);
+        }
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(found);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
     }
 
     fn static_map_entries_from_expr(
