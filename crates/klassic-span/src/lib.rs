@@ -66,6 +66,7 @@ impl SourceFile {
 pub enum DiagnosticKind {
     Parse,
     Type,
+    Compile,
     Runtime,
 }
 
@@ -98,6 +99,16 @@ impl Diagnostic {
     pub fn runtime(span: Span, message: impl Into<String>) -> Self {
         Self {
             kind: DiagnosticKind::Runtime,
+            severity: Severity::Error,
+            span: Some(span),
+            message: message.into(),
+            incomplete_input: false,
+        }
+    }
+
+    pub fn compile(span: Span, message: impl Into<String>) -> Self {
+        Self {
+            kind: DiagnosticKind::Compile,
             severity: Severity::Error,
             span: Some(span),
             message: message.into(),

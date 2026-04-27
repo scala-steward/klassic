@@ -17,6 +17,7 @@ impl ExecutionConfig {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RunAction {
+    BuildFile { input: PathBuf, output: PathBuf },
     EvaluateExpression(String),
     EvaluateFile(PathBuf),
     StartRepl,
@@ -59,6 +60,12 @@ pub fn parse_command_line(args: &[String]) -> Option<ParsedCommand> {
         }
         [flag, file_name] if flag == "-f" => RunAction::EvaluateFile(PathBuf::from(file_name)),
         [flag, expression] if flag == "-e" => RunAction::EvaluateExpression(expression.clone()),
+        [command, input, output_flag, output] if command == "build" && output_flag == "-o" => {
+            RunAction::BuildFile {
+                input: PathBuf::from(input),
+                output: PathBuf::from(output),
+            }
+        }
         _ => return None,
     };
 
@@ -66,12 +73,13 @@ pub fn parse_command_line(args: &[String]) -> Option<ParsedCommand> {
 }
 
 pub fn usage() -> &'static str {
-    "Usage: klassic [--deny-trust] [--warn-trust] (-f <fileName> | -e <expression>)\n\
+    "Usage: klassic [--deny-trust] [--warn-trust] (-f <fileName> | -e <expression> | build <fileName> -o <output>)\n\
      Options:\n\
        --deny-trust   : reject programs that depend on trusted proofs\n\
        --warn-trust   : warn when trusted proofs are used\n\
        <fileName>     : read a program from <fileName> and execute it\n\
-       -e <expression>: evaluate <expression>\n"
+       -e <expression>: evaluate <expression>\n\
+       build <fileName> -o <output>: compile <fileName> to a native Linux x86_64 executable\n"
 }
 
 #[cfg(test)]
@@ -113,5 +121,23 @@ mod tests {
         let args = vec![];
         let parsed = parse_command_line(&args).expect("repl command should parse");
         assert_eq!(parsed.action, RunAction::StartRepl);
+    }
+
+    #[test]
+    fn parses_native_build_invocation() {
+        let args = vec![
+            "build".to_string(),
+            "sample.kl".to_string(),
+            "-o".to_string(),
+            "sample".to_string(),
+        ];
+        let parsed = parse_command_line(&args).expect("build command should parse");
+        match parsed.action {
+            RunAction::BuildFile { input, output } => {
+                assert_eq!(input.to_string_lossy(), "sample.kl");
+                assert_eq!(output.to_string_lossy(), "sample");
+            }
+            other => panic!("unexpected action: {other:?}"),
+        }
     }
 }

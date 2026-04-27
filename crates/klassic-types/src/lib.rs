@@ -66,10 +66,7 @@ pub enum KnownType {
 
 impl Type {
     fn is_dynamic_like(&self) -> bool {
-        matches!(
-            self,
-            Self::Dynamic | Self::Null | Self::Var(_) | Self::RowVar(_) | Self::Generic(_)
-        )
+        matches!(self, Self::Dynamic | Self::Null | Self::Generic(_))
     }
 
     fn is_numeric(&self) -> bool {
@@ -154,7 +151,7 @@ thread_local! {
     static USER_RECORD_SCHEMAS: RefCell<HashMap<String, RecordSchema>> = RefCell::new(HashMap::new());
     static USER_BINDING_TYPES: RefCell<HashMap<String, StoredType>> = RefCell::new(HashMap::new());
     static USER_TYPECLASS_INFOS: RefCell<HashMap<String, TypeClassInfo>> = RefCell::new(HashMap::new());
-    static USER_INSTANCE_INFOS: RefCell<Vec<InstanceInfo>> = RefCell::new(Vec::new());
+    static USER_INSTANCE_INFOS: RefCell<Vec<InstanceInfo>> = const { RefCell::new(Vec::new()) };
 }
 
 pub fn typecheck_program(expr: &Expr) -> Result<(), Diagnostic> {
@@ -381,6 +378,16 @@ impl TypeChecker {
         self.substitutions.insert(var, ty);
     }
 
+    fn default_unresolved_type(&mut self, ty: Type, default: Type) -> Type {
+        match self.resolve(&ty) {
+            Type::Var(id) => {
+                self.bind_var(GenericVar::Type(id), default.clone());
+                default
+            }
+            other => other,
+        }
+    }
+
     fn instantiate(&mut self, binding: &Binding) -> Type {
         if binding.generalized_vars.is_empty() {
             return self.resolve(&binding.ty);
@@ -591,6 +598,26 @@ impl TypeChecker {
             {
                 self.unify_record_types(left_name, left_args, right_args, span)
             }
+            (Type::StructuralRecord(left), Type::Record(name, args)) => {
+                let row = self
+                    .structural_row_for_record_type(&name, &args)
+                    .ok_or_else(|| type_error(span, format!("unknown record `{name}`")))?;
+                self.unify(
+                    Type::StructuralRecord(left),
+                    Type::StructuralRecord(Box::new(row)),
+                    span,
+                )
+            }
+            (Type::Record(name, args), Type::StructuralRecord(right)) => {
+                let row = self
+                    .structural_row_for_record_type(&name, &args)
+                    .ok_or_else(|| type_error(span, format!("unknown record `{name}`")))?;
+                self.unify(
+                    Type::StructuralRecord(Box::new(row)),
+                    Type::StructuralRecord(right),
+                    span,
+                )
+            }
             (Type::StructuralRecord(left), Type::StructuralRecord(right)) => {
                 let row = self.unify(*left, *right, span)?;
                 Ok(Type::StructuralRecord(Box::new(row)))
@@ -653,7 +680,27 @@ impl TypeChecker {
                 self.bind_var(GenericVar::Type(id), ty.clone());
                 Ok(ty)
             }
+            (ty, Type::Var(id)) => {
+                if occurs_in(GenericVar::Type(id), &ty) {
+                    return Err(type_error(span, "recursive type"));
+                }
+                if is_row_type(&ty) {
+                    return Err(type_error(span, "cannot bind type variable to row type"));
+                }
+                self.bind_var(GenericVar::Type(id), ty.clone());
+                Ok(ty)
+            }
             (Type::RowVar(id), ty) => {
+                if occurs_in(GenericVar::Row(id), &ty) {
+                    return Err(type_error(span, "recursive row type"));
+                }
+                if !is_row_type(&ty) {
+                    return Err(type_error(span, "row variable expects a row type"));
+                }
+                self.bind_var(GenericVar::Row(id), ty.clone());
+                Ok(ty)
+            }
+            (ty, Type::RowVar(id)) => {
                 if occurs_in(GenericVar::Row(id), &ty) {
                     return Err(type_error(span, "recursive row type"));
                 }
@@ -764,6 +811,26 @@ impl TypeChecker {
                 if left_name == right_name =>
             {
                 self.unify_record_types(left_name, left_args, right_args, span)
+            }
+            (Type::StructuralRecord(expected_row), Type::Record(name, args)) => {
+                let actual_row = self
+                    .structural_row_for_record_type(&name, &args)
+                    .ok_or_else(|| type_error(span, format!("unknown record `{name}`")))?;
+                self.enforce_assignable(
+                    Type::StructuralRecord(expected_row),
+                    Type::StructuralRecord(Box::new(actual_row)),
+                    span,
+                )
+            }
+            (Type::Record(name, args), Type::StructuralRecord(actual_row)) => {
+                let expected_row = self
+                    .structural_row_for_record_type(&name, &args)
+                    .ok_or_else(|| type_error(span, format!("unknown record `{name}`")))?;
+                self.enforce_assignable(
+                    Type::StructuralRecord(Box::new(expected_row)),
+                    Type::StructuralRecord(actual_row),
+                    span,
+                )
             }
             (Type::StructuralRecord(left), Type::StructuralRecord(right)) => {
                 let row = self.enforce_assignable(*left, *right, span)?;
@@ -1082,6 +1149,7 @@ impl TypeChecker {
                 } else {
                     value_type
                 };
+                let final_type = self.resolve(&final_type);
                 let generalized_vars = if *mutable {
                     Vec::new()
                 } else {
@@ -1145,7 +1213,12 @@ impl TypeChecker {
                 self.pop_scope();
 
                 let resolved_return = self.enforce_assignable(return_type, body_type, *span)?;
-                let final_type = Type::Function(param_types, Box::new(resolved_return));
+                let resolved_params = param_types
+                    .into_iter()
+                    .map(|param| self.resolve(&param))
+                    .collect();
+                let final_type =
+                    Type::Function(resolved_params, Box::new(self.resolve(&resolved_return)));
                 let generalized_vars =
                     self.generalize_signature(&final_type, &resolved_constraints);
                 self.declare(
@@ -1184,8 +1257,12 @@ impl TypeChecker {
                 }
                 let body_type = self.infer_expr(body)?;
                 self.pop_scope();
+                let resolved_params = param_types
+                    .into_iter()
+                    .map(|param| self.resolve(&param))
+                    .collect();
                 Ok(Type::Function(
-                    param_types,
+                    resolved_params,
                     Box::new(self.resolve(&body_type)),
                 ))
             }
@@ -1212,7 +1289,7 @@ impl TypeChecker {
                         Ok(Type::Bool)
                     }
                     klassic_syntax::UnaryOp::Plus | klassic_syntax::UnaryOp::Minus => {
-                        let resolved = self.resolve(&inner);
+                        let resolved = self.default_unresolved_type(inner, Type::Int);
                         if resolved.is_numeric() || resolved.is_dynamic_like() {
                             Ok(resolved)
                         } else {
@@ -1249,7 +1326,7 @@ impl TypeChecker {
                             ));
                         }
                         let unified = self.unify(left.clone(), right.clone(), *span)?;
-                        let resolved = self.resolve(&unified);
+                        let resolved = self.default_unresolved_type(unified, Type::Int);
                         if resolved.is_numeric() || resolved.is_dynamic_like() {
                             Ok(resolved)
                         } else {
@@ -1258,7 +1335,7 @@ impl TypeChecker {
                     }
                     BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
                         let unified = self.unify(left, right, *span)?;
-                        let resolved = self.resolve(&unified);
+                        let resolved = self.default_unresolved_type(unified, Type::Int);
                         if resolved.is_integral() || resolved.is_dynamic_like() {
                             Ok(resolved)
                         } else {
@@ -1286,17 +1363,14 @@ impl TypeChecker {
                 arguments,
                 span,
             } => {
-                if let Expr::Identifier { name, .. } = callee.as_ref() {
-                    if let Some(binding) = self.lookup(name).cloned() {
-                        if !binding.constraints.is_empty() {
-                            let (callee_type, constraints) =
-                                self.instantiate_binding_signature(&binding);
-                            let result =
-                                self.infer_constrained_call(callee_type, arguments, *span)?;
-                            self.ensure_constraints_satisfied(&constraints, *span)?;
-                            return Ok(result);
-                        }
-                    }
+                if let Expr::Identifier { name, .. } = callee.as_ref()
+                    && let Some(binding) = self.lookup(name).cloned()
+                    && !binding.constraints.is_empty()
+                {
+                    let (callee_type, constraints) = self.instantiate_binding_signature(&binding);
+                    let result = self.infer_constrained_call(callee_type, arguments, *span)?;
+                    self.ensure_constraints_satisfied(&constraints, *span)?;
+                    return Ok(result);
                 }
                 let callee_type = self.infer_expr(callee)?;
                 self.infer_call(callee_type, arguments, *span)
@@ -1472,10 +1546,9 @@ impl TypeChecker {
                     ));
                 }
                 for (expected, argument) in params.into_iter().zip(arguments.iter()) {
-                    let actual = self.infer_expr(argument)?;
-                    self.enforce_assignable(expected, actual, argument.span())?;
+                    self.check_call_argument(expected, argument)?;
                 }
-                Ok(*result)
+                Ok(self.resolve(&result))
             }
             Type::Dynamic | Type::Null | Type::Var(_) => Ok(Type::Dynamic),
             other => Err(type_error(
@@ -1612,52 +1685,97 @@ impl TypeChecker {
                     ));
                 }
                 for (expected, argument) in params.into_iter().zip(arguments.iter()) {
-                    let actual = self.infer_expr(argument)?;
-                    match self.resolve(&expected) {
-                        Type::Var(id) => {
-                            let actual = self.resolve(&actual);
-                            if matches!(actual, Type::Var(other_id) if other_id == id) {
-                                continue;
-                            }
-                            if occurs_in(GenericVar::Type(id), &actual) {
-                                return Err(type_error(argument.span(), "recursive type"));
-                            }
-                            if is_row_type(&actual) {
-                                return Err(type_error(
-                                    argument.span(),
-                                    "cannot bind type variable to row type",
-                                ));
-                            }
-                            self.bind_var(GenericVar::Type(id), actual);
-                        }
-                        Type::RowVar(id) => {
-                            let actual = self.resolve(&actual);
-                            if matches!(actual, Type::RowVar(other_id) if other_id == id) {
-                                continue;
-                            }
-                            if occurs_in(GenericVar::Row(id), &actual) {
-                                return Err(type_error(argument.span(), "recursive row type"));
-                            }
-                            if !is_row_type(&actual) {
-                                return Err(type_error(
-                                    argument.span(),
-                                    "row variable expects a row type",
-                                ));
-                            }
-                            self.bind_var(GenericVar::Row(id), actual);
-                        }
-                        expected => {
-                            self.enforce_assignable(expected, actual, argument.span())?;
-                        }
-                    }
+                    self.check_call_argument(expected, argument)?;
                 }
-                Ok(*result)
+                Ok(self.resolve(&result))
             }
             Type::Dynamic | Type::Null | Type::Var(_) => Ok(Type::Dynamic),
             other => Err(type_error(
                 span,
                 format!("{} is not callable", display_type(&other)),
             )),
+        }
+    }
+
+    fn check_call_argument(&mut self, expected: Type, argument: &Expr) -> Result<(), Diagnostic> {
+        if let Type::Function(expected_params, expected_result) = self.resolve(&expected)
+            && let Expr::Lambda {
+                params,
+                param_annotations,
+                body,
+                ..
+            } = argument
+            && params.len() == expected_params.len()
+        {
+            let mut named = HashMap::new();
+            let mut param_types = Vec::with_capacity(params.len());
+            for ((param, expected), annotation) in params
+                .iter()
+                .zip(expected_params.into_iter())
+                .zip(param_annotations.iter())
+            {
+                let param_type = if let Some(annotation) = annotation {
+                    let declared = self.parse_annotation_with_named_vars(annotation, &mut named);
+                    self.enforce_assignable(expected, declared.clone(), argument.span())?
+                } else {
+                    expected
+                };
+                param_types.push((param.clone(), self.resolve(&param_type)));
+            }
+
+            self.push_scope();
+            for (param, param_type) in param_types {
+                self.declare(param, false, param_type, Vec::new(), Vec::new());
+            }
+            let result = match self.infer_expr(body) {
+                Ok(body_type) => self
+                    .enforce_assignable(*expected_result, body_type, argument.span())
+                    .map(|_| ()),
+                Err(error) => Err(error),
+            };
+            self.pop_scope();
+            return result;
+        }
+
+        let actual = self.infer_expr(argument)?;
+        self.match_call_argument_type(expected, actual, argument.span())
+    }
+
+    fn match_call_argument_type(
+        &mut self,
+        expected: Type,
+        actual: Type,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match self.resolve(&expected) {
+            Type::Var(id) => {
+                let actual = self.resolve(&actual);
+                if matches!(actual, Type::Var(other_id) if other_id == id)
+                    || occurs_in(GenericVar::Type(id), &actual)
+                {
+                    return Ok(());
+                }
+                if is_row_type(&actual) {
+                    return Err(type_error(span, "cannot bind type variable to row type"));
+                }
+                self.bind_var(GenericVar::Type(id), actual);
+                Ok(())
+            }
+            Type::RowVar(id) => {
+                let actual = self.resolve(&actual);
+                if matches!(actual, Type::RowVar(other_id) if other_id == id) {
+                    return Ok(());
+                }
+                if occurs_in(GenericVar::Row(id), &actual) {
+                    return Err(type_error(span, "recursive row type"));
+                }
+                if !is_row_type(&actual) {
+                    return Err(type_error(span, "row variable expects a row type"));
+                }
+                self.bind_var(GenericVar::Row(id), actual);
+                Ok(())
+            }
+            expected => self.enforce_assignable(expected, actual, span).map(|_| ()),
         }
     }
 
@@ -1930,6 +2048,8 @@ impl TypeChecker {
         self.install_module_imports("Set", None, None, &[]);
         self.install_module_imports("FileInput", None, None, &[]);
         self.install_module_imports("FileOutput", None, None, &[]);
+        self.install_module_imports("CommandLine", None, None, &[]);
+        self.install_module_imports("Process", None, None, &[]);
         self.install_module_imports("Dir", None, None, &[]);
     }
 
@@ -2036,6 +2156,14 @@ impl TypeChecker {
                     ),
                 ),
             ],
+            "CommandLine" => &[(
+                "args",
+                Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+            )],
+            "Process" => &[(
+                "exit",
+                Type::Function(vec![Type::Int], Box::new(Type::Unit)),
+            )],
             "Dir" => &[
                 ("current", Type::Function(vec![], Box::new(Type::String))),
                 ("home", Type::Function(vec![], Box::new(Type::String))),
@@ -2355,7 +2483,7 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn constraint_is_satisfied(&self, required: &Constraint, stack: &mut Vec<Constraint>) -> bool {
+    fn constraint_is_satisfied(&self, required: &Constraint, stack: &mut [Constraint]) -> bool {
         if required
             .arguments
             .iter()
@@ -2370,7 +2498,7 @@ impl TypeChecker {
             let Some(replacements) = match_constraint_pattern(&instance.provided, required) else {
                 continue;
             };
-            let mut next_stack = stack.clone();
+            let mut next_stack = stack.to_owned();
             next_stack.push(required.clone());
             let requirements = instance
                 .requirements
@@ -2647,6 +2775,29 @@ impl TypeChecker {
         })
     }
 
+    fn structural_row_for_record_type(
+        &self,
+        record_name: &str,
+        record_args: &[Type],
+    ) -> Option<Type> {
+        let schema = self.record_schemas.get(record_name)?;
+        let substitutions: HashMap<String, Type> = schema
+            .type_params
+            .iter()
+            .cloned()
+            .zip(record_args.iter().cloned())
+            .collect();
+        let mut row = Type::RowEmpty;
+        for (name, ty) in schema.fields.iter().rev() {
+            row = Type::RowExtend(
+                name.clone(),
+                Box::new(substitute_generics(ty, &substitutions)),
+                Box::new(row),
+            );
+        }
+        Some(row)
+    }
+
     fn builtin_value_method_type(&mut self, target: &Type, field: &str) -> Option<Type> {
         let resolved = self.resolve(target);
         match resolved {
@@ -2715,6 +2866,29 @@ impl TypeChecker {
                 "contains" => Some(Type::Function(vec![Type::Dynamic], Box::new(Type::Bool))),
                 "isEmpty" => Some(Type::Function(vec![], Box::new(Type::Bool))),
                 "size" => Some(Type::Function(vec![], Box::new(Type::Int))),
+                _ => None,
+            },
+            Type::Var(id) => match field {
+                "map" => {
+                    let inner = self.fresh_var();
+                    self.bind_var(GenericVar::Type(id), Type::List(Box::new(inner)));
+                    Some(Type::Function(
+                        vec![Type::Dynamic],
+                        Box::new(Type::List(Box::new(Type::Dynamic))),
+                    ))
+                }
+                "foldLeft" => {
+                    let inner = self.fresh_var();
+                    self.bind_var(GenericVar::Type(id), Type::List(Box::new(inner)));
+                    Some(Type::Function(
+                        vec![Type::Dynamic, Type::Dynamic],
+                        Box::new(Type::Dynamic),
+                    ))
+                }
+                "join" => {
+                    self.bind_var(GenericVar::Type(id), Type::List(Box::new(Type::Dynamic)));
+                    Some(Type::Function(vec![Type::String], Box::new(Type::String)))
+                }
                 _ => None,
             },
             _ => None,
@@ -2869,6 +3043,14 @@ fn builtin_module_type_exports(path: &str) -> Option<ModuleTypeExports> {
                 ),
             ),
         ],
+        "CommandLine" => &[(
+            "args",
+            Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+        )],
+        "Process" => &[(
+            "exit",
+            Type::Function(vec![Type::Int], Box::new(Type::Unit)),
+        )],
         "Dir" => &[
             ("current", Type::Function(vec![], Box::new(Type::String))),
             ("home", Type::Function(vec![], Box::new(Type::String))),
@@ -4535,6 +4717,45 @@ mod tests {
         );
         let expr = parse_source(&source).expect("program should parse");
         typecheck_program(&expr).expect("row-polymorphic field access should typecheck");
+    }
+
+    #[test]
+    fn rejects_polymorphic_result_annotation_mismatch() {
+        let source = SourceFile::new("test.kl", "val id = (x) => x\nval a: Int = id(\"oops\")");
+        let expr = parse_source(&source).expect("program should parse");
+        let error = typecheck_program(&expr).expect_err("annotation mismatch should fail");
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn generalizes_row_field_access_without_losing_field_types() {
+        let source = SourceFile::new(
+            "test.kl",
+            "def get_x(o) = o.x\nval a: Int = get_x(record { x: 1, y: \"ok\" })\nval b: String = get_x(record { x: \"ok\", z: 2 })",
+        );
+        let expr = parse_source(&source).expect("program should parse");
+        typecheck_program(&expr).expect("row-polymorphic field result should generalize");
+    }
+
+    #[test]
+    fn rejects_row_field_type_mismatch_after_numeric_use() {
+        let source = SourceFile::new(
+            "test.kl",
+            "def increment_x(o) = o.x + 1\nval a: Int = increment_x(record { x: 1, y: \"ok\" })\nval b: Int = increment_x(record { x: \"bad\", z: 2 })",
+        );
+        let expr = parse_source(&source).expect("program should parse");
+        let error = typecheck_program(&expr).expect_err("row field mismatch should fail");
+        assert!(error.to_string().contains("type mismatch"));
+    }
+
+    #[test]
+    fn infers_empty_list_accumulator_from_contextual_lambda_result() {
+        let source = SourceFile::new(
+            "test.kl",
+            "val reversed: List<Int> = foldLeft([1, 2, 3])([])((acc, e) => e #cons acc)",
+        );
+        let expr = parse_source(&source).expect("program should parse");
+        typecheck_program(&expr).expect("empty accumulator should be inferred from reducer");
     }
 
     #[test]

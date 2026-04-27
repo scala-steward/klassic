@@ -17,6 +17,8 @@ authority for this matrix.
 | Feature | Classification | Evidence | Rust Status | Verification |
 | --- | --- | --- | --- | --- |
 | Native CLI entrypoint (`klassic`, `-e`, `-f`, positional `.kl`) | required | `README.md`, `tests/cli_smoke.rs` | verified | `cargo test`, CLI smoke, sample-program harness |
+| Native x86_64 build command (`klassic build <file> -o <output>`) | required | native compiler plan, `tests/cli_smoke.rs`, `tests/sample_programs.rs`, `test-programs/*.kl`, `examples/typeclass*.kl` | partial | `cargo test`; all 52 non-future top-level `test-programs/*.kl` native-build/run, and programs with existing golden stdout/stderr now compare native output against those expectations; all 4 promoted future-feature programs and all 3 typeclass examples native-build and run successfully; direct inline lambda calls, printable, callable, shadowing, and straight-line mutable top-level lambda, `def`, and builtin function values, runtime-argument calls through static lambda values, block/function-local mutable closure captures including closures returned inside records/lists/maps and from unannotated functions plus queued thread bodies from blocks/functions/foreach, non-identifier callees returning function values with callee effects including side-effecting builtin function values, supported curried builtin helpers, first-class collection/Map/Set helper values, and first-class File/Dir helper values, runtime FileOutput write/append fixed-buffer RuntimeString content, runtime FileInput print streaming and immutable runtime FileInput bindings in print/string-concat/equality/assertResult/isEmptyString/length/toString/substring-at-with-static-or-runtime-indexes/trim/repeat-with-static-or-runtime-count/case-conversion/matches-with-static-or-runtime-patterns/replace-with-static-or-runtime-literal-operands/replaceAll/reverse/startsWith/endsWith/method-contains/indexOf/lastIndexOf contexts, unknown virtual file state fallback for runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`, `Dir#isFile`, and `Dir#isDirectory`, runtime `Dir#current`, runtime `CommandLine#args` line-list results through direct/unqualified/aliased/function-local calls, explicit `Process#exit` status codes, runtime string paths for file-input read/print/open-readAll callback plus direct `lines` / `readLines`, immutable printable runtime line bindings, runtime line-list `map` with inline or aliased lambdas, String-accumulator runtime line-list `foldLeft` with inline or aliased reducers, runtime `split` / `join` with static or runtime string delimiters, and open-readLines printing/bindings, FileOutput write/append/writeLines/exists/delete, Dir mkdir/mkdirs/delete/copy/move, Dir existence/type checks, and runtime Dir list/listFull line-list results, top-level binding captures in non-recursive functions and immutable static top-level captures in recursive functions, direct/aliased `thread` calls in functions and lambda values, dynamic `if` merges of structurally equal lambda values and canonical builtin function values including equivalent branch-local mutable closure/record/list/map-closure and queued-thread captures, user-visible function equality matches the evaluator's false result, source-located assertion, `ToDo`, empty-head, negative `sleep`, negative string-helper index/count, FileOutput syscall failure, runtime `Dir#copy`, and Dir mkdir/delete/move syscall failure diagnostics are emitted by native executables, static returned-lambda calls, static lambda bodies calling returned closures, static record lambda methods with effectful receivers/arguments, stack-passed call arguments, static-list `map` / `foldLeft` including method-style `map`, Int-list `foreach` static bindings, static literals/equality/assertResult including side-effecting mixed numeric equality, cleanup return preservation, statically selected `if` paths, statically skipped `while` bodies with condition effects, dynamic `if` static-value and virtual File/Dir state merges, numeric helper recovery, binary folds/string concat, logical short-circuit static fact merging, call-argument folds, static helper arguments, static `cons` arguments, File/Dir helper arguments, dynamic-control assignments, dynamic `while` static invalidation, and `FileInput#open` callback folding preserve impure side effects |
+| Direct ELF64 writer / handwritten x64 emitter | required | native compiler plan, `klassic-native` tests | partial | `cargo test -p klassic-native`; generated executables run on Linux x86_64 |
 | REPL with `:exit` and `:history` | required | `tests/cli_smoke.rs` | verified | `cargo test` |
 | `--deny-trust` / `--warn-trust` | required | `tests/cli_smoke.rs`, evaluator tests | verified | `cargo test`, CLI smoke |
 | Line comments | required | `tests/language_regressions.rs` | verified | `cargo test` |
@@ -36,8 +38,8 @@ authority for this matrix.
 | Cleanup expressions | required | `test-programs/cleanup-expression.kl`, `tests/language_regressions.rs` | verified | `cargo test`, sample-program harness |
 | Placeholder desugaring (`_`) | required | `tests/language_regressions.rs` | verified | `cargo test` |
 | Records and record field selection | required | `test-programs/record.kl`, `tests/language_regressions.rs` | verified | `cargo test` |
-| Row polymorphism and record typing | required | `test-programs/future-features/record_inference.kl`, `tests/language_regressions.rs` | verified | `cargo test` |
-| Hindley-Milner inference / schemes / annotations | required | `tests/language_regressions.rs` | verified | `cargo test` |
+| Row polymorphism and record typing | required | `test-programs/future-features/record_inference.kl`, `tests/language_regressions.rs`, `crates/klassic-types/src/lib.rs` unit tests | verified | `cargo test`; nominal records can satisfy structural row field functions, and row field type mismatches after numeric use are rejected |
+| Hindley-Milner inference / schemes / annotations | required | `tests/language_regressions.rs`, `crates/klassic-types/src/lib.rs` unit tests | verified | `cargo test`; generalized lambda results are resolved before annotation checks, contextual lambda checking handles `foldLeft` reducers, and polymorphic annotation mismatches are rejected |
 | Dynamic escape hatch `*` | required | `test-programs/type-cast.kl`, `tests/language_regressions.rs` | verified | `cargo test`, sample-program harness |
 | Type classes and instances | required | `tests/language_regressions.rs`, `test-programs/future-features/typeclass-*.kl` | verified | `cargo test`, sample-program harness |
 | Higher-kinded type classes / kind annotations | required | `tests/language_regressions.rs`, `test-programs/higher-kinded-typeclass.kl` | verified | `cargo test`, sample-program harness |
@@ -52,7 +54,7 @@ authority for this matrix.
 | Runtime error helpers (`assert`, `assertResult`, `ToDo`) | required | `tests/language_regressions.rs` | verified | `cargo test` |
 | Macro PEG subsystem | required | `klassic-macro-peg`, `tests/language_regressions.rs` | verified | `cargo test -p klassic-macro-peg`, `cargo test` |
 | Theorem / trust / axiom surface | required | `tests/cli_smoke.rs`, evaluator tests | verified | `cargo test`, CLI smoke |
-| Promoted future-feature programs | optional | `test-programs/future-features/*` | verified | `cargo test --test sample_programs` |
+| Promoted future-feature programs | optional | `test-programs/future-features/*` | verified | `cargo test --test sample_programs`; native build/run coverage is included for all 4 promoted programs |
 
 ## Current Milestone
 
@@ -62,6 +64,56 @@ The repository contains a Rust-native language implementation with:
 - expression/file/REPL execution
 - source spans and diagnostics
 - parser, rewrite pass, typechecker, evaluator, builtins, modules, and macro PEG
+- a first native compiler vertical slice for Linux x86_64 ELF64 executables,
+  including annotated boolean function arguments/returns, stack-passed native
+  function arguments beyond the first six integer/boolean parameters,
+  immutable static string/list bindings, simple unannotated integer/boolean return inference,
+  streamed `println` / `printlnError` string interpolation, compile-time folded
+  interpolation for immutable static values with preserved fragment block effects,
+  fixed-buffer runtime string interpolation for native runtime string and
+  dynamic native `Int` / `Boolean` fragments,
+  static string helpers including
+  `split` / `join`, static string concatenation plus runtime string
+  concatenation with dynamic native `Int` / `Boolean` operands, static helper calls inside
+  immutable static values, static and runtime integer-millisecond `sleep` via Linux `nanosleep`,
+  zero-argument lambda `stopwatch` via Linux `clock_gettime`, Int numeric
+  helpers (`abs`, `int`, `floor`, `ceil`), static Double/Float literals and
+  numeric helper folding (`double`, `sqrt`,
+  `abs`, `floor`, `ceil`) with Float preserving f32 rounding/display and
+  effectful block-prefix arguments preserved before static numeric recovery, static
+  Int-list `foreach`, static Int list literals
+  with constant arithmetic and bitwise elements, generic static list arenas,
+  printable runtime line-list bindings with `size` / `isEmpty` / `head` /
+  `tail` / `cons` / `map` with inline or aliased lambdas /
+  String-accumulator `foldLeft` with inline or aliased reducers /
+  runtime `split` / `join` with static or runtime string delimiters / runtime `foreach` /
+  static-list and runtime-list equality /
+  `assertResult` / `FileOutput#writeLines` write-back, and
+  `size` / `isEmpty` / `head` / `tail` / static `cons` / static `map` / static
+  `foldLeft`, with generic static `cons`, static generic-list `foreach`
+  unrolling plus static mapper `map`, static numeric/string accumulator
+  `foldLeft`, and Int-list `foldLeft` reducers that build static lists,
+  static `if` folding
+  for aggregate values, plus ordinary static aggregate equality including compact
+  Int-list versus generic static Int-list comparison,
+  static nominal/structural record construction, field selection, printing, and
+  static map/set/File/Dir helper calls including builtin module aliases/imports
+  and helper value aliases,
+  static `null`, and static string/list/record/map/
+  set/null/unit `assertResult`, native `ToDo()` runtime failure emission, plus
+  native `()` printing and equality, and immutable aliases to directly supported
+  builtin functions and curried helpers such as `val sub = substring` and
+  `val folder = foldLeft`, inline lambda calls with
+  mutable captures, straight-line mutable static aggregate values, direct static
+  typeclass methods, static higher-kinded List-style `map` / `bind` / `unit`,
+  placeholder-derived callable aliases and returned static lambda values for
+  `map` / `foldLeft`, static file helpers, static record lambda methods, queued
+  native thread bodies for the sample surface, and fold-like three-stage curried
+  calls over static lists, including captured dictionary records used by the
+  full typeclass dictionary-passing examples, plus static `Dir` helpers for
+  hermetic filesystem workflows
 - sample-program and integration-test coverage for the supported language surface
 
 Required behavior identified in this matrix is implemented and backed by Cargo tests.
+The native compiler is intentionally marked partial until it reaches evaluator
+parity for all required non-Java-FFI language features.

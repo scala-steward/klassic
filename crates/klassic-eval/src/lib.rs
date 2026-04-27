@@ -39,6 +39,7 @@ use runtime_types::{
 pub use value::{BuiltinFunctionValue, FunctionValue, Value};
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum ThreadValueSnapshot {
     Int(i64),
     Long(i64),
@@ -77,6 +78,7 @@ struct ThreadFunctionSnapshot {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum ThreadBindingSnapshot {
     Local {
         mutable: bool,
@@ -508,6 +510,7 @@ impl Evaluator {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn evaluate_text(&mut self, name: &str, text: &str) -> Result<Value, EvaluationError> {
         let source = SourceFile::new(name, text);
         let expr = parse_source(&source).map_err(|diagnostic| EvaluationError {
@@ -542,10 +545,12 @@ impl Evaluator {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn evaluate_text(name: &str, text: &str) -> Result<Value, EvaluationError> {
     Evaluator::new().evaluate_text(name, text)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn evaluate_text_with_config(
     name: &str,
     text: &str,
@@ -579,20 +584,19 @@ fn analyze_proofs(expr: &Expr, config: EvaluatorConfig) -> Result<(), Diagnostic
         return Ok(());
     }
     let metadata = compute_proof_metadata(&definitions)?;
-    if config.deny_trust {
-        if let Some(proof) = definitions
+    if config.deny_trust
+        && let Some(proof) = definitions
             .iter()
             .filter_map(|definition| metadata.get(&definition.name))
             .find(|proof| proof.trusted)
-        {
-            return Err(type_diagnostic(
-                proof.span,
-                format!(
-                    "trusted proof '{}' is not allowed (level {})",
-                    proof.name, proof.level
-                ),
-            ));
-        }
+    {
+        return Err(type_diagnostic(
+            proof.span,
+            format!(
+                "trusted proof '{}' is not allowed (level {})",
+                proof.name, proof.level
+            ),
+        ));
     }
     if config.warn_trust {
         let mut proofs = metadata
@@ -1343,6 +1347,8 @@ fn builtin_module_members(path: &str) -> Option<&'static [&'static str]> {
     match path {
         "FileInput" => Some(&["open", "readAll", "readLines", "all", "lines"]),
         "FileOutput" => Some(&["write", "append", "exists", "delete", "writeLines"]),
+        "CommandLine" => Some(&["args"]),
+        "Process" => Some(&["exit"]),
         "Dir" => Some(&[
             "current",
             "home",
@@ -1650,10 +1656,9 @@ fn eval_call(
             builtin_name(name).is_some() || resolve_module_selector(name).is_some();
         if environment.get_binding(name).is_none()
             && (prefer_instance || !builtin_or_module_available)
+            && let Some(value) = dispatch_instance_method(name, &argument_values, span)?
         {
-            if let Some(value) = dispatch_instance_method(name, &argument_values, span)? {
-                return Ok(value);
-            }
+            return Ok(value);
         }
     }
 
@@ -2312,6 +2317,17 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
                 Diagnostic::runtime(span, format!("failed to write lines: {error}"))
             })
         }
+        "CommandLine#args" => {
+            ensure_arity(name, arguments, 0, span)?;
+            Ok(Value::List(
+                env::args().skip(1).map(Value::String).collect(),
+            ))
+        }
+        "Process#exit" => {
+            ensure_arity(name, arguments, 1, span)?;
+            let code = expect_non_negative_int(&arguments[0], "Process#exit", span)?;
+            std::process::exit(code as i32);
+        }
         "Dir#current" => std::env::current_dir()
             .map(|path| Value::String(path.display().to_string()))
             .map_err(|error| {
@@ -2367,7 +2383,7 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            items.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            items.sort_by_key(|item| item.to_string());
             Ok(Value::List(items))
         }
         "Dir#listFull" => {
@@ -2383,7 +2399,7 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
                         .map(|entry| Value::String(entry.path().display().to_string()))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            items.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+            items.sort_by_key(|item| item.to_string());
             Ok(Value::List(items))
         }
         "Dir#delete" => {
@@ -2465,16 +2481,16 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
 }
 
 fn prefer_instance_dispatch(name: &str, argument_values: &[Value]) -> bool {
-    match (name, argument_values) {
+    matches!(
+        (name, argument_values),
         (
             "map",
             [
                 Value::Function(_) | Value::BuiltinFunction(_),
                 Value::List(_),
             ],
-        ) => true,
-        _ => false,
-    }
+        )
+    )
 }
 
 fn interpolate_string(
@@ -2924,10 +2940,7 @@ mod tests {
             .unwrap(),
             Value::Unit
         );
-        assert_eq!(
-            evaluate_text("<expr>", &format!("Dir#delete(\"{}\")", dir.display())).is_err(),
-            true
-        );
+        assert!(evaluate_text("<expr>", &format!("Dir#delete(\"{}\")", dir.display())).is_err());
 
         let _ = fs::remove_file(&file);
         let _ = fs::remove_file(&moved);

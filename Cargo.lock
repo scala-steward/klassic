@@ -7,6 +7,7 @@ name = "klassic"
 version = "0.1.0"
 dependencies = [
  "klassic-eval",
+ "klassic-native",
 ]
 
 [[package]]
@@ -22,6 +23,16 @@ dependencies = [
 [[package]]
 name = "klassic-macro-peg"
 version = "0.1.0"
+
+[[package]]
+name = "klassic-native"
+version = "0.1.0"
+dependencies = [
+ "klassic-rewrite",
+ "klassic-span",
+ "klassic-syntax",
+ "klassic-types",
+]
 
 [[package]]
 name = "klassic-rewrite"

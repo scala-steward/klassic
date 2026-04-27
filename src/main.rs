@@ -2,10 +2,13 @@ mod cli;
 
 use std::fs;
 use std::io::{self, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process::ExitCode;
 
 use cli::{ExecutionConfig, ParsedCommand, RunAction, parse_command_line, usage};
 use klassic_eval::{Evaluator, EvaluatorConfig, evaluate_text_with_config};
+use klassic_native::{NativeCompilerConfig, compile_source_to_elf};
 
 fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
@@ -22,6 +25,36 @@ fn main() -> ExitCode {
 
 fn run(command: ParsedCommand) -> Result<(), u8> {
     match command.action {
+        RunAction::BuildFile { input, output } => {
+            let text = match fs::read_to_string(&input) {
+                Ok(text) => text,
+                Err(error) => {
+                    eprintln!("{}: {error}", input.display());
+                    return Err(1);
+                }
+            };
+            let config = NativeCompilerConfig {
+                deny_trust: command.config.deny_trust,
+                warn_trust: command.config.warn_trust,
+            };
+            let bytes = match compile_source_to_elf(&input.display().to_string(), &text, config) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return Err(1);
+                }
+            };
+            if let Err(error) = fs::write(&output, bytes) {
+                eprintln!("{}: {error}", output.display());
+                return Err(1);
+            }
+            #[cfg(unix)]
+            if let Err(error) = fs::set_permissions(&output, fs::Permissions::from_mode(0o755)) {
+                eprintln!("{}: {error}", output.display());
+                return Err(1);
+            }
+            Ok(())
+        }
         RunAction::EvaluateExpression(expression) => {
             let config = EvaluatorConfig {
                 deny_trust: command.config.deny_trust,

@@ -40,7 +40,7 @@ def display<'a>(x: 'a): Unit where Show<'a> = {
   println(show(x))
 }
 
-def displayPair<'a>(x: 'a, y: 'a): Unit where (Show<'a>, Eq<'a>) = {
+def displayPair<'a>(x: 'a, y: 'a): Unit where Show<'a>, Eq<'a> = {
   if (equals(x, y)) {
     println(show(x) + " is equal to " + show(y))
   } else {
@@ -51,36 +51,36 @@ def displayPair<'a>(x: 'a, y: 'a): Unit where (Show<'a>, Eq<'a>) = {
 // ===== TRANSFORMED CODE (What the compiler generates) =====
 
 // Dictionary definitions
-val Show_Int_dict = {
+val Show_Int_dict = record {
   show: (x: Int) => "Int(" + x + ")"
 }
 
-val Show_String_dict = {
+val Show_String_dict = record {
   show: (x: String) => "String(\"" + x + "\")"
 }
 
-val Show_List_dict = (Show_a_dict: { show: ('a) => String }) => {
+val Show_List_dict = (Show_a_dict: record { show: ('a) => String }) => record {
   show: (xs: List<'a>) => {
-    "[" + map(xs, (x) => Show_a_dict.show(x)).join(", ") + "]"
+    "[" + join(map(xs)((x) => Show_a_dict.show(x)), ", ") + "]"
   }
 }
 
-val Eq_Int_dict = {
+val Eq_Int_dict = record {
   equals: (x: Int, y: Int) => x == y
 }
 
-val Eq_String_dict = {
+val Eq_String_dict = record {
   equals: (x: String, y: String) => x == y
 }
 
 // Transformed functions
-def display_impl<'a>(Show_dict: { show: ('a) => String }, x: 'a): Unit = {
+def display_impl<'a>(Show_dict: record { show: ('a) => String }, x: 'a): Unit = {
   println(Show_dict.show(x))
 }
 
 def displayPair_impl<'a>(
-  Show_dict: { show: ('a) => String },
-  Eq_dict: { equals: ('a, 'a) => Boolean },
+  Show_dict: record { show: ('a) => String },
+  Eq_dict: record { equals: ('a, 'a) => Boolean },
   x: 'a,
   y: 'a
 ): Unit = {

@@ -145,6 +145,44 @@ fn run_program(path: &Path) -> std::process::Output {
         .expect("klassic binary should run")
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn run_native_program(path: &Path, output_path: &Path) -> std::process::Output {
+    let build = Command::new(klassic_bin())
+        .current_dir(repo_root())
+        .args([
+            "build",
+            path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic native build should run");
+    assert!(
+        build.status.success(),
+        "native build failed for {}\nstdout:\n{}\nstderr:\n{}",
+        path.display(),
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        build.stdout.is_empty(),
+        "native build stdout should be empty for {}:\n{}",
+        path.display(),
+        String::from_utf8_lossy(&build.stdout)
+    );
+    assert!(
+        build.stderr.is_empty(),
+        "native build stderr should be empty for {}:\n{}",
+        path.display(),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    Command::new(output_path)
+        .current_dir(repo_root())
+        .output()
+        .expect("generated native executable should run")
+}
+
 #[test]
 fn top_level_sample_programs_succeed() {
     let root = repo_root().join("test-programs");
@@ -187,6 +225,103 @@ fn top_level_sample_programs_succeed() {
     assert!(
         failures.is_empty(),
         "sample program regressions:\n{}",
+        failures.join("\n\n")
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn native_top_level_sample_programs_match_expected_outputs() {
+    let root = repo_root().join("test-programs");
+    let mut failures = Vec::new();
+
+    for program in sample_programs() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time should be monotonic")
+            .as_nanos();
+        let path = root.join(program);
+        let output_path = std::env::temp_dir().join(format!(
+            "klassic-native-sample-{}-{unique}",
+            program.replace(['/', '.'], "-")
+        ));
+        let output = run_native_program(&path, &output_path);
+        let _ = std::fs::remove_file(&output_path);
+
+        if !output.status.success() {
+            failures.push(format!(
+                "{} native executable failed\nstdout:\n{}\nstderr:\n{}",
+                program,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+            continue;
+        }
+
+        if let Some(expected) = expected_stdout(program) {
+            let actual = String::from_utf8_lossy(&output.stdout);
+            if actual != expected {
+                failures.push(format!(
+                    "{} native stdout mismatch\nexpected:\n{}\nactual:\n{}",
+                    program, expected, actual
+                ));
+            }
+        }
+
+        if let Some(expected) = expected_stderr(program) {
+            let actual = String::from_utf8_lossy(&output.stderr);
+            if actual != expected {
+                failures.push(format!(
+                    "{} native stderr mismatch\nexpected:\n{}\nactual:\n{}",
+                    program, expected, actual
+                ));
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "native sample program regressions:\n{}",
+        failures.join("\n\n")
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn native_promoted_future_and_typeclass_examples_build_and_run() {
+    let programs = [
+        repo_root().join("test-programs/future-features/record_inference.kl"),
+        repo_root().join("test-programs/future-features/typeclass-polymorphic-demo.kl"),
+        repo_root().join("test-programs/future-features/typeclass-polymorphic.kl"),
+        repo_root().join("test-programs/future-features/typeclass-usage.kl"),
+        repo_root().join("examples/typeclass-complete.kl"),
+        repo_root().join("examples/typeclass-final-example.kl"),
+        repo_root().join("examples/typeclass-full.kl"),
+    ];
+    let mut failures = Vec::new();
+
+    for (index, path) in programs.iter().enumerate() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time should be monotonic")
+            .as_nanos();
+        let output_path =
+            std::env::temp_dir().join(format!("klassic-native-promoted-{index}-{unique}"));
+        let output = run_native_program(path, &output_path);
+        let _ = std::fs::remove_file(&output_path);
+        if !output.status.success() {
+            failures.push(format!(
+                "{} native executable failed\nstdout:\n{}\nstderr:\n{}",
+                path.display(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "native promoted program regressions:\n{}",
         failures.join("\n\n")
     );
 }

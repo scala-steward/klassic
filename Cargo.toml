@@ -11,6 +11,7 @@ members = [
   "crates/klassic-rewrite",
   "crates/klassic-types",
   "crates/klassic-runtime",
+  "crates/klassic-native",
   "crates/klassic-eval",
   "crates/klassic-macro-peg",
 ]
@@ -21,6 +22,7 @@ default-members = [
   "crates/klassic-rewrite",
   "crates/klassic-types",
   "crates/klassic-runtime",
+  "crates/klassic-native",
   "crates/klassic-eval",
   "crates/klassic-macro-peg",
 ]
@@ -28,6 +30,7 @@ resolver = "2"
 
 [dependencies]
 klassic-eval = { path = "crates/klassic-eval" }
+klassic-native = { path = "crates/klassic-native" }
 
 [[bin]]
 name = "klassic"

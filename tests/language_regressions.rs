@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use klassic_eval::{Evaluator, EvaluatorConfig, Value, evaluate_text, evaluate_text_with_config};
@@ -14,7 +14,7 @@ fn unique_temp_path(name: &str) -> PathBuf {
     ))
 }
 
-fn path_string(path: &PathBuf) -> String {
+fn path_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
@@ -1064,6 +1064,17 @@ fn dir_specs_are_covered_more_directly() {
     assert!(matches!(current, Value::String(_)));
     assert!(matches!(home, Value::String(_)));
     assert!(matches!(temp, Value::String(_)));
+
+    let command_line_args = evaluate_text("<expr>", "CommandLine#args()").unwrap();
+    assert!(matches!(
+        command_line_args,
+        Value::List(values) if values.iter().all(|value| matches!(value, Value::String(_)))
+    ));
+    let unqualified_args = evaluate_text("<expr>", "args()").unwrap();
+    assert!(matches!(
+        unqualified_args,
+        Value::List(values) if values.iter().all(|value| matches!(value, Value::String(_)))
+    ));
 
     let base = unique_temp_path("dir-base");
     let base_str = path_string(&base);
