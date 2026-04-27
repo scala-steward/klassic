@@ -1867,6 +1867,11 @@ impl TypeChecker {
             Type::Function(vec![Type::Dynamic], Box::new(Type::Dynamic)),
         );
         self.declare_poly(
+            "toString".to_string(),
+            false,
+            Type::Function(vec![Type::Dynamic], Box::new(Type::String)),
+        );
+        self.declare_poly(
             "substring".to_string(),
             false,
             Type::Function(

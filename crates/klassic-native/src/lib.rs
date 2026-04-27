@@ -3081,12 +3081,22 @@ impl NativeCodeGenerator {
                         "native toString for non-string runtime value",
                     ));
                 }
-                let value = self.static_value_from_argument_preserving_effects(
-                    &arguments[0],
-                    span,
-                    "native toString for non-static value",
-                )?;
-                Ok(self.emit_static_string(self.static_value_display_string(&value)))
+                if let Some(value) = self.static_value_from_pure_expr(&arguments[0]) {
+                    return Ok(self.emit_static_string(self.static_value_display_string(&value)));
+                }
+                let before_static_scopes = self.static_scopes.clone();
+                let preview = self.preview_static_value_after_effectful_eval(&arguments[0]);
+                self.static_scopes = before_static_scopes;
+                if preview.is_some() {
+                    let value = self.static_value_from_argument_preserving_effects(
+                        &arguments[0],
+                        span,
+                        "native toString for non-static value",
+                    )?;
+                    return Ok(self.emit_static_string(self.static_value_display_string(&value)));
+                }
+                let value = self.compile_expr(&arguments[0])?;
+                self.emit_runtime_to_string_value(value, span)
             }
             "substring" => {
                 self.expect_static_arity(name, arguments, 3, span)?;
@@ -4673,6 +4683,31 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(done);
 
         NativeValue::RuntimeString { data, len }
+    }
+
+    fn emit_runtime_to_string_value(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if self.native_string_ref(value).is_some() {
+            return Ok(value);
+        }
+        let text = match value {
+            NativeValue::Int => {
+                self.emit_i64_rax_to_runtime_string_ref(span, "toString result exceeds 65536 bytes")
+            }
+            NativeValue::Bool => self
+                .emit_bool_rax_to_runtime_string_ref(span, "toString result exceeds 65536 bytes"),
+            _ => return Err(unsupported(span, "native toString for non-static value")),
+        };
+        let NativeStringLen::Runtime(len) = text.len else {
+            return Err(unsupported(span, "native toString for non-static value"));
+        };
+        Ok(NativeValue::RuntimeString {
+            data: text.data,
+            len,
+        })
     }
 
     fn emit_environment_get_key_ref(

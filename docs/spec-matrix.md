@@ -74,7 +74,7 @@ The repository contains a Rust-native language implementation with:
   dynamic native `Int` / `Boolean` fragments,
   static string helpers including
   `split` / `join`, static string concatenation plus runtime string
-  concatenation with dynamic native `Int` / `Boolean` operands, static helper calls inside
+  concatenation and `toString` with dynamic native `Int` / `Boolean` operands, static helper calls inside
   immutable static values, static and runtime integer-millisecond `sleep` via Linux `nanosleep`,
   zero-argument lambda `stopwatch` via Linux `clock_gettime`, Int numeric
   helpers (`abs`, `int`, `floor`, `ceil`), static Double/Float literals and

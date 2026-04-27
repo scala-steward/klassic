@@ -3032,6 +3032,62 @@ fn builds_native_executable_for_runtime_environment_key_lookup() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_to_string_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-to-string-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-to-string-{unique}"));
+    fs::write(
+        &source_path,
+        "val n = size(args())\nval ok = Environment#exists(head(args()))\nval nt = toString(n)\nval okt = toString(ok)\nprintln(nt)\nprintln(okt)\nprintln(\"n=\" + nt)\nprintln(\"ok=\" + okt)\nassertResult(\"1\")(nt)\nassertResult(\"true\")(okt)\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime toString build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .arg("KLASSIC_NATIVE_TOSTRING_ENV")
+        .env("KLASSIC_NATIVE_TOSTRING_ENV", "1")
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime toString run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "1\ntrue\nn=1\nok=true\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_line_cons() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

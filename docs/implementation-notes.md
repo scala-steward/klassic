@@ -119,9 +119,10 @@ Static binary folds for numeric, equality, and string-concatenation expressions
 use the same guard. Numeric Float/Double binary expressions and string
 concatenation can still preserve mutable block-prefix effects when operands
 ultimately yield static values; non-static string concatenation formats dynamic
-native `Int` / `Boolean` operands into fixed runtime strings. Logical `&&` and `||` keep runtime
-short-circuiting and do not let skipped RHS static mutations leak into later
-folds. Static call
+native `Int` / `Boolean` operands into fixed runtime strings. Native `toString`
+uses the same fixed-buffer path for dynamic `Int` / `Boolean` values. Logical
+`&&` and `||` keep runtime short-circuiting and do not let skipped RHS static
+mutations leak into later folds. Static call
 folding, inline-call static argument capture,
 and `assertResult` folding also require pure arguments, so side-effecting
 argument blocks stay on the generated runtime path. Immutable aliases to

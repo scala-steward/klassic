@@ -101,6 +101,8 @@ the module layout is described in `docs/architecture-rust.md`.
 - Native `+` string concatenation also formats dynamic native `Int` /
   `Boolean` operands into fixed-buffer runtime strings when the other side is a
   static or runtime string.
+- Native `toString` formats dynamic native `Int` / `Boolean` values into
+  fixed-buffer runtime strings.
 - `FileOutput#write` / `FileOutput#append` can write fixed-buffer runtime
   string content. Because the resulting contents are not known at native build
   time, the affected path is treated as unknown for later compile-time file
