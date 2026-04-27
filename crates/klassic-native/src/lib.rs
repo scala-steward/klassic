@@ -4210,6 +4210,24 @@ impl NativeCodeGenerator {
             ));
         }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
+        let before_static_scopes = self.static_scopes.clone();
+        let value_preview = self.preview_static_value_after_effectful_eval(&value_arguments[0]);
+        self.static_scopes = before_static_scopes;
+        if value_preview.is_none() {
+            let value = self.compile_expr(&value_arguments[0])?;
+            let Some(value) = self.native_string_ref(value) else {
+                return Err(unsupported(
+                    span,
+                    "native Map#containsValue for non-static value",
+                ));
+            };
+            let candidates = entries
+                .iter()
+                .filter_map(|(_, entry_value)| self.static_value_string_ref(entry_value))
+                .collect::<Vec<_>>();
+            self.emit_static_string_membership(value, candidates);
+            return Ok(NativeValue::Bool);
+        }
         let value = self.static_value_from_argument_preserving_effects(
             &value_arguments[0],
             span,

@@ -189,8 +189,9 @@ constants or data sections, including lambdas that call returned static closure
 values. Static structural and nominal records, static
 map literals, and static set literals can also be bound, printed, nested, queried
 with static map/set helpers, and compared with `assertResult` when their
-contents are static native values. Static string-key maps and string sets can
-also answer `containsKey` / `contains` queries from runtime strings. Builtin
+contents are static native values. Static string-key maps, static string-valued
+maps, and string sets can also answer `containsKey` / `containsValue` /
+`contains` queries from runtime strings. Builtin
 module aliases, selective imports,
 and aliased helper values, such as `import Map as M`, `import Map.{size}`, and
 `val readAll = FI#readAll`, resolve to the same native helper implementations.
