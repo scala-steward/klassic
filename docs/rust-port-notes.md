@@ -119,7 +119,7 @@ the module layout is described in `docs/architecture-rust.md`.
   inline or aliased-lambda `map` that produces string line lists,
   String-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
-  runtime `foreach`, and
+  runtime `foreach`, `toString`, string concatenation, and
   equality / `assertResult` checks
   against static string lists or other runtime line lists, and `FileOutput#writeLines` can write
   runtime line-list values back out,

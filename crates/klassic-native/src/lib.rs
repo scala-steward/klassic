@@ -4794,6 +4794,15 @@ impl NativeCodeGenerator {
         if self.native_string_ref(value).is_some() {
             return Ok(value);
         }
+        if let NativeValue::RuntimeLinesList { data, len } = value {
+            return Ok(self.emit_runtime_lines_list_to_runtime_string(
+                NativeStringRef {
+                    data,
+                    len: NativeStringLen::Runtime(len),
+                },
+                span,
+            ));
+        }
         let text = match value {
             NativeValue::Int => {
                 self.emit_i64_rax_to_runtime_string_ref(span, "toString result exceeds 65536 bytes")
@@ -9943,6 +9952,18 @@ impl NativeCodeGenerator {
         if let Some(value) = self.native_string_ref(value) {
             return Ok(value);
         }
+        if let NativeValue::RuntimeLinesList { data, len } = value {
+            let rendered = self.emit_runtime_lines_list_to_runtime_string(
+                NativeStringRef {
+                    data,
+                    len: NativeStringLen::Runtime(len),
+                },
+                span,
+            );
+            return Ok(self
+                .native_string_ref(rendered)
+                .expect("rendered runtime line list should expose a string ref"));
+        }
         if value == NativeValue::Int {
             return Ok(self.emit_i64_rax_to_runtime_string_ref(
                 span,
@@ -11552,6 +11573,175 @@ impl NativeCodeGenerator {
         self.asm.mov_data_addr(Reg::Rsi, input.data);
         self.asm.add_reg_reg(Reg::Rsi, Reg::R9);
         self.asm.syscall();
+    }
+
+    fn emit_runtime_lines_list_to_runtime_string(
+        &mut self,
+        input: NativeStringRef,
+        span: Span,
+    ) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        let cursor = self.asm.data_label_with_i64s(&[0]);
+        let start = self.asm.data_label_with_i64s(&[0]);
+        let end = self.asm.data_label_with_i64s(&[0]);
+        let emitted = self.asm.data_label_with_i64s(&[0]);
+
+        for label in [offset, cursor, start, end, emitted] {
+            self.asm.mov_data_addr(Reg::R10, label);
+            self.asm.mov_imm64(Reg::R8, 0);
+            self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        }
+
+        self.emit_append_native_string_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            NativeStringRef {
+                data: self.list_open,
+                len: NativeStringLen::Immediate(1),
+            },
+            span,
+            "runtime line-list toString result exceeds 65536 bytes",
+        );
+
+        let scan = self.asm.create_text_label();
+        let emit_line = self.asm.create_text_label();
+        let finish = self.asm.create_text_label();
+        let emit_final = self.asm.create_text_label();
+        let close = self.asm.create_text_label();
+
+        self.asm.bind_text_label(scan);
+        self.asm.mov_data_addr(Reg::Rsi, input.data);
+        self.emit_load_native_string_len(Reg::Rdx, input.len);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
+        self.asm.jcc_label(Condition::Equal, finish);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+        self.asm.cmp_reg_imm8(Reg::Rax, b'\n' as i8);
+        self.asm.jcc_label(Condition::Equal, emit_line);
+        self.asm.inc_reg(Reg::R8);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.asm.jmp_label(scan);
+
+        self.asm.bind_text_label(emit_line);
+        self.asm.mov_data_addr(Reg::R10, end);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.emit_append_runtime_line_segment_to_runtime_string_buffer(
+            data,
+            offset,
+            input,
+            start,
+            end,
+            emitted,
+            span,
+            "runtime line-list toString result exceeds 65536 bytes",
+        );
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.inc_reg(Reg::R8);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.asm.mov_data_addr(Reg::R10, start);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.asm.jmp_label(scan);
+
+        self.asm.bind_text_label(finish);
+        self.emit_load_native_string_len(Reg::Rdx, input.len);
+        self.asm.mov_data_addr(Reg::R10, start);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::R9, Reg::Rdx);
+        self.asm.jcc_label(Condition::Less, emit_final);
+        self.asm.jmp_label(close);
+
+        self.asm.bind_text_label(emit_final);
+        self.asm.mov_data_addr(Reg::R10, end);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdx);
+        self.emit_append_runtime_line_segment_to_runtime_string_buffer(
+            data,
+            offset,
+            input,
+            start,
+            end,
+            emitted,
+            span,
+            "runtime line-list toString result exceeds 65536 bytes",
+        );
+
+        self.asm.bind_text_label(close);
+        self.emit_append_native_string_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            NativeStringRef {
+                data: self.list_close,
+                len: NativeStringLen::Immediate(1),
+            },
+            span,
+            "runtime line-list toString result exceeds 65536 bytes",
+        );
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        NativeValue::RuntimeString { data, len }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_append_runtime_line_segment_to_runtime_string_buffer(
+        &mut self,
+        output: DataLabel,
+        offset: DataLabel,
+        input: NativeStringRef,
+        start: DataLabel,
+        end: DataLabel,
+        emitted: DataLabel,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let no_separator = self.asm.create_text_label();
+        let copy_loop = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+
+        self.asm.mov_data_addr(Reg::R10, emitted);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, no_separator);
+        self.emit_append_native_string_to_runtime_buffer_offset_label(
+            output,
+            offset,
+            NativeStringRef {
+                data: self.comma_space,
+                len: NativeStringLen::Immediate(2),
+            },
+            span,
+            overflow_message,
+        );
+        self.asm.bind_text_label(no_separator);
+        self.asm.mov_data_addr(Reg::R10, emitted);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+
+        self.asm.mov_data_addr(Reg::Rbx, output);
+        self.asm.mov_data_addr(Reg::Rsi, input.data);
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, start);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, end);
+        self.asm.load_ptr_disp32(Reg::Rdx, Reg::R10, 0);
+
+        self.asm.bind_text_label(copy_loop);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
+        self.asm.jcc_label(Condition::Equal, done);
+        self.emit_runtime_buffer_capacity_check(Reg::R9, 65_536, span, overflow_message);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+        self.asm.mov_byte_indexed_reg8(Reg::Rbx, Reg::R9, Reg8::Al);
+        self.asm.inc_reg(Reg::R8);
+        self.asm.inc_reg(Reg::R9);
+        self.asm.jmp_label(copy_loop);
+
+        self.asm.bind_text_label(done);
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
     }
 
     fn emit_runtime_lines_count(&mut self, input: NativeStringRef) {

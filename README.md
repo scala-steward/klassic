@@ -215,7 +215,7 @@ direct printing or immutable printable bindings of `FileInput#lines` /
 runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `map`,
 with inline or aliased lambdas, String-accumulator `foldLeft` with inline or
 aliased reducers, `split` / `join` with static or runtime string delimiters on
-runtime strings, runtime `foreach`, and equality /
+runtime strings, runtime `foreach`, `toString`, string concatenation, and equality /
 `assertResult` checks against static string
 lists or other runtime line lists, and `FileOutput#writeLines` can write them back out,
 `FileOutput#write` / `append` / `writeLines` / `exists` / `delete`,

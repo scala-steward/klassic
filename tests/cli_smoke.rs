@@ -3226,6 +3226,65 @@ FileOutput#delete(rewrittenPath)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_line_to_string() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-line-to-string-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-line-to-string-{unique}"));
+    fs::write(
+        &source_path,
+        "val lines = tail(args())\nval trailing = (head(args()) + \",\").split(\",\")\nval empty = split(\"\", \",\")\nprintln(toString(lines))\nprintln(\"lines=\" + lines)\nprintln(toString(trailing))\nprintln(\"empty=\" + empty)\nassertResult(\"[beta, gamma]\")(toString(lines))\nassertResult(\"lines=[beta, gamma]\")(\"lines=\" + lines)\nassertResult(\"[alpha, ]\")(toString(trailing))\nassertResult(\"empty=[]\")(\"empty=\" + empty)\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime line toString build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .arg("alpha")
+        .arg("beta")
+        .arg("gamma")
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime line toString run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[beta, gamma]\nlines=[beta, gamma]\n[alpha, ]\nempty=[]\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_line_csv_processing() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

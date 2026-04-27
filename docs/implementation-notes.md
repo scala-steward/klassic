@@ -262,8 +262,8 @@ aliased reducers, `split` / `join` with static or runtime string delimiters on
 runtime strings. Runtime `split` preserves empty-input, leading, consecutive,
 and trailing empty fields for non-empty delimiters and splits UTF-8 code point
 byte groups for empty delimiters. Runtime line lists also support runtime
-`foreach`, and equality / `assertResult` checks against static string lists or
-other runtime line lists, and
+`foreach`, `toString`, string concatenation, and equality / `assertResult`
+checks against static string lists or other runtime line lists, and
 `FileOutput#writeLines` can write runtime line-list values back out,
 `FileOutput#write` / `append` / `writeLines` / `exists` / `delete`,
 `Dir#mkdir` / `mkdirs` / `delete` / `copy` / `move`, and `Dir#exists` / `isFile` /
