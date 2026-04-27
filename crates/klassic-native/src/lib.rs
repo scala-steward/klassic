@@ -480,6 +480,7 @@ struct NativeCodeGenerator {
     print_i64: TextLabel,
     command_line_argc: DataLabel,
     command_line_argv1_base: DataLabel,
+    environment_base: DataLabel,
     scopes: Vec<HashMap<String, VarSlot>>,
     static_scopes: Vec<HashMap<String, StaticValue>>,
     scope_base_offsets: Vec<i32>,
@@ -524,6 +525,7 @@ impl NativeCodeGenerator {
         let print_i64 = asm.create_text_label();
         let command_line_argc = asm.data_label_with_i64s(&[0]);
         let command_line_argv1_base = asm.data_label_with_i64s(&[0]);
+        let environment_base = asm.data_label_with_i64s(&[0]);
         let mut record_schemas = HashMap::new();
         record_schemas.insert("Point".to_string(), vec!["x".to_string(), "y".to_string()]);
         Self {
@@ -546,6 +548,7 @@ impl NativeCodeGenerator {
             print_i64,
             command_line_argc,
             command_line_argv1_base,
+            environment_base,
             scopes: vec![HashMap::new()],
             static_scopes: vec![HashMap::new()],
             scope_base_offsets: vec![0],
@@ -592,6 +595,14 @@ impl NativeCodeGenerator {
         self.asm
             .mov_data_addr(Reg::R10, self.command_line_argv1_base);
         self.asm.lea_reg_rbp_disp8(Reg::R8, 24);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        self.asm.mov_data_addr(Reg::R10, self.environment_base);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::Rbp, 8);
+        self.asm.mov_imm64(Reg::R9, 8);
+        self.asm.imul_reg_reg(Reg::R8, Reg::R9);
+        self.asm.add_reg_imm32(Reg::R8, 24);
+        self.asm.add_reg_reg(Reg::R8, Reg::Rbp);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
     }
 
@@ -1891,6 +1902,7 @@ impl NativeCodeGenerator {
             "FileOutput#delete" => self.compile_file_output_delete(arguments, span),
             "StandardInput#all" => self.compile_standard_input_all(arguments, span),
             "StandardInput#lines" => self.compile_standard_input_lines(arguments, span),
+            "Environment#vars" => self.compile_environment_vars(arguments, span),
             "CommandLine#args" => self.compile_command_line_args(arguments, span),
             "Process#exit" => self.compile_process_exit(arguments, span),
             "FileInput#open" => self.compile_file_input_open(arguments, span),
@@ -2025,6 +2037,7 @@ impl NativeCodeGenerator {
             "FileOutput#delete" => self.compile_file_output_delete(arguments, span).map(Some),
             "StandardInput#all" => self.compile_standard_input_all(arguments, span).map(Some),
             "StandardInput#lines" => self.compile_standard_input_lines(arguments, span).map(Some),
+            "Environment#vars" => self.compile_environment_vars(arguments, span).map(Some),
             "CommandLine#args" => self.compile_command_line_args(arguments, span).map(Some),
             "Process#exit" => self.compile_process_exit(arguments, span).map(Some),
             "FileInput#open" => self.compile_file_input_open(arguments, span).map(Some),
@@ -4525,6 +4538,64 @@ impl NativeCodeGenerator {
 
         self.asm.bind_text_label(done);
         NativeValue::RuntimeString { data, len }
+    }
+
+    fn compile_environment_vars(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.expect_static_arity("Environment#vars", arguments, 0, span)?;
+        Ok(self.emit_environment_vars(span))
+    }
+
+    fn emit_environment_vars(&mut self, span: Span) -> NativeValue {
+        const RUNTIME_LIST_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_LIST_CAP]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        let cursor = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        self.asm.mov_data_addr(Reg::R10, self.environment_base);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        let loop_label = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.asm.bind_text_label(loop_label);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R10, Reg::R10, 0);
+        self.asm.load_ptr_disp32(Reg::Rsi, Reg::R10, 0);
+        self.asm.cmp_reg_imm8(Reg::Rsi, 0);
+        self.asm.jcc_label(Condition::Equal, done);
+
+        self.emit_append_newline_separator_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            span,
+            "Environment#vars result exceeds 65536 bytes",
+        );
+        self.emit_append_c_string_pointer_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            span,
+            "Environment#vars result exceeds 65536 bytes",
+        );
+
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R8, 8);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.asm.jmp_label(loop_label);
+
+        self.asm.bind_text_label(done);
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        NativeValue::RuntimeLinesList { data, len }
     }
 
     fn compile_command_line_args(
@@ -8546,6 +8617,9 @@ impl NativeCodeGenerator {
         if name == "stdinLines" {
             return String::from("StandardInput#lines");
         }
+        if name == "env" {
+            return String::from("Environment#vars");
+        }
         let Some((module, member)) = name.split_once('#') else {
             return name.to_string();
         };
@@ -8574,6 +8648,7 @@ impl NativeCodeGenerator {
                 | "FileInput"
                 | "FileOutput"
                 | "StandardInput"
+                | "Environment"
                 | "CommandLine"
                 | "Process"
                 | "Dir"
@@ -8646,6 +8721,7 @@ impl NativeCodeGenerator {
                 | "FileOutput#delete"
                 | "StandardInput#all"
                 | "StandardInput#lines"
+                | "Environment#vars"
                 | "CommandLine#args"
                 | "Process#exit"
                 | "FileInput#open"
@@ -9596,6 +9672,11 @@ impl NativeCodeGenerator {
                 match callee.as_ref() {
                     Expr::Identifier { name, .. }
                         if self.builtin_name_for_identifier(name) == "StandardInput#lines" =>
+                    {
+                        true
+                    }
+                    Expr::Identifier { name, .. }
+                        if self.builtin_name_for_identifier(name) == "Environment#vars" =>
                     {
                         true
                     }
@@ -14458,6 +14539,8 @@ fn static_expr_is_pure(expr: &Expr) -> bool {
                         | "stdinLines"
                         | "StandardInput#all"
                         | "StandardInput#lines"
+                        | "env"
+                        | "Environment#vars"
                         | "args"
                         | "CommandLine#args"
                         | "exit"

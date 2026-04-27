@@ -2059,6 +2059,12 @@ impl TypeChecker {
             Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
         );
         self.install_module_imports("StandardInput", Some("StandardInput"), None, &[]);
+        self.declare_poly(
+            "env".to_string(),
+            false,
+            Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+        );
+        self.install_module_imports("Environment", Some("Environment"), None, &[]);
         self.install_module_imports("CommandLine", None, None, &[]);
         self.install_module_imports("Process", None, None, &[]);
         self.install_module_imports("Dir", None, None, &[]);
@@ -2174,6 +2180,10 @@ impl TypeChecker {
                     Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
                 ),
             ],
+            "Environment" => &[(
+                "vars",
+                Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+            )],
             "CommandLine" => &[(
                 "args",
                 Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
@@ -3068,6 +3078,10 @@ fn builtin_module_type_exports(path: &str) -> Option<ModuleTypeExports> {
                 Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
             ),
         ],
+        "Environment" => &[(
+            "vars",
+            Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+        )],
         "CommandLine" => &[(
             "args",
             Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),

@@ -294,6 +294,8 @@ unqualified, aliased-helper, and generated-function native calls.
 `StandardInput#all()` / `stdin()` read stdin into fixed-buffer runtime strings,
 while `StandardInput#lines()` / `stdinLines()` expose stdin through the same
 runtime line-list representation used by file input and argv helpers.
+`Environment#vars()` / `env()` walk the saved process envp table and expose
+`KEY=VALUE` runtime line-list entries to generated native programs.
 Native
 `assertResult` compares integers and booleans at runtime, and compares static
 strings/lists/records/maps/sets/null/unit through the known native data sections

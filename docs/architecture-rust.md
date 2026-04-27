@@ -280,6 +280,9 @@ cargo run -- -e "1 + 2"
   `StandardInput#all()` / `stdin()` read stdin into a fixed-buffer runtime
   string, and `StandardInput#lines()` / `stdinLines()` expose stdin through the
   runtime line-list representation shared with file and argv helpers. Static
+  `Environment#vars()` / `env()` expose the generated executable's environment
+  as `KEY=VALUE` runtime line-list entries for direct, aliased-helper, and
+  generated-function native calls. Static
   `Dir` helpers cover home/temp, existence/type checks, mkdir/mkdirs,
   list/listFull, delete, copy, and move on static paths. Static `null` is
   available for printing, equality, and `Map#get` misses. `()` is available for

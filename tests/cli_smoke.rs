@@ -69,6 +69,22 @@ fn evaluates_standard_input_via_cli() {
     assert!(output.stderr.is_empty());
 }
 
+#[test]
+fn evaluates_environment_vars_via_cli() {
+    let output = Command::new(klassic_bin())
+        .args([
+            "-e",
+            "val vars = env()\nmutable found = false\nforeach(entry in vars) {\n  if(entry == \"KLASSIC_EVAL_ENV_TEST=alpha\") {\n    found = true\n  }\n}\nprintln(found)\nassert(found)",
+        ])
+        .env("KLASSIC_EVAL_ENV_TEST", "alpha")
+        .output()
+        .expect("binary should run");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "true\n()\n");
+    assert!(output.stderr.is_empty());
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn builds_native_executable_for_basic_program() {
@@ -2766,6 +2782,58 @@ fn builds_native_executable_for_standard_input_lines() {
         String::from_utf8_lossy(&run.stdout),
         "[alpha, beta]\nalpha|beta\n"
     );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_environment_vars() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-env-vars-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-env-vars-{unique}"));
+    fs::write(
+        &source_path,
+        "val vars = Environment#vars()\nmutable found = false\nforeach(entry in vars) {\n  if(entry == \"KLASSIC_NATIVE_ENV_TEST=alpha\") {\n    found = true\n  }\n}\nprintln(found)\nassert(found)\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "environment vars build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .env("KLASSIC_NATIVE_ENV_TEST", "alpha")
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "environment vars run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
     assert!(run.stderr.is_empty());
 }
 

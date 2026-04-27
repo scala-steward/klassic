@@ -1349,6 +1349,7 @@ fn builtin_module_members(path: &str) -> Option<&'static [&'static str]> {
         "FileInput" => Some(&["open", "readAll", "readLines", "all", "lines"]),
         "FileOutput" => Some(&["write", "append", "exists", "delete", "writeLines"]),
         "StandardInput" => Some(&["all", "lines"]),
+        "Environment" => Some(&["vars"]),
         "CommandLine" => Some(&["args"]),
         "Process" => Some(&["exit"]),
         "Dir" => Some(&[
@@ -2340,6 +2341,14 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             Ok(Value::List(
                 text.lines()
                     .map(|line| Value::String(line.to_string()))
+                    .collect(),
+            ))
+        }
+        "Environment#vars" => {
+            ensure_arity(name, arguments, 0, span)?;
+            Ok(Value::List(
+                env::vars()
+                    .map(|(name, value)| Value::String(format!("{name}={value}")))
                     .collect(),
             ))
         }
