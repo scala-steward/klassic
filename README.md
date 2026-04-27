@@ -98,9 +98,10 @@ mutable side effects on the runtime path, including effectful receiver and
 argument expressions when their final values remain statically recoverable.
 Static `if` folding is likewise limited to pure conditions and selected
 branches, keeping mutable branch effects in generated code.
-Dynamic `if` expressions whose branches yield different native strings now copy
-the selected branch result into a fixed runtime string buffer, so the merged
-value remains printable, comparable, and usable in string concatenation.
+Dynamic `if` expressions whose branches yield different native strings or
+runtime line lists now copy the selected branch result into a fixed runtime
+buffer, so the merged value remains printable, comparable, and usable in later
+string/list helpers.
 Assignments to runtime integer/boolean locals inside dynamic control flow also
 clear stale static facts for those locals.
 Dynamic `while` loops that cannot be fully simulated also invalidate static

@@ -4852,6 +4852,79 @@ fn builds_native_executable_for_dynamic_if_string_branch_results() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-if-runtime-lines-{unique}.kl"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-if-runtime-lines-{unique}"));
+    fs::write(
+        &source_path,
+        "val chooseArgs = head(args()) == \"args\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else {\n  split(toString(size(args())) + \"\\nblue\", \"\\n\")\n}\nprintln(size(lines))\nprintln(head(lines))\nprintln(join(lines, \"|\"))\nif(chooseArgs) {\n  assertResult(\"first\")(head(lines))\n  assertResult(\"first|second\")(join(lines, \"|\"))\n} else {\n  assertResult(\"1\")(head(lines))\n  assertResult(\"1|blue\")(join(lines, \"|\"))\n}\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic if runtime line result build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let args_run = Command::new(&output_path)
+        .arg("args")
+        .arg("first")
+        .arg("second")
+        .output()
+        .expect("generated executable should run args branch");
+    let split_run = Command::new(&output_path)
+        .arg("split")
+        .output()
+        .expect("generated executable should run split branch");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        args_run.status.success(),
+        "dynamic if runtime line args run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&args_run.stdout),
+        String::from_utf8_lossy(&args_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&args_run.stdout),
+        "2\nfirst\nfirst|second\n"
+    );
+    assert!(args_run.stderr.is_empty());
+
+    assert!(
+        split_run.status.success(),
+        "dynamic if runtime line split run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&split_run.stdout),
+        String::from_utf8_lossy(&split_run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&split_run.stdout), "2\n1\n1|blue\n");
+    assert!(split_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_function_value_merges() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

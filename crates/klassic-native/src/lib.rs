@@ -10057,9 +10057,29 @@ impl NativeCodeGenerator {
                 {
                     true
                 }
+                Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "head" =>
+                {
+                    arguments
+                        .first()
+                        .is_some_and(|argument| self.expr_may_yield_runtime_lines_list(argument))
+                }
+                Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "join" =>
+                {
+                    arguments
+                        .first()
+                        .is_some_and(|argument| self.expr_may_yield_runtime_lines_list(argument))
+                }
+                Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "toString" =>
+                {
+                    true
+                }
                 Expr::Identifier { name, .. } if runtime_string_returning_helper(name) => arguments
                     .first()
                     .is_some_and(|argument| self.expr_may_yield_runtime_string(argument)),
+                Expr::FieldAccess { field, .. } if field == "toString" => true,
                 Expr::FieldAccess { target, field, .. }
                     if runtime_string_returning_helper(field) =>
                 {
@@ -10117,6 +10137,13 @@ impl NativeCodeGenerator {
                         if self.builtin_name_for_identifier(name) == "CommandLine#args" =>
                     {
                         true
+                    }
+                    Expr::Identifier { name, .. }
+                        if self.builtin_name_for_identifier(name) == "split" =>
+                    {
+                        arguments
+                            .first()
+                            .is_some_and(|argument| self.expr_may_yield_runtime_string(argument))
                     }
                     Expr::Identifier { name, .. }
                         if self.builtin_name_for_identifier(name) == "tail" =>
@@ -10393,6 +10420,17 @@ impl NativeCodeGenerator {
         } else {
             None
         };
+        let branch_lines_output = if let Some(else_branch) = else_branch
+            && self.expr_may_yield_runtime_lines_list(then_branch)
+            && self.expr_may_yield_runtime_lines_list(else_branch)
+        {
+            Some((
+                self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+                self.asm.data_label_with_i64s(&[0]),
+            ))
+        } else {
+            None
+        };
         let condition_value = self.compile_expr(condition)?;
         if condition_value != NativeValue::Bool {
             return Err(unsupported(span, "native if condition for non-Bool"));
@@ -10427,6 +10465,23 @@ impl NativeCodeGenerator {
                 input,
                 span,
                 "if string result exceeds 65536 bytes",
+            );
+        }
+        if let Some((data, len)) = branch_lines_output
+            && let NativeValue::RuntimeLinesList {
+                data: input_data,
+                len: input_len,
+            } = then_value
+        {
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                NativeStringRef {
+                    data: input_data,
+                    len: NativeStringLen::Runtime(input_len),
+                },
+                span,
+                "if line-list result exceeds 65536 bytes",
             );
         }
         let then_next_stack_offset = self.next_stack_offset;
@@ -10468,6 +10523,23 @@ impl NativeCodeGenerator {
                 input,
                 span,
                 "if string result exceeds 65536 bytes",
+            );
+        }
+        if let Some((data, len)) = branch_lines_output
+            && let NativeValue::RuntimeLinesList {
+                data: input_data,
+                len: input_len,
+            } = else_value
+        {
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                NativeStringRef {
+                    data: input_data,
+                    len: NativeStringLen::Runtime(input_len),
+                },
+                span,
+                "if line-list result exceeds 65536 bytes",
             );
         }
         let else_next_stack_offset = self.next_stack_offset;
@@ -10518,6 +10590,11 @@ impl NativeCodeGenerator {
             && self.native_string_ref(else_value).is_some()
         {
             Ok(NativeValue::RuntimeString { data, len })
+        } else if let Some((data, len)) = branch_lines_output
+            && matches!(then_value, NativeValue::RuntimeLinesList { .. })
+            && matches!(else_value, NativeValue::RuntimeLinesList { .. })
+        {
+            Ok(NativeValue::RuntimeLinesList { data, len })
         } else if matches!(then_value, NativeValue::Unit) || matches!(else_value, NativeValue::Unit)
         {
             Ok(NativeValue::Unit)

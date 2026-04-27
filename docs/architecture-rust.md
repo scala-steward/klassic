@@ -122,9 +122,9 @@ cargo run -- -e "1 + 2"
   codegen compiles each branch against an isolated binding, virtual File/Dir,
   and queued-thread state, then merges only facts that are representably
   identical on both paths. Identical static aggregate returns, assignments, or
-  virtual file contents can survive a runtime branch. Divergent string branch
-  results are materialized into a shared fixed runtime string buffer so the
-  selected value can flow past the join. Function values are
+  virtual file contents can survive a runtime branch. Divergent string and
+  runtime line-list branch results are materialized into shared fixed runtime
+  buffers so the selected value can flow past the join. Function values are
   merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

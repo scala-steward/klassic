@@ -180,9 +180,10 @@ Dynamic `if` branches are compiled with isolated native compiler state and then
 merged only when mutable/static variables and virtual File/Dir facts have the
 same representable value on both paths. This keeps identical static aggregate
 returns, assignments, and virtual file contents usable after a runtime branch
-while also allowing divergent native string branch results to flow through a
-shared fixed runtime string buffer, and structurally equivalent branch-local
-lambda values plus canonical builtin function values to merge. If equivalent returned closures
+while also allowing divergent native string and runtime line-list branch results
+to flow through shared fixed runtime buffers, and structurally equivalent
+branch-local lambda values plus canonical builtin function values to merge. If
+equivalent returned closures
 capture branch-local mutable slots, both branches must preserve the same stack
 depth; that preserved depth is carried past the join so later closure calls keep
 using the captured storage. Lambda equality compares only captures referenced by
