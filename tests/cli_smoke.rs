@@ -4864,7 +4864,7 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
         std::env::temp_dir().join(format!("klassic-native-dynamic-if-runtime-lines-{unique}"));
     fs::write(
         &source_path,
-        "val chooseArgs = head(args()) == \"args\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else {\n  split(toString(size(args())) + \"\\nblue\", \"\\n\")\n}\nprintln(size(lines))\nprintln(head(lines))\nprintln(join(lines, \"|\"))\nif(chooseArgs) {\n  assertResult(\"first\")(head(lines))\n  assertResult(\"first|second\")(join(lines, \"|\"))\n} else {\n  assertResult(\"1\")(head(lines))\n  assertResult(\"1|blue\")(join(lines, \"|\"))\n}\n",
+        "val chooseArgs = head(args()) == \"args\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else {\n  (toString(size(args())) + \"\\nblue\").split(\"\\n\")\n}\nprintln(size(lines))\nprintln(lines.head())\nprintln(lines.join(\"|\"))\nif(chooseArgs) {\n  assertResult(\"first\")(lines.head())\n  assertResult(\"first|second\")(lines.join(\"|\"))\n} else {\n  assertResult(\"1\")(lines.head())\n  assertResult(\"1|blue\")(lines.join(\"|\"))\n}\n",
     )
     .expect("source should write");
 

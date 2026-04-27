@@ -10080,6 +10080,12 @@ impl NativeCodeGenerator {
                     .first()
                     .is_some_and(|argument| self.expr_may_yield_runtime_string(argument)),
                 Expr::FieldAccess { field, .. } if field == "toString" => true,
+                Expr::FieldAccess { target, field, .. } if field == "head" => {
+                    self.expr_may_yield_runtime_lines_list(target)
+                }
+                Expr::FieldAccess { target, field, .. } if field == "join" => {
+                    self.expr_may_yield_runtime_lines_list(target)
+                }
                 Expr::FieldAccess { target, field, .. }
                     if runtime_string_returning_helper(field) =>
                 {
@@ -10113,6 +10119,11 @@ impl NativeCodeGenerator {
             Expr::Call {
                 callee, arguments, ..
             } => {
+                if let Expr::FieldAccess { target, field, .. } = callee.as_ref()
+                    && field == "split"
+                {
+                    return self.expr_may_yield_runtime_string(target);
+                }
                 if let Some(name) = self.file_input_lines_print_call_name(expr) {
                     return matches!(name.as_str(), "FileInput#lines" | "FileInput#readLines")
                         && arguments
