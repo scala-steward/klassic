@@ -73,7 +73,7 @@ the module layout is described in `docs/architecture-rust.md`.
   table and return `KEY=VALUE` runtime line-list entries.
 - `Environment#get(name)` / `getEnv(name)` and `Environment#exists(name)` /
   `hasEnv(name)` scan that envp table for direct variable lookup and existence
-  checks.
+  checks with static or runtime string keys.
 - Direct native printing of `FileInput#all(path)` or `FileInput#readAll(path)`
   streams runtime file bytes into the selected output fd. This deliberately
   avoids manufacturing a heap string until the native runtime has general

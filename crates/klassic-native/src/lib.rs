@@ -4608,13 +4608,9 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         self.expect_static_arity("Environment#get", arguments, 1, span)?;
-        let key = self.static_string_from_argument_preserving_effects(
-            &arguments[0],
-            span,
-            "Environment#get",
-        )?;
-        Ok(self.emit_environment_get_static_key(
-            &key,
+        let key = self.compile_environment_key_argument(&arguments[0], span, "Environment#get")?;
+        Ok(self.emit_environment_get_key_ref(
+            key,
             span,
             "Environment#get missing environment variable",
         ))
@@ -4626,13 +4622,21 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         self.expect_static_arity("Environment#exists", arguments, 1, span)?;
-        let key = self.static_string_from_argument_preserving_effects(
-            &arguments[0],
-            span,
-            "Environment#exists",
-        )?;
-        self.emit_environment_exists_static_key(&key);
+        let key =
+            self.compile_environment_key_argument(&arguments[0], span, "Environment#exists")?;
+        self.emit_environment_exists_key_ref(key);
         Ok(NativeValue::Bool)
+    }
+
+    fn compile_environment_key_argument(
+        &mut self,
+        argument: &Expr,
+        span: Span,
+        name: &str,
+    ) -> Result<NativeStringRef, Diagnostic> {
+        let value = self.compile_expr(argument)?;
+        self.native_string_ref(value)
+            .ok_or_else(|| unsupported(span, &format!("native {name} for non-string key")))
     }
 
     fn emit_environment_get_static_key(
@@ -4656,6 +4660,44 @@ impl NativeCodeGenerator {
         self.asm.jcc_label(Condition::Equal, not_found);
         self.asm.bind_text_label(found);
         self.asm.add_reg_imm32(Reg::Rsi, (key.len() + 1) as i32);
+        self.emit_append_c_string_pointer_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            span,
+            "Environment#get result exceeds 65536 bytes",
+        );
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_found);
+        self.emit_runtime_error(span, missing_message);
+        self.asm.bind_text_label(done);
+
+        NativeValue::RuntimeString { data, len }
+    }
+
+    fn emit_environment_get_key_ref(
+        &mut self,
+        key: NativeStringRef,
+        span: Span,
+        missing_message: &str,
+    ) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+        let offset = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        let found = self.emit_find_environment_key_ref(key);
+        let not_found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.asm.jcc_label(Condition::Equal, not_found);
+        self.asm.bind_text_label(found);
+        self.emit_load_native_string_len(Reg::Rdx, key.len);
+        self.asm.add_reg_reg(Reg::Rsi, Reg::Rdx);
+        self.asm.add_reg_imm32(Reg::Rsi, 1);
         self.emit_append_c_string_pointer_to_runtime_buffer_offset_label(
             data,
             offset,
@@ -4714,8 +4756,8 @@ impl NativeCodeGenerator {
         NativeValue::RuntimeString { data, len }
     }
 
-    fn emit_environment_exists_static_key(&mut self, key: &str) {
-        let found = self.emit_find_environment_static_key(key);
+    fn emit_environment_exists_key_ref(&mut self, key: NativeStringRef) {
+        let found = self.emit_find_environment_key_ref(key);
         let done = self.asm.create_text_label();
         self.asm.mov_imm64(Reg::Rax, 0);
         self.asm.jcc_label(Condition::Equal, done);
@@ -4760,6 +4802,58 @@ impl NativeCodeGenerator {
         self.asm.jcc_label(Condition::NotEqual, next_entry);
         self.asm.inc_reg(Reg::R8);
         self.asm.jmp_label(compare_loop);
+
+        self.asm.bind_text_label(next_entry);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R8, 8);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+        self.asm.jmp_label(loop_label);
+
+        self.asm.bind_text_label(done);
+        self.asm.cmp_reg_imm8(Reg::Rsi, 0);
+        found
+    }
+
+    fn emit_find_environment_key_ref(&mut self, key: NativeStringRef) -> TextLabel {
+        let cursor = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_data_addr(Reg::R10, self.environment_base);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+
+        let loop_label = self.asm.create_text_label();
+        let compare_loop = self.asm.create_text_label();
+        let check_equals = self.asm.create_text_label();
+        let next_entry = self.asm.create_text_label();
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+
+        self.asm.bind_text_label(loop_label);
+        self.asm.mov_data_addr(Reg::R10, cursor);
+        self.asm.load_ptr_disp32(Reg::R10, Reg::R10, 0);
+        self.asm.load_ptr_disp32(Reg::Rsi, Reg::R10, 0);
+        self.asm.cmp_reg_imm8(Reg::Rsi, 0);
+        self.asm.jcc_label(Condition::Equal, done);
+
+        self.emit_load_native_string_len(Reg::Rdx, key.len);
+        self.asm.mov_data_addr(Reg::R10, key.data);
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.bind_text_label(compare_loop);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
+        self.asm.jcc_label(Condition::Equal, check_equals);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+        self.asm.movzx_byte_indexed(Reg::Rbx, Reg::R10, Reg::R8);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rbx);
+        self.asm.jcc_label(Condition::NotEqual, next_entry);
+        self.asm.inc_reg(Reg::R8);
+        self.asm.jmp_label(compare_loop);
+
+        self.asm.bind_text_label(check_equals);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+        self.asm.cmp_reg_imm8(Reg::Rax, b'=' as i8);
+        self.asm.jcc_label(Condition::Equal, found);
 
         self.asm.bind_text_label(next_entry);
         self.asm.mov_data_addr(Reg::R10, cursor);

@@ -286,7 +286,8 @@ cargo run -- -e "1 + 2"
   as `KEY=VALUE` runtime line-list entries for direct, aliased-helper, and
   generated-function native calls. `Environment#get(name)` / `getEnv(name)` and
   `Environment#exists(name)` / `hasEnv(name)` scan that same saved envp table for
-  direct variable lookup and existence checks. Static
+  direct variable lookup and existence checks with static or runtime string keys.
+  Static
   `Dir` helpers cover existence/type checks, mkdir/mkdirs, list/listFull,
   delete, copy, and move on static paths. Static `null` is
   available for printing, equality, and `Map#get` misses. `()` is available for
