@@ -291,6 +291,9 @@ runtime, excludes argv[0], and exposes them as runtime line lists for direct,
 unqualified, aliased-helper, and generated-function native calls.
 `Process#exit(code)` evaluates its code argument before emitting the Linux
 `exit` syscall, giving native CLI tools explicit success/failure statuses.
+`StandardInput#all()` / `stdin()` read stdin into fixed-buffer runtime strings,
+while `StandardInput#lines()` / `stdinLines()` expose stdin through the same
+runtime line-list representation used by file input and argv helpers.
 Native
 `assertResult` compares integers and booleans at runtime, and compares static
 strings/lists/records/maps/sets/null/unit through the known native data sections

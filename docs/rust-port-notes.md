@@ -64,6 +64,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - `Process#exit(code)` evaluates its code argument, rejects negative native
   codes with a source-located runtime diagnostic, and otherwise emits the Linux
   `exit` syscall. This gives generated native CLI tools explicit status codes.
+- `StandardInput#all()` / `stdin()` read stdin into fixed-buffer runtime
+  strings, while `StandardInput#lines()` / `stdinLines()` expose stdin through
+  the same runtime line-list representation used by file input and argv helpers.
 - Direct native printing of `FileInput#all(path)` or `FileInput#readAll(path)`
   streams runtime file bytes into the selected output fd. This deliberately
   avoids manufacturing a heap string until the native runtime has general

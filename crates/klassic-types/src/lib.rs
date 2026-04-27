@@ -2048,6 +2048,17 @@ impl TypeChecker {
         self.install_module_imports("Set", None, None, &[]);
         self.install_module_imports("FileInput", None, None, &[]);
         self.install_module_imports("FileOutput", None, None, &[]);
+        self.declare_poly(
+            "stdin".to_string(),
+            false,
+            Type::Function(vec![], Box::new(Type::String)),
+        );
+        self.declare_poly(
+            "stdinLines".to_string(),
+            false,
+            Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
+        );
+        self.install_module_imports("StandardInput", Some("StandardInput"), None, &[]);
         self.install_module_imports("CommandLine", None, None, &[]);
         self.install_module_imports("Process", None, None, &[]);
         self.install_module_imports("Dir", None, None, &[]);
@@ -2154,6 +2165,13 @@ impl TypeChecker {
                         vec![Type::String, Type::List(Box::new(Type::String))],
                         Box::new(Type::Unit),
                     ),
+                ),
+            ],
+            "StandardInput" => &[
+                ("all", Type::Function(vec![], Box::new(Type::String))),
+                (
+                    "lines",
+                    Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
                 ),
             ],
             "CommandLine" => &[(
@@ -3041,6 +3059,13 @@ fn builtin_module_type_exports(path: &str) -> Option<ModuleTypeExports> {
                     vec![Type::String, Type::List(Box::new(Type::String))],
                     Box::new(Type::Unit),
                 ),
+            ),
+        ],
+        "StandardInput" => &[
+            ("all", Type::Function(vec![], Box::new(Type::String))),
+            (
+                "lines",
+                Type::Function(vec![], Box::new(Type::List(Box::new(Type::String)))),
             ),
         ],
         "CommandLine" => &[(

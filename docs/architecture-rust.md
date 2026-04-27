@@ -277,6 +277,9 @@ cargo run -- -e "1 + 2"
   unqualified, aliased-helper, and function-local native calls.
   `Process#exit(code)` evaluates its code argument and emits the Linux process
   exit syscall, giving generated native CLI tools explicit status codes. Static
+  `StandardInput#all()` / `stdin()` read stdin into a fixed-buffer runtime
+  string, and `StandardInput#lines()` / `stdinLines()` expose stdin through the
+  runtime line-list representation shared with file and argv helpers. Static
   `Dir` helpers cover home/temp, existence/type checks, mkdir/mkdirs,
   list/listFull, delete, copy, and move on static paths. Static `null` is
   available for printing, equality, and `Map#get` misses. `()` is available for

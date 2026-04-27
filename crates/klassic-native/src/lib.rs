@@ -1889,6 +1889,8 @@ impl NativeCodeGenerator {
             "FileOutput#writeLines" => self.compile_file_output_write_lines(arguments, span),
             "FileOutput#exists" => self.compile_file_output_exists(arguments, span),
             "FileOutput#delete" => self.compile_file_output_delete(arguments, span),
+            "StandardInput#all" => self.compile_standard_input_all(arguments, span),
+            "StandardInput#lines" => self.compile_standard_input_lines(arguments, span),
             "CommandLine#args" => self.compile_command_line_args(arguments, span),
             "Process#exit" => self.compile_process_exit(arguments, span),
             "FileInput#open" => self.compile_file_input_open(arguments, span),
@@ -2021,6 +2023,8 @@ impl NativeCodeGenerator {
                 .map(Some),
             "FileOutput#exists" => self.compile_file_output_exists(arguments, span).map(Some),
             "FileOutput#delete" => self.compile_file_output_delete(arguments, span).map(Some),
+            "StandardInput#all" => self.compile_standard_input_all(arguments, span).map(Some),
+            "StandardInput#lines" => self.compile_standard_input_lines(arguments, span).map(Some),
             "CommandLine#args" => self.compile_command_line_args(arguments, span).map(Some),
             "Process#exit" => self.compile_process_exit(arguments, span).map(Some),
             "FileInput#open" => self.compile_file_input_open(arguments, span).map(Some),
@@ -4466,6 +4470,61 @@ impl NativeCodeGenerator {
         self.unknown_virtual_paths.remove(&path);
         self.virtual_files.remove(&path);
         Ok(NativeValue::Unit)
+    }
+
+    fn compile_standard_input_all(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.expect_static_arity("StandardInput#all", arguments, 0, span)?;
+        Ok(self.emit_standard_input_to_runtime_string(span, "StandardInput#all"))
+    }
+
+    fn compile_standard_input_lines(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.expect_static_arity("StandardInput#lines", arguments, 0, span)?;
+        let NativeValue::RuntimeString { data, len } =
+            self.emit_standard_input_to_runtime_string(span, "StandardInput#lines")
+        else {
+            return Err(unsupported(span, "native StandardInput#lines runtime list"));
+        };
+        Ok(NativeValue::RuntimeLinesList { data, len })
+    }
+
+    fn emit_standard_input_to_runtime_string(&mut self, span: Span, name: &str) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let overflow = self.asm.data_label_with_bytes(&[0]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.mov_data_addr(Reg::Rsi, data);
+        self.asm.mov_imm64(Reg::Rdx, RUNTIME_STRING_CAP as u64);
+        self.asm.syscall();
+        self.emit_runtime_error_if_rax_negative(span, &format!("{name} failed to read stdin"));
+        self.asm.mov_data_addr(Reg::Rcx, len);
+        self.asm.store_ptr_disp32(Reg::Rcx, 0, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rcx, RUNTIME_STRING_CAP as u64);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rcx);
+        let done = self.asm.create_text_label();
+        self.asm.jcc_label(Condition::NotEqual, done);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.mov_data_addr(Reg::Rsi, overflow);
+        self.asm.mov_imm64(Reg::Rdx, 1);
+        self.asm.syscall();
+        self.emit_runtime_error_if_rax_negative(span, &format!("{name} failed to read stdin"));
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, done);
+        self.emit_runtime_error(span, &format!("{name} runtime string exceeds 65536 bytes"));
+
+        self.asm.bind_text_label(done);
+        NativeValue::RuntimeString { data, len }
     }
 
     fn compile_command_line_args(
@@ -8481,6 +8540,12 @@ impl NativeCodeGenerator {
         if name == "exit" {
             return String::from("Process#exit");
         }
+        if name == "stdin" {
+            return String::from("StandardInput#all");
+        }
+        if name == "stdinLines" {
+            return String::from("StandardInput#lines");
+        }
         let Some((module, member)) = name.split_once('#') else {
             return name.to_string();
         };
@@ -8504,7 +8569,14 @@ impl NativeCodeGenerator {
     fn is_builtin_module(path: &str) -> bool {
         matches!(
             path,
-            "Map" | "Set" | "FileInput" | "FileOutput" | "CommandLine" | "Process" | "Dir"
+            "Map"
+                | "Set"
+                | "FileInput"
+                | "FileOutput"
+                | "StandardInput"
+                | "CommandLine"
+                | "Process"
+                | "Dir"
         )
     }
 
@@ -8572,6 +8644,8 @@ impl NativeCodeGenerator {
                 | "FileOutput#writeLines"
                 | "FileOutput#exists"
                 | "FileOutput#delete"
+                | "StandardInput#all"
+                | "StandardInput#lines"
                 | "CommandLine#args"
                 | "Process#exit"
                 | "FileInput#open"
@@ -9465,6 +9539,11 @@ impl NativeCodeGenerator {
                 callee, arguments, ..
             } => match callee.as_ref() {
                 Expr::Identifier { name, .. }
+                    if self.builtin_name_for_identifier(name) == "StandardInput#all" =>
+                {
+                    true
+                }
+                Expr::Identifier { name, .. }
                     if self.builtin_name_for_identifier(name) == "Dir#current" =>
                 {
                     true
@@ -9515,6 +9594,11 @@ impl NativeCodeGenerator {
                     return self.expr_may_yield_runtime_string(path);
                 }
                 match callee.as_ref() {
+                    Expr::Identifier { name, .. }
+                        if self.builtin_name_for_identifier(name) == "StandardInput#lines" =>
+                    {
+                        true
+                    }
                     Expr::Identifier { name, .. }
                         if self.builtin_name_for_identifier(name) == "CommandLine#args" =>
                     {
@@ -14370,6 +14454,10 @@ fn static_expr_is_pure(expr: &Expr) -> bool {
                         | "FileOutput#append"
                         | "FileOutput#writeLines"
                         | "FileOutput#delete"
+                        | "stdin"
+                        | "stdinLines"
+                        | "StandardInput#all"
+                        | "StandardInput#lines"
                         | "args"
                         | "CommandLine#args"
                         | "exit"

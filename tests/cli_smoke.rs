@@ -37,6 +37,38 @@ fn evaluates_process_exit_via_cli() {
     assert!(output.stderr.is_empty());
 }
 
+#[test]
+fn evaluates_standard_input_via_cli() {
+    let mut child = Command::new(klassic_bin())
+        .args([
+            "-e",
+            "val text = StandardInput#all()\nprintln(trimRight(text))\nprintln(length(text))\nassertResult(\"alpha\\nbeta\\n\")(text)",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("binary should run");
+
+    {
+        let mut stdin = child.stdin.take().expect("stdin should be piped");
+        stdin
+            .write_all(b"alpha\nbeta\n")
+            .expect("stdin should accept input");
+    }
+
+    let output = child
+        .wait_with_output()
+        .expect("binary should finish after stdin closes");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "alpha\nbeta\n11\n()\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn builds_native_executable_for_basic_program() {
@@ -2600,6 +2632,139 @@ fn builds_native_executable_for_process_exit() {
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
         "before exit\ncode path\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_standard_input_all() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-stdin-all-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-stdin-all-{unique}"));
+    fs::write(
+        &source_path,
+        "val read = StandardInput#all\nval text = read()\nprintln(trimRight(text))\nprintln(length(text))\nassertResult(\"alpha\\nbeta\\n\")(text)\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "standard input build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let mut child = Command::new(&output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("generated executable should run");
+
+    {
+        let mut stdin = child.stdin.take().expect("stdin should be piped");
+        stdin
+            .write_all(b"alpha\nbeta\n")
+            .expect("stdin should accept input");
+    }
+
+    let run = child
+        .wait_with_output()
+        .expect("generated executable should finish after stdin closes");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "standard input run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "alpha\nbeta\n11\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_standard_input_lines() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-stdin-lines-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-stdin-lines-{unique}"));
+    fs::write(
+        &source_path,
+        "val lines = stdinLines()\nprintln(lines)\nprintln(join(lines, \"|\"))\nassertResult([\"alpha\", \"beta\"])(lines)\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "standard input lines build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let mut child = Command::new(&output_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("generated executable should run");
+
+    {
+        let mut stdin = child.stdin.take().expect("stdin should be piped");
+        stdin
+            .write_all(b"alpha\nbeta\n")
+            .expect("stdin should accept input");
+    }
+
+    let run = child
+        .wait_with_output()
+        .expect("generated executable should finish after stdin closes");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "standard input lines run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[alpha, beta]\nalpha|beta\n"
     );
     assert!(run.stderr.is_empty());
 }

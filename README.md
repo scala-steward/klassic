@@ -222,6 +222,9 @@ excluding argv[0] as the same runtime line-list representation, including
 direct, unqualified, aliased-helper, and function-local native calls.
 `Process#exit(code)` emits a native process exit after evaluating the code
 argument, so generated native CLI tools can return explicit status codes.
+`StandardInput#all()` / `stdin()` read stdin into a fixed-buffer runtime string,
+and `StandardInput#lines()` / `stdinLines()` expose stdin as the same runtime
+line-list representation used by native file and argv helpers.
 `println(FileInput#all(path))` / `println(FileInput#readAll(path))` streams
 runtime file content without requiring the file to exist during native build.
 Immutable runtime `FileInput#all(path)` / `readAll(path)` bindings can also be

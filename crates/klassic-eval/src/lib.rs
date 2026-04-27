@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs;
+use std::io::Read;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -1347,6 +1348,7 @@ fn builtin_module_members(path: &str) -> Option<&'static [&'static str]> {
     match path {
         "FileInput" => Some(&["open", "readAll", "readLines", "all", "lines"]),
         "FileOutput" => Some(&["write", "append", "exists", "delete", "writeLines"]),
+        "StandardInput" => Some(&["all", "lines"]),
         "CommandLine" => Some(&["args"]),
         "Process" => Some(&["exit"]),
         "Dir" => Some(&[
@@ -2316,6 +2318,30 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             fs::write(path, text).map(|_| Value::Unit).map_err(|error| {
                 Diagnostic::runtime(span, format!("failed to write lines: {error}"))
             })
+        }
+        "StandardInput#all" => {
+            ensure_arity(name, arguments, 0, span)?;
+            let mut text = String::new();
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .map(|_| Value::String(text))
+                .map_err(|error| {
+                    Diagnostic::runtime(span, format!("failed to read stdin: {error}"))
+                })
+        }
+        "StandardInput#lines" => {
+            ensure_arity(name, arguments, 0, span)?;
+            let mut text = String::new();
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .map_err(|error| {
+                    Diagnostic::runtime(span, format!("failed to read stdin: {error}"))
+                })?;
+            Ok(Value::List(
+                text.lines()
+                    .map(|line| Value::String(line.to_string()))
+                    .collect(),
+            ))
         }
         "CommandLine#args" => {
             ensure_arity(name, arguments, 0, span)?;

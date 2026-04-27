@@ -55,6 +55,8 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "FileOutput#exists" => Some("FileOutput#exists"),
         "FileOutput#delete" => Some("FileOutput#delete"),
         "FileOutput#writeLines" => Some("FileOutput#writeLines"),
+        "stdin" | "StandardInput#all" => Some("StandardInput#all"),
+        "stdinLines" | "StandardInput#lines" => Some("StandardInput#lines"),
         "args" | "CommandLine#args" => Some("CommandLine#args"),
         "exit" | "Process#exit" => Some("Process#exit"),
         "Dir#current" => Some("Dir#current"),
@@ -120,7 +122,13 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "Map#containsValue"
         | "Map#get"
         | "Set#contains" => Some(2),
-        "CommandLine#args" | "Dir#current" | "Dir#home" | "Dir#temp" | "ToDo" => Some(0),
+        "StandardInput#all"
+        | "StandardInput#lines"
+        | "CommandLine#args"
+        | "Dir#current"
+        | "Dir#home"
+        | "Dir#temp"
+        | "ToDo" => Some(0),
         _ => None,
     }
 }
