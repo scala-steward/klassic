@@ -4059,6 +4059,24 @@ impl NativeCodeGenerator {
                     .get(label.0)
                     .map(|set| set.elements.clone())
                     .unwrap_or_default();
+                let before_static_scopes = self.static_scopes.clone();
+                let needle_preview = self.preview_static_value_after_effectful_eval(&arguments[1]);
+                self.static_scopes = before_static_scopes;
+                if needle_preview.is_none() {
+                    let needle = self.compile_expr(&arguments[1])?;
+                    let Some(needle) = self.native_string_ref(needle) else {
+                        return Err(unsupported(
+                            span,
+                            "native Set#contains for non-static value",
+                        ));
+                    };
+                    let candidates = elements
+                        .iter()
+                        .filter_map(|element| self.static_value_string_ref(element))
+                        .collect::<Vec<_>>();
+                    self.emit_static_string_membership(needle, candidates);
+                    return Ok(NativeValue::Bool);
+                }
                 let needle = self.static_value_from_argument_preserving_effects(
                     &arguments[1],
                     span,

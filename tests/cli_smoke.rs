@@ -5642,7 +5642,7 @@ fn builds_native_executable_for_static_string_collection_runtime_membership() {
         std::env::temp_dir().join(format!("klassic-native-runtime-membership-{unique}"));
     fs::write(
         &source_path,
-        "val keyword = head(args())\nval op = head(tail(args()))\nval keywords = %(\"if\", \"else\", \"while\")\nval precedence = %[\"+\": 10, \"*\": 20]\nprintln(Set#contains(keywords, keyword))\nprintln(keywords.contains(\"return\"))\nprintln(Map#containsKey(precedence, op))\nprintln(precedence.containsKey(\"/\"))\nassert(Set#contains(keywords, keyword))\nassert(!keywords.contains(\"return\"))\nassert(Map#containsKey(precedence, op))\nassert(!precedence.containsKey(\"/\"))\n",
+        "val keyword = head(args())\nval op = head(tail(args()))\nval keywords = %(\"if\", \"else\", \"while\")\nval precedence = %[\"+\": 10, \"*\": 20]\nprintln(Set#contains(keywords, keyword))\nprintln(keywords.contains(keyword))\nprintln(keywords.contains(\"return\"))\nprintln(Map#containsKey(precedence, op))\nprintln(precedence.containsKey(\"/\"))\nassert(Set#contains(keywords, keyword))\nassert(keywords.contains(keyword))\nassert(!keywords.contains(\"return\"))\nassert(Map#containsKey(precedence, op))\nassert(!precedence.containsKey(\"/\"))\n",
     )
     .expect("source should write");
 
@@ -5682,7 +5682,7 @@ fn builds_native_executable_for_static_string_collection_runtime_membership() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\nfalse\ntrue\nfalse\n"
+        "true\ntrue\nfalse\ntrue\nfalse\n"
     );
     assert!(run.stderr.is_empty());
 }
