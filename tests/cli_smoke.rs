@@ -4778,6 +4778,80 @@ fn builds_native_executable_for_dynamic_if_static_value_merges() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_dynamic_if_string_branch_results() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-if-string-result-{unique}.kl"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-if-string-result-{unique}"));
+    fs::write(
+        &source_path,
+        "val flag = head(args()) == \"then\"\nval label = if(flag) {\n  println(\"then branch\")\n  \"alpha\"\n} else {\n  println(\"else branch\")\n  \"beta\"\n}\nprintln(label)\nprintln(\"tag=\" + label)\nif(flag) {\n  assertResult(\"alpha\")(label)\n} else {\n  assertResult(\"beta\")(label)\n}\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic if string result build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let then_run = Command::new(&output_path)
+        .arg("then")
+        .output()
+        .expect("generated executable should run then branch");
+    let else_run = Command::new(&output_path)
+        .arg("else")
+        .output()
+        .expect("generated executable should run else branch");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        then_run.status.success(),
+        "dynamic if string then run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&then_run.stdout),
+        String::from_utf8_lossy(&then_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&then_run.stdout),
+        "then branch\nalpha\ntag=alpha\n"
+    );
+    assert!(then_run.stderr.is_empty());
+
+    assert!(
+        else_run.status.success(),
+        "dynamic if string else run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&else_run.stdout),
+        String::from_utf8_lossy(&else_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&else_run.stdout),
+        "else branch\nbeta\ntag=beta\n"
+    );
+    assert!(else_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_function_value_merges() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -9966,6 +9966,10 @@ impl NativeCodeGenerator {
         Err(unsupported(span, "native string concatenation"))
     }
 
+    fn expr_may_yield_native_string(&mut self, expr: &Expr) -> bool {
+        self.expr_may_yield_static_string(expr) || self.expr_may_yield_runtime_string(expr)
+    }
+
     fn expr_may_yield_static_string(&mut self, expr: &Expr) -> bool {
         if matches!(
             self.static_value_from_expr_with_bindings_preserving_static_scopes(expr, &[]),
@@ -10375,8 +10379,20 @@ impl NativeCodeGenerator {
         else_branch: Option<&Expr>,
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
+        const RUNTIME_STRING_CAP: usize = 65_536;
         let else_label = self.asm.create_text_label();
         let end_label = self.asm.create_text_label();
+        let branch_string_output = if let Some(else_branch) = else_branch
+            && self.expr_may_yield_native_string(then_branch)
+            && self.expr_may_yield_native_string(else_branch)
+        {
+            Some((
+                self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+                self.asm.data_label_with_i64s(&[0]),
+            ))
+        } else {
+            None
+        };
         let condition_value = self.compile_expr(condition)?;
         if condition_value != NativeValue::Bool {
             return Err(unsupported(span, "native if condition for non-Bool"));
@@ -10401,6 +10417,17 @@ impl NativeCodeGenerator {
             self.pop_scope_preserving_allocations();
         } else {
             self.pop_scope();
+        }
+        if let Some((data, len)) = branch_string_output
+            && let Some(input) = self.native_string_ref(then_value)
+        {
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                input,
+                span,
+                "if string result exceeds 65536 bytes",
+            );
         }
         let then_next_stack_offset = self.next_stack_offset;
         let then_scopes = self.scopes.clone();
@@ -10431,6 +10458,17 @@ impl NativeCodeGenerator {
             self.pop_scope_preserving_allocations();
         } else {
             self.pop_scope();
+        }
+        if let Some((data, len)) = branch_string_output
+            && let Some(input) = self.native_string_ref(else_value)
+        {
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                input,
+                span,
+                "if string result exceeds 65536 bytes",
+            );
         }
         let else_next_stack_offset = self.next_stack_offset;
         let else_scopes = self.scopes.clone();
@@ -10475,6 +10513,11 @@ impl NativeCodeGenerator {
                 .unwrap_or(false)
         {
             Ok(then_value)
+        } else if let Some((data, len)) = branch_string_output
+            && self.native_string_ref(then_value).is_some()
+            && self.native_string_ref(else_value).is_some()
+        {
+            Ok(NativeValue::RuntimeString { data, len })
         } else if matches!(then_value, NativeValue::Unit) || matches!(else_value, NativeValue::Unit)
         {
             Ok(NativeValue::Unit)
