@@ -301,6 +301,8 @@ entries also support runtime string, int, and boolean membership queries for
 `contains`, `Map#containsKey`, `Map#containsValue`, and `Set#contains`.
 Static string-list entries can be matched against runtime line-list query values
 through the same membership helpers.
+Effectful query expressions that compile back to static values after preserving
+their effects are also compared through the static collection membership path.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or the same static value; runtime misses

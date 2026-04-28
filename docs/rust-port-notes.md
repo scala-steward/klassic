@@ -127,6 +127,8 @@ the module layout is described in `docs/architecture-rust.md`.
   path has dynamic tagged `null` values.
 - Static string-list entries in lists, sets, and map values can be matched by
   runtime line-list membership queries.
+- Static collection membership also handles effectful query expressions that
+  compile back to static values after preserving their effects.
 - Static maps of callable values support immediate runtime-key dispatch via
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, evaluating only the selected
   branch's call arguments at runtime and merging supported native return shapes.

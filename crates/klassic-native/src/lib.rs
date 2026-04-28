@@ -5254,6 +5254,13 @@ impl NativeCodeGenerator {
                 );
                 return Ok(NativeValue::Bool);
             }
+            if let Some(needle) = self.static_value_from_native(needle) {
+                let contains = elements
+                    .iter()
+                    .any(|element| self.static_value_equal_user(element, &needle));
+                self.asm.mov_imm64(Reg::Rax, u64::from(contains));
+                return Ok(NativeValue::Bool);
+            }
             return Err(unsupported(span, unsupported_message));
         }
         let needle =

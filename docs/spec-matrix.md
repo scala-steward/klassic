@@ -78,7 +78,8 @@ The repository contains a Rust-native language implementation with:
   string, string-list, int, boolean, `null`, or `()` compatible values and
   same-static-value compatible entries, immediate runtime-key dispatch through
   static callable maps, runtime line-list membership against static string-list
-  entries, preserving those runtime
+  entries, static membership for effectful queries that settle back to static
+  values, preserving those runtime
   return hints plus block, cleanup, and
   same-runtime-return conditional callees preserving them, immediate calls on conditional function values,
   pure conditional callable branches in immutable bindings or static aggregate elements synthesized into branch-local-call lambdas for user callables and supported builtin function values with matching arity while preserving selected-branch builtin display through printing, interpolation, string concatenation, `toString`, and failing `assertResult` messages, including returned callables and aggregate display, effectful callee expressions returning string/list helper builtin values with runtime string or runtime line-list arguments,
