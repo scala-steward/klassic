@@ -199,7 +199,8 @@ cargo run -- -e "1 + 2"
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, dispatch to the selected
   lambda or builtin branch and merge the supported native return shapes.
   Runtime string/int/bool-key lookups over all-callable static maps can also be
-  stored in immutable values and called later with the same branch dispatch.
+  stored in immutable values and called or printed later with the same branch
+  dispatch.
   Lambdas also remember the native stack slots for captured runtime bindings;
   when a block, inline lambda, or call-site inlined function returns such a
   lambda, the captured slots are kept alive so block/function-local mutable

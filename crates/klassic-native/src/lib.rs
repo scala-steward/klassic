@@ -14370,6 +14370,23 @@ impl NativeCodeGenerator {
             NativeValue::StaticSet { label } => {
                 self.emit_print_static_set(fd, label);
             }
+            callable @ NativeValue::StaticLambda { .. } => {
+                self.emit_print_callable_value_fragment(fd, callable);
+            }
+            NativeValue::Unit => {
+                self.emit_write_data(fd, self.unit_text, 2);
+            }
+            callable @ NativeValue::BuiltinFunction { .. } => {
+                self.emit_print_callable_value_fragment(fd, callable);
+            }
+            NativeValue::RuntimeMapCallableDispatch(label) => {
+                self.emit_print_runtime_map_callable_dispatch(fd, label);
+            }
+        }
+    }
+
+    fn emit_print_callable_value_fragment(&mut self, fd: u64, callable: NativeValue) {
+        match callable {
             NativeValue::StaticLambda { label } => {
                 if let Some(display) = self.conditional_builtin_displays.get(&label).cloned() {
                     self.emit_print_conditional_builtin_display(fd, &display);
@@ -14377,16 +14394,65 @@ impl NativeCodeGenerator {
                     self.emit_print_function_display(fd);
                 }
             }
-            NativeValue::Unit => {
-                self.emit_write_data(fd, self.unit_text, 2);
-            }
             NativeValue::BuiltinFunction { label } => {
                 self.emit_print_builtin_function_display(fd, label);
             }
-            NativeValue::RuntimeMapCallableDispatch(_) => {
-                self.emit_print_function_display(fd);
-            }
+            _ => self.emit_print_function_display(fd),
         }
+    }
+
+    fn emit_print_runtime_map_callable_dispatch(
+        &mut self,
+        fd: u64,
+        label: RuntimeMapCallableDispatchLabel,
+    ) {
+        let Some(dispatch) = self.runtime_map_callable_dispatches.get(label.0).cloned() else {
+            self.emit_print_function_display(fd);
+            return;
+        };
+        let done = self.asm.create_text_label();
+        let branches = match dispatch.key {
+            RuntimeMapCallableDispatchKey::String(key) => dispatch
+                .candidates
+                .into_iter()
+                .filter_map(|candidate| {
+                    let RuntimeMapCallableCandidateKey::String(entry_key) = candidate.key else {
+                        return None;
+                    };
+                    let label = self.asm.create_text_label();
+                    self.emit_native_string_equality(key, entry_key);
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.jcc_label(Condition::NotEqual, label);
+                    Some((label, candidate.callable))
+                })
+                .collect::<Vec<_>>(),
+            RuntimeMapCallableDispatchKey::Scalar(slot) => {
+                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+                dispatch
+                    .candidates
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        let RuntimeMapCallableCandidateKey::Scalar(entry_key) = candidate.key
+                        else {
+                            return None;
+                        };
+                        let label = self.asm.create_text_label();
+                        self.asm.mov_imm64(Reg::Rax, entry_key);
+                        self.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+                        self.asm.jcc_label(Condition::Equal, label);
+                        Some((label, candidate.callable))
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
+        self.emit_write_data(fd, self.null_text, 4);
+        self.asm.jmp_label(done);
+        for (label, callable) in branches {
+            self.asm.bind_text_label(label);
+            self.emit_print_callable_value_fragment(fd, callable);
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
     }
 
     fn emit_print_function_display(&mut self, fd: u64) {

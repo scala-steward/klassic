@@ -1228,10 +1228,13 @@ println(stringFns.get(runtimeStringKey)("xy", 1))
 println(join(Map#get(lineFns, runtimeLineKey)(lines, 2), "|"))
 println(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
 val pickedBuiltin = Map#get(builtinFns, runtimeBuiltinKey)
+println(pickedBuiltin)
 println(pickedBuiltin("AbC"))
 val pickedLengthBuiltin = Map#get(builtinFnsByLength, length(runtimeBuiltinKey))
+println(pickedLengthBuiltin)
 println(pickedLengthBuiltin("AbC"))
 val pickedFlagBuiltin = Map#get(builtinFnsByFlag, runtimeBuiltinKey == "upper")
+println(pickedFlagBuiltin)
 println(pickedFlagBuiltin("AbC"))
 val pickedSameBuiltin = Map#get(sameBuiltinFns, runtimeBuiltinKey)
 println(pickedSameBuiltin)
@@ -1302,7 +1305,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\nABC\nABC\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }
