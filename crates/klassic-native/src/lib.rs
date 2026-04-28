@@ -409,6 +409,8 @@ enum NativeStringLen {
 enum RuntimeMapGetValueKind {
     Int,
     Bool,
+    Null,
+    Unit,
     String,
     Lines,
 }
@@ -5912,6 +5914,8 @@ impl NativeCodeGenerator {
         Ok(match value_kind {
             RuntimeMapGetValueKind::Int => NativeValue::Int,
             RuntimeMapGetValueKind::Bool => NativeValue::Bool,
+            RuntimeMapGetValueKind::Null => NativeValue::Null,
+            RuntimeMapGetValueKind::Unit => NativeValue::Unit,
             RuntimeMapGetValueKind::String => {
                 let (data, len) = output.expect("string map get should allocate output");
                 NativeValue::RuntimeString { data, len }
@@ -5933,6 +5937,8 @@ impl NativeCodeGenerator {
             let value_kind = match value {
                 StaticValue::Int(_) => RuntimeMapGetValueKind::Int,
                 StaticValue::Bool(_) => RuntimeMapGetValueKind::Bool,
+                StaticValue::Null => RuntimeMapGetValueKind::Null,
+                StaticValue::Unit => RuntimeMapGetValueKind::Unit,
                 StaticValue::StaticString { .. } => RuntimeMapGetValueKind::String,
                 value if self.static_string_list_content_from_value(value).is_some() => {
                     RuntimeMapGetValueKind::Lines
@@ -5977,6 +5983,8 @@ impl NativeCodeGenerator {
             (RuntimeMapGetValueKind::Bool, StaticValue::Bool(value)) => {
                 self.asm.mov_imm64(Reg::Rax, u64::from(*value));
             }
+            (RuntimeMapGetValueKind::Null, StaticValue::Null)
+            | (RuntimeMapGetValueKind::Unit, StaticValue::Unit) => {}
             (RuntimeMapGetValueKind::String, StaticValue::StaticString { label, len }) => {
                 let (data, output_len) = output.expect("string map get should allocate output");
                 self.emit_copy_native_string_to_runtime_string_buffer(

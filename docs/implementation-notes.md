@@ -303,8 +303,9 @@ Static string-list entries can be matched against runtime line-list query values
 through the same membership helpers.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
-or all booleans; runtime misses fail with a source-located native diagnostic
-because the native path still has no dynamic tagged `null` value. If the
+all booleans, all `null`, or all `()`; runtime misses fail with a source-located
+native diagnostic because the native path still has no dynamic tagged `null`
+value. If the
 compatible entries are all callable values, immediate calls through that lookup
 dispatch to the selected lambda or builtin branch and merge the same supported
 native return shapes. Static

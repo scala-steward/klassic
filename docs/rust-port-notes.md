@@ -122,8 +122,8 @@ the module layout is described in `docs/architecture-rust.md`.
   line-list helper dispatch.
 - Static maps can also lower runtime string/int/bool `Map#get` / `.get` keys
   when the compatible entries return uniformly string, string-list, int, or
-  boolean values; runtime misses report a native diagnostic until the native
-  path has dynamic tagged `null` values.
+  boolean, `null`, or `()` values; runtime misses report a native diagnostic
+  until the native path has dynamic tagged `null` values.
 - Static string-list entries in lists, sets, and map values can be matched by
   runtime line-list membership queries.
 - Static maps of callable values support immediate runtime-key dispatch via

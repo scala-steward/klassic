@@ -75,8 +75,8 @@ The repository contains a Rust-native language implementation with:
   method-style static-list `head` lookups including `tail` and `cons` chains,
   and static `Map#get` / `.get` lookups with literal or folded static keys plus
   runtime string/int/bool `Map#get` / `.get` keys for static maps with uniform
-  string, string-list, int, or boolean compatible values and immediate
-  runtime-key dispatch through static callable maps, runtime line-list
+  string, string-list, int, boolean, `null`, or `()` compatible values and
+  immediate runtime-key dispatch through static callable maps, runtime line-list
   membership against static string-list entries, preserving those runtime
   return hints plus block, cleanup, and
   same-runtime-return conditional callees preserving them, immediate calls on conditional function values,
