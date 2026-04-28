@@ -155,6 +155,9 @@ function-local fixed runtime buffers. Call sites copy static or runtime strings
 into those buffers, then pass only scalar `Int` / `Bool` parameters through the
 ordinary register/stack ABI; this lets simple self-recursive string scanners
 such as `countA(s: String, i: Int): Int` compile without call-site inlining.
+Self-recursive calls must pass those string parameters through unchanged for now;
+recursive calls that rewrite the string argument are rejected instead of
+overwriting the shared parameter buffer.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

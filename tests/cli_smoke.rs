@@ -295,6 +295,57 @@ assertResult(3)(countA(text, 0))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn native_build_rejects_recursive_runtime_string_parameter_rewrite() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-string-param-rewrite-{unique}.kl"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-string-param-rewrite-{unique}.txt"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-string-param-rewrite-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        format!(
+            r#"def consume(s: String, i: Int): Int = if(i >= length(s)) i else consume(substring(s, 1, length(s)), i + 1)
+val text = FileInput#all("{}")
+println(consume(text, 0))
+"#,
+            input_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(!build.status.success());
+    assert!(build.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&build.stderr)
+            .contains("native recursive string parameter must be passed unchanged"),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_recursive_function_static_top_level_capture() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -72,8 +72,9 @@ cargo run -- -e "1 + 2"
   literal or lambda-value jobs for the current native sample surface, simple unannotated
   integer/boolean return inference, stack-passed arguments beyond the first six
   integer/boolean native function parameters, annotated runtime `String`
-  parameters for scalar-returning recursive functions, and top-level lambda
-  bindings lowered as static functions or inlined at call sites when they
+  parameters for scalar-returning recursive functions whose self-calls pass the
+  string through unchanged, and top-level lambda bindings lowered as static
+  functions or inlined at call sites when they
   capture mutable locals.
   Temporary stack pushes used while evaluating native call arguments are tracked
   alongside local slots, so nested argument expressions can allocate closure

@@ -107,7 +107,8 @@ the module layout is described in `docs/architecture-rust.md`.
   fixed-buffer runtime strings.
 - Scalar-returning recursive native functions can accept annotated `String`
   parameters by copying the argument into fixed function-parameter buffers before
-  scalar register/stack arguments are passed.
+  scalar register/stack arguments are passed. Self-recursive calls that rewrite
+  those string arguments are rejected until per-call string frames exist.
 - Static strings also use the runtime slice path for `substring` / `at` when
   their indexes are mutable or otherwise dynamic integers.
 - Static string `split` and static string-list `join` accept runtime string

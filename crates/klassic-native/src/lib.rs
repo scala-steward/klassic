@@ -488,6 +488,7 @@ struct NativeCodeGenerator {
     functions: HashMap<String, NativeFunction>,
     function_order: Vec<String>,
     referenced_functions: HashSet<String>,
+    active_function_name: Option<String>,
     instance_methods: Vec<NativeInstanceMethod>,
     record_schemas: HashMap<String, Vec<String>>,
     static_lists: Vec<StaticList>,
@@ -556,6 +557,7 @@ impl NativeCodeGenerator {
             functions: HashMap::new(),
             function_order: Vec::new(),
             referenced_functions: HashSet::new(),
+            active_function_name: None,
             instance_methods: Vec::new(),
             record_schemas,
             static_lists: Vec::new(),
@@ -1987,6 +1989,7 @@ impl NativeCodeGenerator {
         if function.inline_at_call_site {
             return self.compile_inline_function_call(&function, arguments, span);
         }
+        let recursive_call_to_active_function = self.active_function_name.as_deref() == Some(name);
         self.referenced_functions.insert(name.to_string());
         if arguments.len() != function.params.len() {
             return Err(Diagnostic::compile(
@@ -2002,6 +2005,12 @@ impl NativeCodeGenerator {
         for (argument, expected_value) in arguments.iter().zip(function.param_values.iter()) {
             let value = self.compile_expr(argument)?;
             if let NativeValue::RuntimeString { data, len } = expected_value {
+                if recursive_call_to_active_function && value != *expected_value {
+                    return Err(unsupported(
+                        span,
+                        "native recursive string parameter must be passed unchanged",
+                    ));
+                }
                 let Some(input) = self.native_string_ref(value) else {
                     return Err(unsupported(
                         span,
@@ -15233,7 +15242,7 @@ impl NativeCodeGenerator {
                 .get(&name)
                 .expect("function order should reference existing functions")
                 .clone();
-            self.emit_function(&function)?;
+            self.emit_function(&name, &function)?;
             emitted.insert(name);
         }
         for name in self.function_order.clone() {
@@ -15251,11 +15260,12 @@ impl NativeCodeGenerator {
         Ok(())
     }
 
-    fn emit_function(&mut self, function: &NativeFunction) -> Result<(), Diagnostic> {
+    fn emit_function(&mut self, name: &str, function: &NativeFunction) -> Result<(), Diagnostic> {
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
         let saved_static_scopes = std::mem::replace(&mut self.static_scopes, vec![HashMap::new()]);
         let saved_scope_base_offsets = std::mem::replace(&mut self.scope_base_offsets, vec![0]);
         let saved_next_stack_offset = self.next_stack_offset;
+        let saved_active_function_name = self.active_function_name.replace(name.to_string());
         self.next_stack_offset = 0;
 
         self.asm.bind_text_label(function.label);
@@ -15336,6 +15346,7 @@ impl NativeCodeGenerator {
         self.static_scopes = saved_static_scopes;
         self.scope_base_offsets = saved_scope_base_offsets;
         self.next_stack_offset = saved_next_stack_offset;
+        self.active_function_name = saved_active_function_name;
         Ok(())
     }
 
