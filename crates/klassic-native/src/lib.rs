@@ -1550,12 +1550,27 @@ impl NativeCodeGenerator {
             arguments: method_arguments,
             ..
         } = callee
-            && method_arguments.is_empty()
             && let Expr::FieldAccess { target, field, .. } = method_callee.as_ref()
-            && field == "head"
+            && ((field == "head" && method_arguments.is_empty())
+                || (field == "get" && method_arguments.len() == 1))
         {
             let callee_value =
                 self.compile_static_method_call(target, field, method_arguments, span)?;
+            return self.compile_native_callable_value_call(callee_value, arguments, span);
+        }
+        if let Expr::Call {
+            callee: nested_callee,
+            arguments: lookup_arguments,
+            ..
+        } = callee
+            && let Expr::Identifier { name, .. } = nested_callee.as_ref()
+            && matches!(
+                self.builtin_name_for_identifier(name).as_str(),
+                "Map#get" | "get"
+            )
+            && lookup_arguments.len() == 2
+        {
+            let callee_value = self.compile_static_map_get_direct(lookup_arguments, span)?;
             return self.compile_native_callable_value_call(callee_value, arguments, span);
         }
         if let Expr::Call {
@@ -10866,10 +10881,24 @@ impl NativeCodeGenerator {
                 {
                     self.static_head_value_for_return_hint(&arguments[0])
                 }
+                Expr::Identifier { name, .. }
+                    if arguments.len() == 2
+                        && matches!(
+                            self.builtin_name_for_identifier(name).as_str(),
+                            "Map#get" | "get"
+                        ) =>
+                {
+                    self.static_map_get_value_for_return_hint(&arguments[0], &arguments[1])
+                }
                 Expr::FieldAccess { target, field, .. }
                     if arguments.is_empty() && field == "head" =>
                 {
                     self.static_head_value_for_return_hint(target)
+                }
+                Expr::FieldAccess { target, field, .. }
+                    if arguments.len() == 1 && field == "get" =>
+                {
+                    self.static_map_get_value_for_return_hint(target, &arguments[0])
                 }
                 _ => None,
             },
@@ -10883,6 +10912,60 @@ impl NativeCodeGenerator {
                 .static_lists
                 .get(label.0)
                 .and_then(|list| list.elements.first().cloned()),
+            _ => None,
+        }
+    }
+
+    fn static_map_get_value_for_return_hint(
+        &self,
+        map_expr: &Expr,
+        key_expr: &Expr,
+    ) -> Option<StaticValue> {
+        let StaticValue::StaticMap { label } = self.static_value_for_return_hint(map_expr)? else {
+            return None;
+        };
+        let entries = self.static_maps.get(label.0)?;
+        entries
+            .entries
+            .iter()
+            .find_map(|(entry_key, entry_value)| {
+                self.static_map_key_matches_expr_for_return_hint(entry_key, key_expr)
+                    .filter(|matches| *matches)
+                    .map(|_| entry_value.clone())
+            })
+            .or(Some(StaticValue::Null))
+    }
+
+    fn static_map_key_matches_expr_for_return_hint(
+        &self,
+        entry_key: &StaticValue,
+        key_expr: &Expr,
+    ) -> Option<bool> {
+        if let Some(key) = self.static_value_for_return_hint(key_expr) {
+            return Some(self.static_value_equal_user(entry_key, &key));
+        }
+        match (entry_key, key_expr) {
+            (StaticValue::Int(expected), Expr::Int { value, .. }) => Some(expected == value),
+            (StaticValue::Float(expected), Expr::Double { value, kind, .. }) => {
+                (matches!(kind, FloatLiteralKind::Float))
+                    .then(|| f32::from_bits(*expected) == *value as f32)
+            }
+            (StaticValue::Double(expected), Expr::Double { value, kind, .. }) => {
+                (matches!(kind, FloatLiteralKind::Double))
+                    .then(|| f64::from_bits(*expected) == *value)
+            }
+            (StaticValue::Bool(expected), Expr::Bool { value, .. }) => Some(expected == value),
+            (StaticValue::Null, Expr::Null { .. }) => Some(true),
+            (StaticValue::Unit, Expr::Unit { .. }) => Some(true),
+            (
+                StaticValue::StaticString {
+                    label: expected,
+                    len,
+                },
+                Expr::String { value, .. },
+            ) if !value.contains("#{") => {
+                Some(self.asm.data_bytes_for_label(*expected, *len) == value.as_bytes())
+            }
             _ => None,
         }
     }

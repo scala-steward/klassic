@@ -165,10 +165,11 @@ directly because their bodies are emitted at the call site.
 Annotated `String` / `List<String>` returns use function-owned return buffers;
 direct call sites immediately copy those buffers into call-site-local buffers so
 neighboring calls can be composed without clobbering each other.
-Function value aliases, static record fields, and direct or method-style `head`
-lookups from static lists created from those `def`s retain the annotated runtime
-return metadata, allowing aliased calls to be recognized by string
-concatenation, dynamic string-branch merging, and runtime line-list helpers.
+Function value aliases, static record fields, direct or method-style `head`
+lookups from static lists, and static `Map#get` / `.get` lookups created from
+those `def`s retain the annotated runtime return metadata, allowing aliased
+calls to be recognized by string concatenation, dynamic string-branch merging,
+and runtime line-list helpers.
 Immediate calls on conditional function values are lowered from
 `(if (cond) f else g)(args...)` to branch-local calls, preserving argument
 evaluation on the selected path while reusing dynamic `if` result buffers for

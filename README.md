@@ -99,10 +99,10 @@ string/list frames are available.
 Annotated `String` and `List<String>` function returns use fixed return buffers
 that are copied into call-site buffers so adjacent calls do not overwrite each
 other.
-Function value aliases, static record fields, and direct or method-style `head`
-lookups from static lists for such `def`s preserve the runtime return metadata,
-so aliased calls can still participate in string concatenation and line-list
-helpers.
+Function value aliases, static record fields, direct or method-style `head`
+lookups from static lists, and static `Map#get` / `.get` lookups for such
+`def`s preserve the runtime return metadata, so aliased calls can still
+participate in string concatenation and line-list helpers.
 Immediate calls on conditional function values lower to branch-local calls, so
 runtime string and line-list return values can merge through the existing
 dynamic `if` result buffers.
