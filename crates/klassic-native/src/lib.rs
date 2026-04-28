@@ -5211,10 +5211,7 @@ impl NativeCodeGenerator {
             _ => None,
         };
         let Some((params, body)) = callback else {
-            return Err(unsupported(
-                span,
-                "native FileInput#open for non-lambda callback",
-            ));
+            return self.compile_file_input_open_callable(&arguments[0], &arguments[1], span);
         };
         let [_param] = params else {
             return Err(unsupported(
@@ -5255,6 +5252,52 @@ impl NativeCodeGenerator {
         self.push_scope();
         self.bind_static_runtime_value(params[0].clone(), path_value);
         let result = self.compile_expr(body);
+        self.pop_scope();
+        result
+    }
+
+    fn compile_file_input_open_callable(
+        &mut self,
+        path: &Expr,
+        callback: &Expr,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let stream_name = String::from("$klassic_file_input_open_stream");
+        let stream_expr = Expr::Identifier {
+            name: stream_name.clone(),
+            span,
+        };
+        if self.expr_may_yield_runtime_string(path) {
+            let path_value = self.compile_expr(path)?;
+            let Some(path) = self.native_string_ref(path_value) else {
+                return Err(unsupported(
+                    span,
+                    "native FileInput#open for non-string path",
+                ));
+            };
+            let path_len = match path.len {
+                NativeStringLen::Runtime(len) => len,
+                NativeStringLen::Immediate(len) => self.asm.data_label_with_i64s(&[len as i64]),
+            };
+            self.push_scope();
+            self.bind_constant(
+                stream_name,
+                NativeValue::RuntimeString {
+                    data: path.data,
+                    len: path_len,
+                },
+            );
+            let result = self.compile_call(callback, std::slice::from_ref(&stream_expr), span);
+            self.pop_scope();
+            return result;
+        }
+
+        let path =
+            self.static_string_from_argument_preserving_effects(path, span, "FileInput#open")?;
+        let path_value = self.static_string_value(path);
+        self.push_scope();
+        self.bind_static_runtime_value(stream_name, path_value);
+        let result = self.compile_call(callback, std::slice::from_ref(&stream_expr), span);
         self.pop_scope();
         result
     }

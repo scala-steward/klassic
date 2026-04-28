@@ -236,20 +236,20 @@ cargo run -- -e "1 + 2"
   method fields. Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.
-  Static-path `FileInput#open` callback bodies bind the stream path before
-  normal native compilation, allowing them to return supported runtime values as
-  well as folded static values.
+  Static-path `FileInput#open` callback bodies and callable callback values bind
+  the stream path before normal native compilation, allowing them to return
+  supported runtime values as well as folded static values.
   Paths whose contents become unknown through runtime writes or dynamic branches
   fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
   `Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.
   Runtime string values can also
   be copied into NUL-terminated syscall path buffers for `FileInput#all` and
   direct file-input printing. `FileInput#open` callbacks with runtime paths bind
-  the stream parameter as a runtime string, so callback bodies can return it or
-  pass it through supported runtime string and file helpers such as `readAll`,
-  `readLines`, `length`, and `cleanup`. Direct printing or immutable printable
-  bindings of `FileInput#lines` / `readLines` are also supported, with `size`,
-  `isEmpty`, `head`, `tail`,
+  the stream parameter as a runtime string, so callback bodies and callable
+  callback values can return it or pass it through supported runtime string and
+  file helpers such as `readAll`, `readLines`, `length`, and `cleanup`. Direct
+  printing or immutable printable bindings of `FileInput#lines` / `readLines`
+  are also supported, with `size`, `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda `map` producing string line lists,
   String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,

@@ -205,18 +205,19 @@ methods that are called with the receiver for native static evaluation. Static
 file input/output helpers for static paths are supported through Linux file
 syscalls plus compile-time virtual file tracking; `FileOutput#write` /
 `FileOutput#append` can also write fixed-buffer runtime string content.
-Static-path `FileInput#open` callback bodies bind the stream path before normal
-native compilation, so they may return supported runtime values as well as
-folded static values. Paths
+Static-path `FileInput#open` callback bodies and callable callback values bind
+the stream path before normal native compilation, so they may return supported
+runtime values as well as folded static values. Paths
 whose contents become unknown through runtime writes or dynamic branches
 fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
 `Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.
 Runtime string values can also be
 used as paths for `FileInput#all`, direct file-input printing, and
-`FileInput#open` callbacks whose stream parameter flows through supported
-runtime string and file helpers, including `readAll` / `readLines`, `length`,
-`cleanup`, or returning the path itself. Direct printing or immutable printable
-bindings of `FileInput#lines` / `readLines` are also supported; those
+`FileInput#open` callback bodies or callable callback values whose stream
+parameter flows through supported runtime string and file helpers, including
+`readAll` / `readLines`, `length`, `cleanup`, or returning the path itself.
+Direct printing or immutable printable bindings of `FileInput#lines` /
+`readLines` are also supported; those
 runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, `map`,
 with inline or aliased lambdas, String/Int/Bool-accumulator `foldLeft` with inline or
 aliased reducers, `split` / `join` with static or runtime string delimiters on

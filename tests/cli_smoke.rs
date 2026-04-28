@@ -2281,6 +2281,86 @@ assertResult(["alpha", "beta"])(opened)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_file_input_open_callable_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let input_path_holder =
+        std::env::temp_dir().join(format!("klassic-native-open-callable-holder-{unique}.txt"));
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-open-callable-{unique}.txt"));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-open-callable-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-open-callable-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val runtimePath = FileInput#all("{}")
+val readAll = FileInput#readAll
+val readLines = FileInput#readLines
+println(FileInput#open("Cargo.toml", readAll).contains("klassic"))
+println(FileInput#open(runtimePath, readAll))
+println(join(FileInput#open(runtimePath, readLines), "|"))
+println(FileInput#open(runtimePath, {{
+  println("pick callback")
+  FileInput#readAll
+}}))
+assert(FileInput#open("Cargo.toml", FileInput#readAll).contains("klassic"))
+assertResult("dynamic callback")(FileInput#open(runtimePath, readAll))
+assertResult(["dynamic callback"])(FileInput#open(runtimePath, FileInput#readLines))
+"#,
+            input_path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "FileInput#open callable value build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("input path holder should write after native build");
+    fs::write(&input_path, "dynamic callback").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&input_path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "FileInput#open callable value run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ndynamic callback\ndynamic callback\npick callback\ndynamic callback\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_file_input_binding() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
