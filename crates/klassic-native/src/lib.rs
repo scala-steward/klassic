@@ -651,13 +651,16 @@ impl NativeCodeGenerator {
                         let names = HashSet::from([name.clone()]);
                         expr_references_any_name(body, &names)
                     };
-                    let inline_at_call_site = !type_params.is_empty()
+                    let requires_call_site_inline = !type_params.is_empty()
                         || !constraints.is_empty()
                         || flexible_params.iter().any(|flexible| *flexible)
                         || flexible_return
                         || inferred_return_requires_inline
                         || contains_thread_call
                         || (captures_top_level_values && !self_recursive);
+                    let unsupported_recursive_inline = self_recursive && requires_call_site_inline;
+                    let inline_at_call_site =
+                        requires_call_site_inline && !unsupported_recursive_inline;
                     let return_value = annotated_return_value
                         .or(return_hint)
                         .unwrap_or(NativeValue::Int);
@@ -671,6 +674,7 @@ impl NativeCodeGenerator {
                         inline_at_call_site,
                         flexible_return,
                         contains_thread_call,
+                        unsupported_recursive_inline,
                         captured_top_level_names,
                     );
                 }
@@ -707,6 +711,7 @@ impl NativeCodeGenerator {
                             true,
                             false,
                             contains_thread_call,
+                            false,
                             HashSet::new(),
                         );
                     }
@@ -754,6 +759,7 @@ impl NativeCodeGenerator {
         inline_at_call_site: bool,
         flexible_return: bool,
         contains_thread_call: bool,
+        unsupported_recursive_inline: bool,
         captured_top_level_names: HashSet<String>,
     ) {
         if self.functions.contains_key(&name) {
@@ -773,6 +779,7 @@ impl NativeCodeGenerator {
                 inline_at_call_site,
                 flexible_return,
                 contains_thread_call,
+                unsupported_recursive_inline,
                 captured_top_level_names,
             },
         );
@@ -1951,6 +1958,12 @@ impl NativeCodeGenerator {
             .get(name)
             .expect("function existence was checked")
             .clone();
+        if function.unsupported_recursive_inline {
+            return Err(unsupported(
+                span,
+                "native recursive function requiring call-site inlining",
+            ));
+        }
         if !function.contains_thread_call
             && let Some(value) = self.static_function_call_value(&function, arguments)
         {
@@ -15193,6 +15206,7 @@ struct NativeFunction {
     inline_at_call_site: bool,
     flexible_return: bool,
     contains_thread_call: bool,
+    unsupported_recursive_inline: bool,
     captured_top_level_names: HashSet<String>,
 }
 

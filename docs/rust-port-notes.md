@@ -106,6 +106,9 @@ the module layout is described in `docs/architecture-rust.md`.
   fixed-buffer runtime strings.
 - Static strings also use the runtime slice path for `substring` / `at` when
   their indexes are mutable or otherwise dynamic integers.
+- Recursive functions that still need call-site inlining are rejected with a
+  compile diagnostic instead of recursively inlining until the compiler stack
+  overflows.
 - `FileOutput#write` / `FileOutput#append` can write fixed-buffer runtime
   string content. Because the resulting contents are not known at native build
   time, the affected path is treated as unknown for later compile-time file

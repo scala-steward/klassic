@@ -358,6 +358,10 @@ programs with the native compiler on Linux x86_64 and compares native
 stdout/stderr against the existing golden expectations whenever those fixtures
 define one. Promoted future-feature programs and the checked-in typeclass
 examples are also native-built and executed by the Rust integration tests.
+Recursive functions that would require call-site inlining, such as recursive
+functions with currently flexible native parameter or return representations,
+are rejected with a normal compile diagnostic instead of recursively inlining
+until the compiler stack overflows.
 Unsupported constructs fail with compile diagnostics; they do not silently fall
 back to the evaluator.
 
