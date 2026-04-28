@@ -5879,6 +5879,14 @@ impl NativeCodeGenerator {
                 "native Map#get for runtime key with no compatible static keys",
             ));
         }
+        if let Some(value) = self.uniform_runtime_map_get_static_value(&candidates) {
+            return self.compile_static_map_get_runtime_static_value_candidates(
+                candidates,
+                emit_match_condition,
+                value,
+                span,
+            );
+        }
         let value_kind =
             self.runtime_map_get_value_kind(candidates.iter().map(|(_, value)| value), span)?;
         let output = if matches!(
@@ -5925,6 +5933,48 @@ impl NativeCodeGenerator {
                 NativeValue::RuntimeLinesList { data, len }
             }
         })
+    }
+
+    fn uniform_runtime_map_get_static_value<K>(
+        &self,
+        candidates: &[(K, StaticValue)],
+    ) -> Option<StaticValue> {
+        let (_, first) = candidates.first()?;
+        if candidates
+            .iter()
+            .all(|(_, value)| self.static_value_equal_user(first, value))
+        {
+            Some(first.clone())
+        } else {
+            None
+        }
+    }
+
+    fn compile_static_map_get_runtime_static_value_candidates<K>(
+        &mut self,
+        candidates: Vec<(K, StaticValue)>,
+        mut emit_match_condition: impl FnMut(&mut Self, K) -> Condition,
+        value: StaticValue,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let done = self.asm.create_text_label();
+        let branches = candidates
+            .into_iter()
+            .map(|(entry_key, _)| {
+                let label = self.asm.create_text_label();
+                let condition = emit_match_condition(self, entry_key);
+                self.asm.jcc_label(condition, label);
+                label
+            })
+            .collect::<Vec<_>>();
+
+        self.emit_runtime_error(span, "Map#get runtime key was not found");
+        for label in branches {
+            self.asm.bind_text_label(label);
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+        Ok(self.emit_static_value(&value))
     }
 
     fn runtime_map_get_value_kind<'a>(
