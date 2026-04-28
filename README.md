@@ -273,7 +273,7 @@ Direct printing or immutable printable bindings of `FileInput#lines` /
 `readLines` are also supported; those
 runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`,
 `contains`, `map` with inline or aliased lambdas and builtin function values,
-String/Int/Bool/Unit/List<String>-accumulator direct or method-style `foldLeft` with inline or aliased reducers,
+String/Int/Bool/Null/Unit/List<String>-accumulator direct or method-style `foldLeft` with inline or aliased reducers,
 `split` / `join` with static or runtime string delimiters on
 runtime strings, runtime `foreach`, `toString`, string concatenation, and equality /
 `assertResult` checks against static string

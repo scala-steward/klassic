@@ -183,7 +183,7 @@ the module layout is described in `docs/architecture-rust.md`.
   closures over those buffers observe later native assignments. Runtime
   line-list values also support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`,
   inline or aliased-lambda `map` that produces string line lists,
-  String/Int/Bool/Unit/List<String>-accumulator `foldLeft` with inline or aliased reducers, `join`,
+  String/Int/Bool/Null/Unit/List<String>-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
   runtime `foreach`, `toString`, string concatenation, and
   equality / `assertResult` checks

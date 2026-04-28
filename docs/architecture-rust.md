@@ -304,7 +304,7 @@ cargo run -- -e "1 + 2"
   are also supported, with `size`, `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda and builtin-function-value `map` producing
   string line lists,
-  String/Int/Bool/Unit/List<String>-accumulator direct or method-style `foldLeft` with inline or aliased reducers, `join`,
+  String/Int/Bool/Null/Unit/List<String>-accumulator direct or method-style `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
   runtime `foreach`, and
   equality / `assertResult` support
