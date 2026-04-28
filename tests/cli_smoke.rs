@@ -5702,6 +5702,82 @@ fn builds_native_executable_for_straight_line_mutable_static_values() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_annotated_string_lambda_parameters() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-string-lambda-{unique}.kl"));
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-string-lambda-{unique}.txt"));
+    let lines_path =
+        std::env::temp_dir().join(format!("klassic-native-string-lambda-lines-{unique}.txt"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-string-lambda-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val textLength = (s: String) => length(s)
+val lineCount = (lines: List<String>) => lines.size()
+val text = FileInput#all("{}")
+val lines = FileInput#lines("{}")
+println(textLength(text))
+println(textLength("abc"))
+println(lineCount(lines))
+println(lineCount(["x", "y"]))
+assertResult(7)(textLength(text))
+assertResult(3)(textLength("abc"))
+assertResult(3)(lineCount(lines))
+assertResult(2)(lineCount(["x", "y"]))
+"#,
+            input_path.display(),
+            lines_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "annotated string lambda build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "dynamic").expect("input source should write after native build");
+    fs::write(&lines_path, "a\nb\nc").expect("lines source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&lines_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "annotated string lambda run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "7\n3\n3\n2\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_placeholder_callable_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -73,7 +73,8 @@ cargo run -- -e "1 + 2"
   integer/boolean return inference, stack-passed arguments beyond the first six
   integer/boolean native function parameters, annotated runtime `String` /
   `List<String>` parameters for scalar-returning recursive functions whose
-  self-calls pass the buffered value through unchanged, and top-level lambda
+  self-calls pass the buffered value through unchanged, top-level and inline
+  lambda calls with the same annotated parameter matching, and top-level lambda
   bindings lowered as static functions or inlined at call sites when they
   capture mutable locals.
   Temporary stack pushes used while evaluating native call arguments are tracked

@@ -98,6 +98,8 @@ self-recursive calls must pass those parameters through unchanged until per-call
 string/list frames are available.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
+Inline and top-level lambda calls use the same annotated `String` /
+`List<String>` parameter matching.
 Static record lambda methods follow the same rule, so native method calls keep
 mutable side effects on the runtime path, including effectful receiver and
 argument expressions when their final values remain statically recoverable.

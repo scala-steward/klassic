@@ -693,21 +693,21 @@ impl NativeCodeGenerator {
                         ..
                     } = value.as_ref()
                     {
-                        let param_values = param_annotations
-                            .iter()
-                            .map(|annotation| {
-                                annotation
-                                    .as_ref()
-                                    .and_then(native_value_from_annotation)
-                                    .unwrap_or(NativeValue::Int)
-                            })
-                            .collect::<Vec<_>>();
+                        let mut flexible_params = Vec::new();
+                        let mut param_values = Vec::new();
+                        for annotation in param_annotations {
+                            let value = annotation.as_ref().and_then(|annotation| {
+                                self.native_function_param_value(annotation)
+                            });
+                            flexible_params.push(value.is_none() && annotation.is_some());
+                            param_values.push(value.unwrap_or(NativeValue::Int));
+                        }
                         let contains_thread_call = expr_contains_thread_call(body, &thread_aliases);
                         self.predeclare_function(
                             name.clone(),
                             params.clone(),
                             param_values,
-                            vec![false; params.len()],
+                            flexible_params,
                             native_value_hint_from_expr(body).unwrap_or(NativeValue::Int),
                             body.as_ref().clone(),
                             true,
@@ -2398,6 +2398,31 @@ impl NativeCodeGenerator {
                 .unwrap_or(false);
             let static_argument = self.static_value_from_pure_expr(argument);
             let value = self.compile_expr(argument)?;
+            if matches!(expected_value, NativeValue::RuntimeString { .. }) {
+                if self.native_string_ref(value).is_none() {
+                    self.pop_scope();
+                    return Err(unsupported(
+                        span,
+                        "native inline function string argument for this value type",
+                    ));
+                }
+                self.bind_constant(param.clone(), value);
+                continue;
+            }
+            if matches!(expected_value, NativeValue::RuntimeLinesList { .. }) {
+                if !matches!(value, NativeValue::RuntimeLinesList { .. })
+                    && let Err(diagnostic) = self.static_write_lines_content_from_native(
+                        value,
+                        span,
+                        "inline function line-list argument",
+                    )
+                {
+                    self.pop_scope();
+                    return Err(diagnostic);
+                }
+                self.bind_constant(param.clone(), value);
+                continue;
+            }
             if !flexible && value != expected_value {
                 self.pop_scope();
                 return Err(unsupported(

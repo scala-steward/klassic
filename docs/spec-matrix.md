@@ -69,6 +69,7 @@ The repository contains a Rust-native language implementation with:
   function arguments beyond the first six integer/boolean parameters,
   annotated runtime `String` / `List<String>` parameters in scalar-returning
   recursive functions whose self-calls pass the buffered value through unchanged,
+  top-level and inline lambda calls with the same annotated parameter matching,
   immutable static string/list bindings, simple unannotated integer/boolean return inference,
   streamed `println` / `printlnError` string interpolation, compile-time folded
   interpolation for immutable static values with preserved fragment block effects,
