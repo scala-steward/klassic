@@ -187,8 +187,9 @@ For conditional builtin branches, the synthesized callable also keeps display
 metadata so printing, interpolation, string concatenation, and `toString` emit
 the selected branch's `<builtin:name>`, even after the callable is returned from
 a function or nested inside a static aggregate. Bound interpolation strings and
-string concatenations that include such aggregates use the runtime string buffer
-rather than freezing a `<function>` placeholder at native build time.
+string concatenations that include such aggregates, including map keys and set
+elements, use the runtime string buffer rather than freezing a `<function>`
+placeholder at native build time.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

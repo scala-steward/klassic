@@ -116,7 +116,8 @@ supported builtin function values with matching arity. Conditional builtin
 callables keep evaluator-style selected-branch `<builtin:name>` display,
 including when returned from functions and observed through interpolation,
 string concatenation, or `toString`, including bound interpolation/concatenation
-strings and aggregate `toString` for lists, records, and maps that contain them.
+strings and aggregate `toString` for lists, records, maps, and sets that contain
+them.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Inline and top-level lambda calls use the same annotated `String` /
