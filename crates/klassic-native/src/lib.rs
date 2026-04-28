@@ -928,19 +928,6 @@ impl NativeCodeGenerator {
         Ok(Some(NativeValue::StaticLambda { label }))
     }
 
-    fn compile_conditional_callable_binding(
-        &mut self,
-        name: &str,
-        value: &Expr,
-        span: Span,
-    ) -> Result<bool, Diagnostic> {
-        let Some(value) = self.compile_conditional_callable_value(value, span, Some(name))? else {
-            return Ok(false);
-        };
-        self.bind_constant(name.to_string(), value);
-        Ok(true)
-    }
-
     fn conditional_callable_arity(&self, then_branch: &Expr, else_branch: &Expr) -> Option<usize> {
         let then_arity = self.callable_arity_for_conditional_binding(then_branch)?;
         let else_arity = self.callable_arity_for_conditional_binding(else_branch)?;
@@ -1093,9 +1080,6 @@ impl NativeCodeGenerator {
                 else_branch,
                 span,
             } => {
-                if let Some(value) = self.compile_conditional_callable_value(expr, *span, None)? {
-                    return Ok(value);
-                }
                 if let Some(value) = self.compile_statically_selected_if(
                     condition,
                     then_branch,
@@ -1108,6 +1092,10 @@ impl NativeCodeGenerator {
                     self.static_if_value(condition, then_branch, else_branch.as_deref())
                 {
                     Ok(self.emit_static_value(&value))
+                } else if let Some(value) =
+                    self.compile_conditional_callable_value(expr, *span, None)?
+                {
+                    Ok(value)
                 } else {
                     self.compile_if(condition, then_branch, else_branch.as_deref(), *span)
                 }
@@ -1186,9 +1174,6 @@ impl NativeCodeGenerator {
                 span,
                 ..
             } => {
-                if !mutable && self.compile_conditional_callable_binding(name, value, *span)? {
-                    return Ok(NativeValue::Unit);
-                }
                 if !mutable && let Some(alias) = self.builtin_alias_from_expr(value) {
                     let label = self.intern_builtin_alias(alias);
                     self.bind_constant(name.clone(), NativeValue::BuiltinFunction { label });

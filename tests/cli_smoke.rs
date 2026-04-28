@@ -1959,7 +1959,7 @@ fn builds_native_executable_for_static_if_values() {
     let output_path = std::env::temp_dir().join(format!("klassic-native-static-if-{unique}"));
     fs::write(
         &source_path,
-        "val label = if(true) \"yes\" else \"no\"\nval xs = if(false) [0] else [1, 2]\nval row = if(size(xs) == 2) record { name: \"ok\", count: size(xs) } else record { name: \"bad\", count: 0 }\nprintln(label)\nprintln(xs)\nprintln(row.name)\nprintln(row.count)\nassertResult(\"yes\")(label)\nassertResult([1, 2])(xs)\nassertResult(record { name: \"ok\", count: 2 })(row)\n",
+        "val label = if(true) \"yes\" else \"no\"\nval xs = if(false) [0] else [1, 2]\nval row = if(size(xs) == 2) record { name: \"ok\", count: size(xs) } else record { name: \"bad\", count: 0 }\nval mapper = if(true) ((x) => x + 1) else ((x) => x + 2)\nval mapped = map([1, 2])(mapper)\nval mappedMethod = [1, 2].map(if(false) ((x) => x + 1) else ((x) => x + 2))\nprintln(label)\nprintln(xs)\nprintln(row.name)\nprintln(row.count)\nprintln(mapped)\nprintln(mappedMethod)\nassertResult(\"yes\")(label)\nassertResult([1, 2])(xs)\nassertResult(record { name: \"ok\", count: 2 })(row)\nassertResult([2, 3])(mapped)\nassertResult([3, 4])(mappedMethod)\n",
     )
     .expect("source should write");
 
@@ -1985,7 +1985,10 @@ fn builds_native_executable_for_static_if_values() {
     let _ = fs::remove_file(&output_path);
 
     assert!(run.status.success());
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "yes\n[1, 2]\nok\n2\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "yes\n[1, 2]\nok\n2\n[2, 3]\n[3, 4]\n"
+    );
     assert!(run.stderr.is_empty());
 }
 
