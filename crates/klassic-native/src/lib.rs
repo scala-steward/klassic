@@ -12692,6 +12692,10 @@ impl NativeCodeGenerator {
         self.expr_may_yield_static_string(expr) || self.expr_may_yield_runtime_string(expr)
     }
 
+    fn expr_may_yield_native_lines_list(&mut self, expr: &Expr) -> bool {
+        self.expr_may_yield_runtime_lines_list(expr) || self.expr_may_yield_static_string_list(expr)
+    }
+
     fn expr_may_yield_static_string(&mut self, expr: &Expr) -> bool {
         if matches!(
             self.static_value_from_expr_with_bindings_preserving_static_scopes(expr, &[]),
@@ -13192,6 +13196,11 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn expr_may_yield_static_string_list(&mut self, expr: &Expr) -> bool {
+        self.preview_static_value_after_effectful_eval(expr)
+            .is_some_and(|value| self.static_string_list_content_from_value(&value).is_some())
+    }
+
     fn static_interpolated_string_value(&mut self, value: &str) -> Option<String> {
         self.static_interpolated_string_value_inner(value, &[], None)
     }
@@ -13444,14 +13453,17 @@ impl NativeCodeGenerator {
         } else {
             None
         };
-        let branch_lines_output = if let Some(else_branch) = else_branch
-            && self.expr_may_yield_runtime_lines_list(then_branch)
-            && self.expr_may_yield_runtime_lines_list(else_branch)
-        {
-            Some((
-                self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
-                self.asm.data_label_with_i64s(&[0]),
-            ))
+        let branch_lines_output = if let Some(else_branch) = else_branch {
+            let then_lines = self.expr_may_yield_native_lines_list(then_branch);
+            let else_lines = self.expr_may_yield_native_lines_list(else_branch);
+            if then_lines && else_lines {
+                Some((
+                    self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+                    self.asm.data_label_with_i64s(&[0]),
+                ))
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -13491,19 +13503,13 @@ impl NativeCodeGenerator {
                 "if string result exceeds 65536 bytes",
             );
         }
-        if let Some((data, len)) = branch_lines_output
-            && let NativeValue::RuntimeLinesList {
-                data: input_data,
-                len: input_len,
-            } = then_value
-        {
+        if let Some((data, len)) = branch_lines_output {
+            let input =
+                self.native_lines_ref_from_value(then_value, span, "if line-list result")?;
             self.emit_copy_native_string_to_runtime_string_buffer(
                 data,
                 len,
-                NativeStringRef {
-                    data: input_data,
-                    len: NativeStringLen::Runtime(input_len),
-                },
+                input,
                 span,
                 "if line-list result exceeds 65536 bytes",
             );
@@ -13549,19 +13555,13 @@ impl NativeCodeGenerator {
                 "if string result exceeds 65536 bytes",
             );
         }
-        if let Some((data, len)) = branch_lines_output
-            && let NativeValue::RuntimeLinesList {
-                data: input_data,
-                len: input_len,
-            } = else_value
-        {
+        if let Some((data, len)) = branch_lines_output {
+            let input =
+                self.native_lines_ref_from_value(else_value, span, "if line-list result")?;
             self.emit_copy_native_string_to_runtime_string_buffer(
                 data,
                 len,
-                NativeStringRef {
-                    data: input_data,
-                    len: NativeStringLen::Runtime(input_len),
-                },
+                input,
                 span,
                 "if line-list result exceeds 65536 bytes",
             );
@@ -13615,8 +13615,8 @@ impl NativeCodeGenerator {
         {
             Ok(NativeValue::RuntimeString { data, len })
         } else if let Some((data, len)) = branch_lines_output
-            && matches!(then_value, NativeValue::RuntimeLinesList { .. })
-            && matches!(else_value, NativeValue::RuntimeLinesList { .. })
+            && self.native_value_is_lines_list_compatible(then_value)
+            && self.native_value_is_lines_list_compatible(else_value)
         {
             Ok(NativeValue::RuntimeLinesList { data, len })
         } else if matches!(then_value, NativeValue::Unit) || matches!(else_value, NativeValue::Unit)
@@ -16030,6 +16030,15 @@ impl NativeCodeGenerator {
                     len: NativeStringLen::Immediate(content.len()),
                 })
             }
+        }
+    }
+
+    fn native_value_is_lines_list_compatible(&self, value: NativeValue) -> bool {
+        match value {
+            NativeValue::RuntimeLinesList { .. } => true,
+            value => self
+                .static_value_from_native(value)
+                .is_some_and(|value| self.static_string_list_content_from_value(&value).is_some()),
         }
     }
 

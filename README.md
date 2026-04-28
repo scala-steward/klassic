@@ -113,7 +113,8 @@ Block, cleanup, and same-runtime-return conditional callees preserve the same
 metadata for immediate calls.
 Immediate calls on conditional function values lower to branch-local calls, so
 runtime string and line-list return values can merge through the existing
-dynamic `if` result buffers.
+dynamic `if` result buffers, including `List<String>` joins where one branch is
+a static string list and the other is a runtime line list.
 Pure conditional callable branches used in immutable bindings or static
 aggregate elements snapshot the condition once, then store a synthesized
 callable that performs the same branch-local call when invoked, including

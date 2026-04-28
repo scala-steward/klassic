@@ -7241,7 +7241,7 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
         std::env::temp_dir().join(format!("klassic-native-dynamic-if-runtime-lines-{unique}"));
     fs::write(
         &source_path,
-        "val chooseArgs = head(args()) == \"args\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else {\n  (toString(size(args())) + \"\\nblue\").split(\"\\n\")\n}\nprintln(size(lines))\nprintln(lines.head())\nprintln(lines.join(\"|\"))\nif(chooseArgs) {\n  assertResult(\"first\")(lines.head())\n  assertResult(\"first|second\")(lines.join(\"|\"))\n} else {\n  assertResult(\"1\")(lines.head())\n  assertResult(\"1|blue\")(lines.join(\"|\"))\n}\n",
+        "val chooseArgs = head(args()) == \"args\"\nval chooseStatic = head(args()) == \"static\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else if(chooseStatic) {\n  [\"static\", \"branch\"]\n} else {\n  (toString(size(args())) + \"\\nblue\").split(\"\\n\")\n}\nprintln(size(lines))\nprintln(lines.head())\nprintln(lines.join(\"|\"))\nif(chooseArgs) {\n  assertResult(\"first\")(lines.head())\n  assertResult(\"first|second\")(lines.join(\"|\"))\n} else if(chooseStatic) {\n  assertResult(\"static\")(lines.head())\n  assertResult(\"static|branch\")(lines.join(\"|\"))\n} else {\n  assertResult(\"1\")(lines.head())\n  assertResult(\"1|blue\")(lines.join(\"|\"))\n}\n",
     )
     .expect("source should write");
 
@@ -7274,6 +7274,10 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
         .arg("split")
         .output()
         .expect("generated executable should run split branch");
+    let static_run = Command::new(&output_path)
+        .arg("static")
+        .output()
+        .expect("generated executable should run static branch");
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&output_path);
@@ -7298,6 +7302,18 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
     );
     assert_eq!(String::from_utf8_lossy(&split_run.stdout), "2\n1\n1|blue\n");
     assert!(split_run.stderr.is_empty());
+
+    assert!(
+        static_run.status.success(),
+        "dynamic if runtime line static run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&static_run.stdout),
+        String::from_utf8_lossy(&static_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&static_run.stdout),
+        "2\nstatic\nstatic|branch\n"
+    );
+    assert!(static_run.stderr.is_empty());
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
