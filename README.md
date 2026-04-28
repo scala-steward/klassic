@@ -307,9 +307,10 @@ null also support ordinary `==` / `!=` when both sides are statically known.
 `ToDo()` emits the same `not implemented yet` runtime failure message from a
 native executable. Native runtime failures for `assert`, `assertResult`,
 `head([])`, negative `sleep`, and negative string helper indexes/counts include
-source location prefixes on stderr. Native FileOutput syscall failures also
-report source-located stderr diagnostics instead of continuing silently, as do
-Dir copy/mkdir/delete/move failures.
+source location prefixes on stderr, and failing `assertResult` messages keep
+conditional builtin callable displays in step with normal printing. Native
+FileOutput syscall failures also report source-located stderr diagnostics
+instead of continuing silently, as do Dir copy/mkdir/delete/move failures.
 Unsupported constructs fail at build time instead of falling back to the
 evaluator.
 

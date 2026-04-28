@@ -16496,12 +16496,40 @@ impl NativeCodeGenerator {
         expected: &StaticValue,
         actual: &StaticValue,
     ) {
+        if self.static_value_has_conditional_builtin_display(expected)
+            || self.static_value_has_conditional_builtin_display(actual)
+        {
+            self.emit_assert_result_failed_static_dynamic(span, expected, actual);
+            return;
+        }
         let message = format!(
             "assertResult failed: expected {} but got {}",
             self.static_value_display_string(expected),
             self.static_value_display_string(actual)
         );
         self.emit_runtime_error(span, &message);
+    }
+
+    fn emit_assert_result_failed_static_dynamic(
+        &mut self,
+        span: Span,
+        expected: &StaticValue,
+        actual: &StaticValue,
+    ) {
+        let prefix_text = format!(
+            "{}assertResult failed: expected ",
+            self.runtime_error_prefix(span)
+        );
+        let prefix = self.asm.data_label_with_bytes(prefix_text.as_bytes());
+        let middle = self.asm.data_label_with_bytes(b" but got ");
+        self.emit_write_data(2, prefix, prefix_text.len());
+        let expected = self.emit_static_value(expected);
+        self.emit_print_value_fragment(2, expected);
+        self.emit_write_data(2, middle, " but got ".len());
+        let actual = self.emit_static_value(actual);
+        self.emit_print_value_fragment(2, actual);
+        self.emit_write_data(2, self.newline, 1);
+        self.emit_exit_code(1);
     }
 
     fn emit_assert_result_failed_static_native(

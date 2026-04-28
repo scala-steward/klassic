@@ -8165,6 +8165,12 @@ fn builds_native_executable_for_assertion_runtime_errors() {
             1,
             "assertResult failed: expected [1] but got [2]",
         ),
+        (
+            "val flag = size(CommandLine#args()) == 0\nval pick = if(flag) toLowerCase else toUpperCase\nassertResult(pick)(toUpperCase)\n",
+            3,
+            1,
+            "assertResult failed: expected <builtin:toLowerCase> but got <builtin:toUpperCase>",
+        ),
         ("head([])\n", 1, 1, "head expects a non-empty list"),
         (
             "val h = head\nh([])\n",

@@ -227,8 +227,9 @@ cargo run -- -e "1 + 2"
   negative string-helper index/count paths, FileOutput open/write syscall
   failures, runtime `Dir#copy` source/target/copy failures, and Dir
   mkdir/delete/move syscall failures write evaluator-style
-  source-located diagnostics to stderr before exiting non-zero. Cleanup
-  expressions preserve
+  source-located diagnostics to stderr before exiting non-zero. Failing
+  `assertResult` messages reuse the dynamic print path for conditional builtin
+  callable displays. Cleanup expressions preserve
   their body result while still emitting cleanup effects.
   Recoverably false `while` conditions emit their condition effects and skip the
   body, so unreachable native-unsupported constructs do not block compilation.

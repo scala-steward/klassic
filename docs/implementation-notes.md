@@ -281,8 +281,10 @@ supported for printing, static string concatenation, equality, and
 `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
 `not implemented yet` message with the source location prefix. Native
 `assert(false)` and failing `assertResult` checks now write source-located
-runtime diagnostics to stderr before exiting non-zero; `head([])` follows the
-same executable-runtime diagnostic path instead of failing the native build.
+runtime diagnostics to stderr before exiting non-zero, with conditional builtin
+callable displays rendered through the same dynamic print path as normal
+output; `head([])` follows the same executable-runtime diagnostic path instead
+of failing the native build.
 Negative `sleep` millisecond values also emit evaluator-style runtime
 diagnostics from the generated executable.
 Negative string helper indexes/counts for `substring`, `at`, and `repeat` also

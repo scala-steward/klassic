@@ -44,7 +44,9 @@ the module layout is described in `docs/architecture-rust.md`.
   include source-location prefixes on stderr. This currently covers `ToDo`,
   `assert`, failing `assertResult`, empty `head`, negative `sleep`, negative
   string helper indexes/counts, FileOutput syscall failures, and Dir
-  mkdir/delete/move syscall failures.
+  mkdir/delete/move syscall failures. Failing `assertResult` messages preserve
+  conditional builtin callable displays through the same dynamic print path used
+  by normal output.
 - `Dir#mkdirs` intentionally ignores `EEXIST`, matching `create_dir_all`.
   `FileOutput#delete` intentionally ignores `ENOENT`, matching the evaluator's
   successful delete of missing files.
