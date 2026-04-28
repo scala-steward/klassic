@@ -1221,8 +1221,11 @@ val runtimeStringKey = head(args())
 val runtimeLineKey = head(tail(args()))
 val runtimeBuiltinKey = head(tail(tail(args())))
 val runtimeIntFnKey = head(tail(tail(tail(args()))))
+val runtimeCapturedFnKey = head(tail(tail(tail(tail(args())))))
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
+val delta = length(runtimeStringKey)
+val capturedFns = %["add": (x: Int) => x + delta, "sub": (x: Int) => x - delta]
 println(Map#get(stringFns, "reverse")(text, length(text) - 1) + stringFns.get("reverse")("xy", 1))
 println(join(Map#get(lineFns, "keep")(lines, 2), "|"))
 println(Map#get(stringFns, "re" + suffix)(text, length(text) - 1) + stringFns.get("re" + suffix)("xy", 1))
@@ -1242,6 +1245,8 @@ println(pickedFlagBuiltin)
 println(pickedFlagBuiltin("AbC"))
 val pickedIntFn = Map#get(intFns, runtimeIntFnKey)
 println(pickedIntFn(40))
+val pickedCapturedFn = Map#get(capturedFns, runtimeCapturedFnKey)
+println(pickedCapturedFn(10))
 val pickedSameBuiltin = Map#get(sameBuiltinFns, runtimeBuiltinKey)
 println(pickedSameBuiltin)
 println(pickedSameBuiltin("AbC"))
@@ -1260,6 +1265,7 @@ assertResult("ABC")(pickedBuiltin("AbC"))
 assertResult("ABC")(pickedLengthBuiltin("AbC"))
 assertResult("ABC")(pickedFlagBuiltin("AbC"))
 assertResult(42)(pickedIntFn(40))
+assertResult(17)(pickedCapturedFn(10))
 assertResult("ABC")(pickedSameBuiltin("AbC"))
 assertResult(["a", "b", "c"])(Map#get(lineGroups, runtimeLineKey))
 assert(lineGroups.containsValue(Map#get(lineGroups, runtimeLineKey)))
@@ -1297,6 +1303,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
         .arg("keep")
         .arg("upper")
         .arg("two")
+        .arg("add")
         .output()
         .expect("generated executable should run");
 
@@ -1313,7 +1320,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n42\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n42\n17\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }
