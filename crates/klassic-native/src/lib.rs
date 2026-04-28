@@ -5432,7 +5432,31 @@ impl NativeCodeGenerator {
             span,
             "FileInput#lines",
         )?;
-        let content = self.static_file_content(&path, span, "FileInput#lines")?;
+        if let Some(content) = self.virtual_files.get(&path).cloned() {
+            let elements = content
+                .lines()
+                .map(|line| self.static_string_value(line.to_string()))
+                .collect::<Vec<_>>();
+            let label = self.intern_static_list(elements);
+            return Ok(NativeValue::StaticList { label });
+        }
+        if self.unknown_virtual_paths.contains(&path) {
+            let content = self.emit_file_read_to_runtime_string(&path, span, "FileInput#lines");
+            let NativeValue::RuntimeString { data, len } = content else {
+                return Err(unsupported(span, "native FileInput#lines runtime list"));
+            };
+            return Ok(NativeValue::RuntimeLinesList { data, len });
+        }
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(_) => {
+                let content = self.emit_file_read_to_runtime_string(&path, span, "FileInput#lines");
+                let NativeValue::RuntimeString { data, len } = content else {
+                    return Err(unsupported(span, "native FileInput#lines runtime list"));
+                };
+                return Ok(NativeValue::RuntimeLinesList { data, len });
+            }
+        };
         let elements = content
             .lines()
             .map(|line| self.static_string_value(line.to_string()))

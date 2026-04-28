@@ -324,7 +324,7 @@ fixed-buffer runtime string content and then mark that path's native virtual
 file state as unknown. Static-path `FileInput#open` callback bodies and callable
 callback values bind the stream path before normal native compilation, so they
 may return supported runtime values as well as folded static values. Unknown
-paths fall back to runtime `FileInput#all`,
+paths fall back to runtime `FileInput#all`, `FileInput#lines` / `readLines`,
 `FileOutput#exists`, `Dir#exists`, `Dir#isFile`, `Dir#isDirectory`, `Dir#list`,
 and `Dir#listFull` syscalls instead of reusing stale build-time facts. Runtime
 string paths are accepted for the same read/existence/type-check operations and

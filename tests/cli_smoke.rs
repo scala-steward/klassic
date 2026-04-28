@@ -5897,6 +5897,70 @@ fn native_build_uses_runtime_read_after_dynamic_if_virtual_file_state() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn native_build_uses_runtime_lines_after_dynamic_if_virtual_file_state() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-file-lines-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-file-lines-{unique}"));
+    let file_path = std::env::temp_dir().join(format!("klassic-native-lines-{unique}.txt"));
+    fs::write(
+        &source_path,
+        format!(
+            "val flag = stopwatch( => 1) >= 0\nif(flag) {{\n  FileOutput#writeLines(\"{}\", [\"then\", \"branch\"])\n}} else {{\n  ()\n}}\nval lines = FileInput#lines(\"{}\")\nval readLines = FileInput#readLines(\"{}\")\nprintln(lines)\nprintln(join(readLines, \"|\"))\nassertResult([\"then\", \"branch\"])(lines)\nassertResult(lines)(readLines)\nFileOutput#delete(\"{}\")\n",
+            file_path.display(),
+            file_path.display(),
+            file_path.display(),
+            file_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic file runtime lines build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+    let _ = fs::remove_file(&file_path);
+
+    assert!(
+        run.status.success(),
+        "dynamic file runtime lines run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[then, branch]\nthen|branch\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn native_build_rejects_dynamic_if_divergent_thread_queues() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -209,8 +209,9 @@ Static-path `FileInput#open` callback bodies and callable callback values bind
 the stream path before normal native compilation, so they may return supported
 runtime values as well as folded static values. Paths
 whose contents become unknown through runtime writes or dynamic branches
-fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
-`Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.
+fall back to runtime `FileInput#all`, `FileInput#lines` / `readLines`,
+`FileOutput#exists`, `Dir#exists`, `Dir#isFile`, `Dir#isDirectory`,
+`Dir#list`, and `Dir#listFull` syscalls.
 Runtime string values can also be
 used as paths for `FileInput#all`, direct file-input printing, and
 `FileInput#open` callback bodies or callable callback values whose stream

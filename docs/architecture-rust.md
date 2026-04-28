@@ -241,8 +241,9 @@ cargo run -- -e "1 + 2"
   the stream path before normal native compilation, allowing them to return
   supported runtime values as well as folded static values.
   Paths whose contents become unknown through runtime writes or dynamic branches
-  fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
-  `Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.
+  fall back to runtime `FileInput#all`, `FileInput#lines` / `readLines`,
+  `FileOutput#exists`, `Dir#exists`, `Dir#isFile`, `Dir#isDirectory`,
+  `Dir#list`, and `Dir#listFull` syscalls.
   Runtime string values can also
   be copied into NUL-terminated syscall path buffers for `FileInput#all` and
   direct file-input printing. `FileInput#open` callbacks with runtime paths bind
