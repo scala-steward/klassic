@@ -290,6 +290,8 @@ cargo run -- -e "1 + 2"
   unqualified, aliased-helper, and function-local native calls.
   `Process#exit(code)` evaluates its code argument and emits the Linux process
   exit syscall, giving generated native CLI tools explicit status codes. Static
+  strings also route `substring` / `at` through the runtime slice emitter when
+  the index expressions are mutable or otherwise dynamic integers.
   `StandardInput#all()` / `stdin()` read stdin into a fixed-buffer runtime
   string, and `StandardInput#lines()` / `stdinLines()` expose stdin through the
   runtime line-list representation shared with file and argv helpers. Static

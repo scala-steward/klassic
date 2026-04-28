@@ -1215,6 +1215,78 @@ fn builds_native_executable_for_static_string_helpers() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_string_dynamic_indices() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-static-string-dynamic-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-static-string-dynamic-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val text = "abacad"
+mutable i = 0
+mutable count = 0
+while(i < length(text)) {
+  if(text.at(i) == "a") { count += 1 } else { count += 0 }
+  i += 1
+}
+mutable start = 1
+mutable end = 4
+val direct = substring("abcdef", start, end)
+val method = "abcdef".substring(start, end)
+println(count)
+println(direct)
+println(method)
+println("xy".at(start))
+assertResult(3)(count)
+assertResult("bcd")(direct)
+assertResult("bcd")(method)
+assertResult("y")("xy".at(start))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "static string dynamic index build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "static string dynamic index run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\nbcd\nbcd\ny\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_builtin_function_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

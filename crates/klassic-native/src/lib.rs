@@ -3241,6 +3241,45 @@ impl NativeCodeGenerator {
                 }
                 let input =
                     self.static_string_from_argument_preserving_effects(&arguments[0], span, name)?;
+                if !matches!(
+                    (
+                        self.preview_static_value_after_effectful_eval(&arguments[1]),
+                        self.preview_static_value_after_effectful_eval(&arguments[2])
+                    ),
+                    (Some(StaticValue::Int(_)), Some(StaticValue::Int(_)))
+                ) {
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    let start = self.compile_expr(&arguments[1])?;
+                    if start != NativeValue::Int {
+                        return Err(unsupported(
+                            span,
+                            "native substring for non-integer start index",
+                        ));
+                    }
+                    let start_chars = self.asm.data_label_with_i64s(&[0]);
+                    self.asm.mov_data_addr(Reg::Rcx, start_chars);
+                    self.asm.store_ptr_disp32(Reg::Rcx, 0, Reg::Rax);
+                    let end = self.compile_expr(&arguments[2])?;
+                    if end != NativeValue::Int {
+                        return Err(unsupported(
+                            span,
+                            "native substring for non-integer end index",
+                        ));
+                    }
+                    let end_chars = self.asm.data_label_with_i64s(&[0]);
+                    self.asm.mov_data_addr(Reg::Rcx, end_chars);
+                    self.asm.store_ptr_disp32(Reg::Rcx, 0, Reg::Rax);
+                    return Ok(self.emit_runtime_string_slice_dynamic_indices(
+                        input,
+                        start_chars,
+                        end_chars,
+                        span,
+                        name,
+                    ));
+                }
                 let start = self.static_non_negative_int_argument_preserving_effects(
                     &arguments[1],
                     name,
@@ -3295,6 +3334,33 @@ impl NativeCodeGenerator {
                 }
                 let input =
                     self.static_string_from_argument_preserving_effects(&arguments[0], span, name)?;
+                if !matches!(
+                    self.preview_static_value_after_effectful_eval(&arguments[1]),
+                    Some(StaticValue::Int(_))
+                ) {
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    let index = self.compile_expr(&arguments[1])?;
+                    if index != NativeValue::Int {
+                        return Err(unsupported(span, "native at for non-integer index"));
+                    }
+                    let start_chars = self.asm.data_label_with_i64s(&[0]);
+                    self.asm.mov_data_addr(Reg::Rcx, start_chars);
+                    self.asm.store_ptr_disp32(Reg::Rcx, 0, Reg::Rax);
+                    let end_chars = self.asm.data_label_with_i64s(&[0]);
+                    self.asm.inc_reg(Reg::Rax);
+                    self.asm.mov_data_addr(Reg::Rcx, end_chars);
+                    self.asm.store_ptr_disp32(Reg::Rcx, 0, Reg::Rax);
+                    return Ok(self.emit_runtime_string_slice_dynamic_indices(
+                        input,
+                        start_chars,
+                        end_chars,
+                        span,
+                        name,
+                    ));
+                }
                 let index = self.static_non_negative_int_argument_preserving_effects(
                     &arguments[1],
                     name,

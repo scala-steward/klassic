@@ -149,9 +149,11 @@ Static string and integer list values
 can be bound with `val`; static string helper calls such as `substring`, `split`,
 `join`, `trim`,
 `replace`, `startsWith`, `indexOf`, `length`, `repeat`, and method-style
-`"text".contains("x")` are folded during native compilation. Static string
-helper functions can also be bound through immutable aliases such as
-`val sub = substring` and called through that alias in native builds.
+`"text".contains("x")` are folded during native compilation. Static
+`substring` / `at` also use the native runtime slice path when their indexes
+come from mutable or otherwise dynamic integer values. Static string helper
+functions can also be bound through immutable aliases such as `val sub =
+substring` and called through that alias in native builds.
 Runtime `FileInput#all` / `FileInput#readAll` bindings support the same fixed
 native string buffer path for printing, concatenation, equality, `assertResult`,
 method-style `toString`, `substring` / `at` with static or runtime integer

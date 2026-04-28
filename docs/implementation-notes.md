@@ -293,6 +293,9 @@ oversized results fail at runtime with a source-located diagnostic instead of
 being silently truncated. `Dir#copy` now uses runtime
 `open`/`sendfile` for non-virtual source files instead of requiring the source
 to be readable at native build time.
+Static strings use the same runtime slice emitter for `substring` / `at` when
+their index expressions are mutable or otherwise dynamic integers, so loops can
+walk known strings without requiring every index to fold at build time.
 `Dir#move` likewise treats non-virtual runtime moves as unknown File/Dir state
 after emitting the rename syscall, preventing later native folds from using
 stale build-time filesystem facts.
