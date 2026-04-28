@@ -3747,9 +3747,8 @@ impl NativeCodeGenerator {
                     ));
                 }
                 if let Some(value) = self.static_value_from_pure_expr(&arguments[0]) {
-                    if let Some(display) = self.conditional_builtin_display_for_static_value(&value)
-                    {
-                        return Ok(self.emit_conditional_builtin_display_string(&display, span));
+                    if self.static_value_has_conditional_builtin_display(&value) {
+                        return Ok(self.emit_static_value_display_runtime_string(&value, span));
                     }
                     return Ok(self.emit_static_string(self.static_value_display_string(&value)));
                 }
@@ -3762,9 +3761,8 @@ impl NativeCodeGenerator {
                         span,
                         "native toString for non-static value",
                     )?;
-                    if let Some(display) = self.conditional_builtin_display_for_static_value(&value)
-                    {
-                        return Ok(self.emit_conditional_builtin_display_string(&display, span));
+                    if self.static_value_has_conditional_builtin_display(&value) {
+                        return Ok(self.emit_static_value_display_runtime_string(&value, span));
                     }
                     return Ok(self.emit_static_string(self.static_value_display_string(&value)));
                 }
@@ -5796,16 +5794,6 @@ impl NativeCodeGenerator {
             data: text.data,
             len,
         })
-    }
-
-    fn conditional_builtin_display_for_static_value(
-        &self,
-        value: &StaticValue,
-    ) -> Option<ConditionalBuiltinDisplay> {
-        let StaticValue::StaticLambda { label } = value else {
-            return None;
-        };
-        self.conditional_builtin_displays.get(label).cloned()
     }
 
     fn emit_conditional_builtin_display_string(
@@ -9480,6 +9468,295 @@ impl NativeCodeGenerator {
             label,
             len: value.len(),
         }
+    }
+
+    fn static_value_has_conditional_builtin_display(&self, value: &StaticValue) -> bool {
+        match value {
+            StaticValue::StaticLambda { label } => {
+                self.conditional_builtin_displays.contains_key(label)
+            }
+            StaticValue::StaticList { label } => {
+                self.static_lists.get(label.0).is_some_and(|list| {
+                    list.elements
+                        .iter()
+                        .any(|value| self.static_value_has_conditional_builtin_display(value))
+                })
+            }
+            StaticValue::StaticRecord { label } => {
+                self.static_records.get(label.0).is_some_and(|record| {
+                    record
+                        .fields
+                        .iter()
+                        .any(|(_, value)| self.static_value_has_conditional_builtin_display(value))
+                })
+            }
+            StaticValue::StaticMap { label } => self.static_maps.get(label.0).is_some_and(|map| {
+                map.entries.iter().any(|(key, value)| {
+                    self.static_value_has_conditional_builtin_display(key)
+                        || self.static_value_has_conditional_builtin_display(value)
+                })
+            }),
+            StaticValue::StaticSet { label } => self.static_sets.get(label.0).is_some_and(|set| {
+                set.elements
+                    .iter()
+                    .any(|value| self.static_value_has_conditional_builtin_display(value))
+            }),
+            _ => false,
+        }
+    }
+
+    fn emit_static_value_display_runtime_string(
+        &mut self,
+        value: &StaticValue,
+        span: Span,
+    ) -> NativeValue {
+        let output = self.runtime_string_scratch_value();
+        let NativeValue::RuntimeString { data, len } = output else {
+            unreachable!("runtime string scratch should be a runtime string")
+        };
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_append_static_value_display_to_runtime_buffer(data, offset, value, span);
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        output
+    }
+
+    fn emit_append_static_value_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        value: &StaticValue,
+        span: Span,
+    ) {
+        let overflow_message = "toString result exceeds 65536 bytes";
+        match value {
+            StaticValue::StaticLambda { label } => {
+                if let Some(display) = self.conditional_builtin_displays.get(label).cloned() {
+                    self.emit_append_conditional_builtin_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        &display,
+                        span,
+                        overflow_message,
+                    );
+                } else {
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        "<function>",
+                        span,
+                        overflow_message,
+                    );
+                }
+            }
+            StaticValue::StaticList { label }
+                if self.static_value_has_conditional_builtin_display(value) =>
+            {
+                let elements = self
+                    .static_lists
+                    .get(label.0)
+                    .map(|list| list.elements.clone())
+                    .unwrap_or_default();
+                self.emit_append_text_to_runtime_buffer(data, offset, "[", span, overflow_message);
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 {
+                        self.emit_append_text_to_runtime_buffer(
+                            data,
+                            offset,
+                            ", ",
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.emit_append_static_value_display_to_runtime_buffer(
+                        data, offset, element, span,
+                    );
+                }
+                self.emit_append_text_to_runtime_buffer(data, offset, "]", span, overflow_message);
+            }
+            StaticValue::StaticRecord { label }
+                if self.static_value_has_conditional_builtin_display(value) =>
+            {
+                let record = self.static_records.get(label.0).cloned();
+                let Some(record) = record else {
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        "#()",
+                        span,
+                        overflow_message,
+                    );
+                    return;
+                };
+                self.emit_append_text_to_runtime_buffer(data, offset, "#", span, overflow_message);
+                if !record.name.is_empty() {
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        &record.name,
+                        span,
+                        overflow_message,
+                    );
+                }
+                self.emit_append_text_to_runtime_buffer(data, offset, "(", span, overflow_message);
+                for (index, (_, field_value)) in record.fields.iter().enumerate() {
+                    if index > 0 {
+                        self.emit_append_text_to_runtime_buffer(
+                            data,
+                            offset,
+                            ", ",
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.emit_append_static_value_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        field_value,
+                        span,
+                    );
+                }
+                self.emit_append_text_to_runtime_buffer(data, offset, ")", span, overflow_message);
+            }
+            StaticValue::StaticMap { label }
+                if self.static_value_has_conditional_builtin_display(value) =>
+            {
+                let entries = self
+                    .static_maps
+                    .get(label.0)
+                    .map(|map| map.entries.clone())
+                    .unwrap_or_default();
+                self.emit_append_text_to_runtime_buffer(data, offset, "%[", span, overflow_message);
+                for (index, (key, entry_value)) in entries.iter().enumerate() {
+                    if index > 0 {
+                        self.emit_append_text_to_runtime_buffer(
+                            data,
+                            offset,
+                            ", ",
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.emit_append_static_value_display_to_runtime_buffer(
+                        data, offset, key, span,
+                    );
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        ": ",
+                        span,
+                        overflow_message,
+                    );
+                    self.emit_append_static_value_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        entry_value,
+                        span,
+                    );
+                }
+                self.emit_append_text_to_runtime_buffer(data, offset, "]", span, overflow_message);
+            }
+            StaticValue::StaticSet { label }
+                if self.static_value_has_conditional_builtin_display(value) =>
+            {
+                let elements = self
+                    .static_sets
+                    .get(label.0)
+                    .map(|set| set.elements.clone())
+                    .unwrap_or_default();
+                self.emit_append_text_to_runtime_buffer(data, offset, "%(", span, overflow_message);
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 {
+                        self.emit_append_text_to_runtime_buffer(
+                            data,
+                            offset,
+                            ", ",
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.emit_append_static_value_display_to_runtime_buffer(
+                        data, offset, element, span,
+                    );
+                }
+                self.emit_append_text_to_runtime_buffer(data, offset, ")", span, overflow_message);
+            }
+            _ => {
+                let text = self.static_value_display_string(value);
+                self.emit_append_text_to_runtime_buffer(
+                    data,
+                    offset,
+                    &text,
+                    span,
+                    overflow_message,
+                );
+            }
+        }
+    }
+
+    fn emit_append_conditional_builtin_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        display: &ConditionalBuiltinDisplay,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let else_label = self.asm.create_text_label();
+        let end_label = self.asm.create_text_label();
+        self.asm
+            .load_rbp_slot(Reg::Rax, display.condition_slot.offset);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, else_label);
+        self.emit_append_builtin_display_to_runtime_buffer(
+            data,
+            offset,
+            display.then_label,
+            span,
+            overflow_message,
+        );
+        self.asm.jmp_label(end_label);
+        self.asm.bind_text_label(else_label);
+        self.emit_append_builtin_display_to_runtime_buffer(
+            data,
+            offset,
+            display.else_label,
+            span,
+            overflow_message,
+        );
+        self.asm.bind_text_label(end_label);
+    }
+
+    fn emit_append_builtin_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        label: BuiltinLabel,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let text = self.builtin_function_display_string(label);
+        self.emit_append_text_to_runtime_buffer(data, offset, &text, span, overflow_message);
+    }
+
+    fn emit_append_text_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        text: &str,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let input_data = self.asm.data_label_with_bytes(text.as_bytes());
+        self.emit_append_native_string_to_runtime_buffer_offset_label(
+            data,
+            offset,
+            NativeStringRef {
+                data: input_data,
+                len: NativeStringLen::Immediate(text.len()),
+            },
+            span,
+            overflow_message,
+        );
     }
 
     fn static_string_value(&mut self, value: String) -> StaticValue {

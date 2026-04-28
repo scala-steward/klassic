@@ -128,7 +128,8 @@ the module layout is described in `docs/architecture-rust.md`.
   callable that dispatches through the saved condition, including supported
   builtin function values with matching arity. Conditional builtin callables
   preserve selected-branch `<builtin:name>` display through printing,
-  interpolation, and `toString`, including when returned from functions.
+  interpolation, and `toString`, including when returned from functions or
+  nested inside static aggregates.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
 - Static strings also use the runtime slice path for `substring` / `at` when
