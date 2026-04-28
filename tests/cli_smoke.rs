@@ -503,6 +503,96 @@ assertResult(6)(sumOldSizes(lines, 0))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_reentrant_runtime_parameter_staging() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-reentrant-runtime-param-{unique}.kl"
+    ));
+    let first_text_path = std::env::temp_dir().join(format!(
+        "klassic-native-reentrant-runtime-param-first-{unique}.txt"
+    ));
+    let second_text_path = std::env::temp_dir().join(format!(
+        "klassic-native-reentrant-runtime-param-second-{unique}.txt"
+    ));
+    let first_lines_path = std::env::temp_dir().join(format!(
+        "klassic-native-reentrant-runtime-param-first-lines-{unique}.txt"
+    ));
+    let second_lines_path = std::env::temp_dir().join(format!(
+        "klassic-native-reentrant-runtime-param-second-lines-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-reentrant-runtime-param-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"def lengthPlus(s: String, n: Int): Int = length(s) + n
+def sizePlus(lines: List<String>, n: Int): Int = lines.size() + n
+val first = FileInput#all("{}")
+val second = FileInput#all("{}")
+val firstLines = FileInput#lines("{}")
+val secondLines = FileInput#lines("{}")
+println(lengthPlus(first, lengthPlus(second, 0)))
+println(sizePlus(firstLines, sizePlus(secondLines, 0)))
+assertResult(7)(lengthPlus(first, lengthPlus(second, 0)))
+assertResult(4)(sizePlus(firstLines, sizePlus(secondLines, 0)))
+"#,
+            first_text_path.display(),
+            second_text_path.display(),
+            first_lines_path.display(),
+            second_lines_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "reentrant runtime parameter build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&first_text_path, "hello").expect("first text should write after native build");
+    fs::write(&second_text_path, "xy").expect("second text should write after native build");
+    fs::write(&first_lines_path, "a\nb\nc").expect("first lines should write after native build");
+    fs::write(&second_lines_path, "z").expect("second lines should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&first_text_path);
+    let _ = fs::remove_file(&second_text_path);
+    let _ = fs::remove_file(&first_lines_path);
+    let _ = fs::remove_file(&second_lines_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "reentrant runtime parameter run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "7\n4\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_recursive_runtime_string_return() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -108,11 +108,11 @@ the module layout is described in `docs/architecture-rust.md`.
 - Native `toString` formats dynamic native `Int` / `Boolean` values into
   fixed-buffer runtime strings.
 - Scalar-returning recursive native functions can accept annotated `String` and
-  `List<String>` parameters by copying the argument into fixed
-  function-parameter buffers before scalar register/stack arguments are passed.
-  `List<String>` accepts both static string lists and runtime line lists.
-  Self-recursive calls that rewrite those buffered arguments stage the new
-  string/list values before updating the shared function-parameter buffers.
+  `List<String>` parameters by staging the argument into fresh runtime buffers
+  before fixed function-parameter buffers are updated and scalar register/stack
+  arguments are passed. `List<String>` accepts both static string lists and
+  runtime line lists, and reentrant/self-recursive calls keep left-to-right
+  argument evaluation intact.
 - Annotated `String` / `List<String>` returns use fixed function return buffers
   that direct call sites copy into call-site-local buffers.
 - Function value aliases, static record fields, direct or method-style `head`

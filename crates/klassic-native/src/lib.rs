@@ -2367,7 +2367,6 @@ impl NativeCodeGenerator {
         if function.inline_at_call_site {
             return self.compile_inline_function_call(&function, arguments, span);
         }
-        let recursive_call_to_active_function = self.active_function_name.as_deref() == Some(name);
         self.referenced_functions.insert(name.to_string());
         if arguments.len() != function.params.len() {
             return Err(Diagnostic::compile(
@@ -2379,7 +2378,7 @@ impl NativeCodeGenerator {
                 ),
             ));
         }
-        let mut staged_recursive_runtime_arguments = Vec::new();
+        let mut staged_runtime_arguments = Vec::new();
         let mut scalar_argument_count = 0usize;
         for (argument, expected_value) in arguments.iter().zip(function.param_values.iter()) {
             let value = self.compile_expr(argument)?;
@@ -2390,40 +2389,30 @@ impl NativeCodeGenerator {
                         "native function string argument for this value type",
                     ));
                 };
-                if recursive_call_to_active_function && value != *expected_value {
-                    let staged = self.runtime_string_scratch_value();
-                    let NativeValue::RuntimeString {
-                        data: staged_data,
-                        len: staged_len,
-                    } = staged
-                    else {
-                        unreachable!("runtime string scratch should be a runtime string")
-                    };
-                    self.emit_copy_native_string_to_runtime_string_buffer(
-                        staged_data,
-                        staged_len,
-                        input,
-                        span,
-                        "function string argument exceeds 65536 bytes",
-                    );
-                    staged_recursive_runtime_arguments.push((
-                        *data,
-                        *len,
-                        NativeStringRef {
-                            data: staged_data,
-                            len: NativeStringLen::Runtime(staged_len),
-                        },
-                        "function string argument exceeds 65536 bytes",
-                    ));
-                    continue;
-                }
+                let staged = self.runtime_string_scratch_value();
+                let NativeValue::RuntimeString {
+                    data: staged_data,
+                    len: staged_len,
+                } = staged
+                else {
+                    unreachable!("runtime string scratch should be a runtime string")
+                };
                 self.emit_copy_native_string_to_runtime_string_buffer(
-                    *data,
-                    *len,
+                    staged_data,
+                    staged_len,
                     input,
                     span,
                     "function string argument exceeds 65536 bytes",
                 );
+                staged_runtime_arguments.push((
+                    *data,
+                    *len,
+                    NativeStringRef {
+                        data: staged_data,
+                        len: NativeStringLen::Runtime(staged_len),
+                    },
+                    "function string argument exceeds 65536 bytes",
+                ));
                 continue;
             }
             if let NativeValue::RuntimeLinesList { data, len } = expected_value {
@@ -2447,40 +2436,30 @@ impl NativeCodeGenerator {
                         len: NativeStringLen::Immediate(content.len()),
                     }
                 };
-                if recursive_call_to_active_function && value != *expected_value {
-                    let staged = self.runtime_lines_list_scratch_value();
-                    let NativeValue::RuntimeLinesList {
-                        data: staged_data,
-                        len: staged_len,
-                    } = staged
-                    else {
-                        unreachable!("runtime line-list scratch should be a runtime line list")
-                    };
-                    self.emit_copy_native_string_to_runtime_string_buffer(
-                        staged_data,
-                        staged_len,
-                        input,
-                        span,
-                        "function line-list argument exceeds 65536 bytes",
-                    );
-                    staged_recursive_runtime_arguments.push((
-                        *data,
-                        *len,
-                        NativeStringRef {
-                            data: staged_data,
-                            len: NativeStringLen::Runtime(staged_len),
-                        },
-                        "function line-list argument exceeds 65536 bytes",
-                    ));
-                    continue;
-                }
+                let staged = self.runtime_lines_list_scratch_value();
+                let NativeValue::RuntimeLinesList {
+                    data: staged_data,
+                    len: staged_len,
+                } = staged
+                else {
+                    unreachable!("runtime line-list scratch should be a runtime line list")
+                };
                 self.emit_copy_native_string_to_runtime_string_buffer(
-                    *data,
-                    *len,
+                    staged_data,
+                    staged_len,
                     input,
                     span,
                     "function line-list argument exceeds 65536 bytes",
                 );
+                staged_runtime_arguments.push((
+                    *data,
+                    *len,
+                    NativeStringRef {
+                        data: staged_data,
+                        len: NativeStringLen::Runtime(staged_len),
+                    },
+                    "function line-list argument exceeds 65536 bytes",
+                ));
                 continue;
             }
             if matches!(expected_value, NativeValue::Int | NativeValue::Bool) {
@@ -2501,7 +2480,7 @@ impl NativeCodeGenerator {
                 ));
             }
         }
-        for (data, len, input, overflow_message) in staged_recursive_runtime_arguments {
+        for (data, len, input, overflow_message) in staged_runtime_arguments {
             self.emit_copy_native_string_to_runtime_string_buffer(
                 data,
                 len,

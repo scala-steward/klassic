@@ -92,11 +92,10 @@ bindings are lowered as static functions or inlined at call sites when they
 capture mutable native locals, and direct inline lambda calls can receive
 runtime integer/boolean arguments without folding away impure lambda bodies.
 Recursive scalar-returning native functions can also accept annotated `String`
-and `List<String>` parameters by copying runtime strings or static/runtime line
-lists into fixed function-parameter buffers before the scalar call ABI is invoked;
-self-recursive calls that rewrite those parameters stage the new string or
-line-list value before updating the shared parameter buffer, preserving
-left-to-right argument evaluation.
+and `List<String>` parameters. Call sites stage runtime strings or
+static/runtime line lists into fresh buffers before copying them into fixed
+function-parameter buffers immediately before the scalar call ABI is invoked,
+so reentrant and self-recursive calls preserve left-to-right argument evaluation.
 Annotated `String` and `List<String>` function returns use fixed return buffers
 that are copied into call-site buffers so adjacent calls do not overwrite each
 other.

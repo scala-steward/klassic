@@ -73,7 +73,7 @@ cargo run -- -e "1 + 2"
   integer/boolean return inference, stack-passed arguments beyond the first six
   integer/boolean native function parameters, annotated runtime `String` /
   `List<String>` parameters for scalar-returning recursive functions, including
-  self-calls that rewrite those buffered values through staged copies,
+  reentrant and self-calls staged before shared parameter buffers are updated,
   fixed-buffer annotated `String` / `List<String>` returns copied into call-site buffers, function
   value aliases, static record fields, direct or method-style static-list
   `head` lookups including `tail` and `cons` chains, and static `Map#get` /
