@@ -1207,6 +1207,8 @@ def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else
 val stringFns = %["reverse": reverseFrom]
 val lineFns = %["keep": keepLines]
 val builtinFns = %["lower": toLowerCase, "upper": toUpperCase]
+val builtinFnsByLength = %[3: toLowerCase, 5: toUpperCase]
+val builtinFnsByFlag = %[true: toUpperCase, false: toLowerCase]
 val sameBuiltinFns = %["upper": toUpperCase, "again": toUpperCase]
 val lineGroups = %["keep": ["a", "b", "c"], "short": ["x"]]
 val staticLineOptions = [["a", "b", "c"], ["x"]]
@@ -1227,6 +1229,10 @@ println(join(Map#get(lineFns, runtimeLineKey)(lines, 2), "|"))
 println(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
 val pickedBuiltin = Map#get(builtinFns, runtimeBuiltinKey)
 println(pickedBuiltin("AbC"))
+val pickedLengthBuiltin = Map#get(builtinFnsByLength, length(runtimeBuiltinKey))
+println(pickedLengthBuiltin("AbC"))
+val pickedFlagBuiltin = Map#get(builtinFnsByFlag, runtimeBuiltinKey == "upper")
+println(pickedFlagBuiltin("AbC"))
 val pickedSameBuiltin = Map#get(sameBuiltinFns, runtimeBuiltinKey)
 println(pickedSameBuiltin)
 println(pickedSameBuiltin("AbC"))
@@ -1242,6 +1248,8 @@ assertResult("yx")(stringFns.get(runtimeStringKey)("xy", 1))
 assertResult(["a", "b", "c"])(Map#get(lineFns, runtimeLineKey)(lines, 2))
 assertResult("ABC")(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
 assertResult("ABC")(pickedBuiltin("AbC"))
+assertResult("ABC")(pickedLengthBuiltin("AbC"))
+assertResult("ABC")(pickedFlagBuiltin("AbC"))
 assertResult("ABC")(pickedSameBuiltin("AbC"))
 assertResult(["a", "b", "c"])(Map#get(lineGroups, runtimeLineKey))
 assert(lineGroups.containsValue(Map#get(lineGroups, runtimeLineKey)))
@@ -1294,7 +1302,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\nABC\nABC\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }

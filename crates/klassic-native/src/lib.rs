@@ -492,14 +492,26 @@ struct ConditionalBuiltinDisplay {
 }
 
 #[derive(Clone, Copy, Debug)]
+enum RuntimeMapCallableDispatchKey {
+    String(NativeStringRef),
+    Scalar(VarSlot),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RuntimeMapCallableCandidateKey {
+    String(NativeStringRef),
+    Scalar(u64),
+}
+
+#[derive(Clone, Copy, Debug)]
 struct RuntimeMapCallableCandidate {
-    key: NativeStringRef,
+    key: RuntimeMapCallableCandidateKey,
     callable: NativeValue,
 }
 
 #[derive(Clone, Debug)]
 struct RuntimeMapCallableDispatch {
-    key: NativeStringRef,
+    key: RuntimeMapCallableDispatchKey,
     candidates: Vec<RuntimeMapCallableCandidate>,
 }
 
@@ -2504,22 +2516,57 @@ impl NativeCodeGenerator {
             .get(label.0)
             .cloned()
             .ok_or_else(|| unsupported(span, "native runtime map callable dispatch"))?;
-        let key = dispatch.key;
-        let candidates = dispatch
-            .candidates
-            .into_iter()
-            .map(|candidate| (candidate.key, candidate.callable))
-            .collect::<Vec<_>>();
-        self.compile_runtime_map_get_callable_dispatch_candidates(
-            candidates,
-            |compiler, entry_key| {
-                compiler.emit_native_string_equality(key, entry_key);
-                compiler.asm.cmp_reg_imm8(Reg::Rax, 0);
-                Condition::NotEqual
-            },
-            arguments,
-            span,
-        )
+        match dispatch.key {
+            RuntimeMapCallableDispatchKey::String(key) => {
+                let candidates = dispatch
+                    .candidates
+                    .into_iter()
+                    .map(|candidate| match candidate.key {
+                        RuntimeMapCallableCandidateKey::String(entry_key) => {
+                            Ok((entry_key, candidate.callable))
+                        }
+                        RuntimeMapCallableCandidateKey::Scalar(_) => {
+                            Err(unsupported(span, "native runtime map callable dispatch"))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.compile_runtime_map_get_callable_dispatch_candidates(
+                    candidates,
+                    |compiler, entry_key| {
+                        compiler.emit_native_string_equality(key, entry_key);
+                        compiler.asm.cmp_reg_imm8(Reg::Rax, 0);
+                        Condition::NotEqual
+                    },
+                    arguments,
+                    span,
+                )
+            }
+            RuntimeMapCallableDispatchKey::Scalar(slot) => {
+                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+                let candidates = dispatch
+                    .candidates
+                    .into_iter()
+                    .map(|candidate| match candidate.key {
+                        RuntimeMapCallableCandidateKey::Scalar(entry_key) => {
+                            Ok((entry_key, candidate.callable))
+                        }
+                        RuntimeMapCallableCandidateKey::String(_) => {
+                            Err(unsupported(span, "native runtime map callable dispatch"))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.compile_runtime_map_get_callable_dispatch_candidates(
+                    candidates,
+                    |compiler, entry_key| {
+                        compiler.asm.mov_imm64(Reg::Rax, entry_key);
+                        compiler.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+                        Condition::Equal
+                    },
+                    arguments,
+                    span,
+                )
+            }
+        }
     }
 
     fn compile_function_call_by_name(
@@ -5517,6 +5564,11 @@ impl NativeCodeGenerator {
                 return self.compile_static_map_get_runtime_string_key(entries, key, span);
             }
             if matches!(key, NativeValue::Int | NativeValue::Bool) {
+                if let Some(value) =
+                    self.compile_static_map_get_runtime_scalar_callable_value(&entries, key)
+                {
+                    return Ok(value);
+                }
                 return self.compile_static_map_get_runtime_scalar_key(entries, key, span);
             }
             return Err(unsupported(span, "native Map#get for non-static key"));
@@ -5548,7 +5600,7 @@ impl NativeCodeGenerator {
             let callable = Self::static_callable_native_value(value)?;
             values.push(value);
             candidates.push(RuntimeMapCallableCandidate {
-                key: entry_key,
+                key: RuntimeMapCallableCandidateKey::String(entry_key),
                 callable,
             });
         }
@@ -5562,8 +5614,47 @@ impl NativeCodeGenerator {
         {
             return None;
         }
-        let label = self
-            .intern_runtime_map_callable_dispatch(RuntimeMapCallableDispatch { key, candidates });
+        let label = self.intern_runtime_map_callable_dispatch(RuntimeMapCallableDispatch {
+            key: RuntimeMapCallableDispatchKey::String(key),
+            candidates,
+        });
+        Some(NativeValue::RuntimeMapCallableDispatch(label))
+    }
+
+    fn compile_static_map_get_runtime_scalar_callable_value(
+        &mut self,
+        entries: &[(StaticValue, StaticValue)],
+        key: NativeValue,
+    ) -> Option<NativeValue> {
+        let mut candidates = Vec::new();
+        let mut values = Vec::new();
+        for (entry_key, value) in entries {
+            let Some(entry_key) = Self::static_value_scalar_bits(entry_key, key) else {
+                continue;
+            };
+            let callable = Self::static_callable_native_value(value)?;
+            values.push(value);
+            candidates.push(RuntimeMapCallableCandidate {
+                key: RuntimeMapCallableCandidateKey::Scalar(entry_key),
+                callable,
+            });
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        if let Some(first) = values.first()
+            && values
+                .iter()
+                .all(|value| self.static_value_equal(first, value))
+        {
+            return None;
+        }
+        let slot = self.allocate_anonymous_slot(key);
+        self.asm.store_rbp_slot(slot.offset, Reg::Rax);
+        let label = self.intern_runtime_map_callable_dispatch(RuntimeMapCallableDispatch {
+            key: RuntimeMapCallableDispatchKey::Scalar(slot),
+            candidates,
+        });
         Some(NativeValue::RuntimeMapCallableDispatch(label))
     }
 
@@ -11254,9 +11345,18 @@ impl NativeCodeGenerator {
                 .runtime_map_callable_dispatches
                 .get(label.0)
                 .is_some_and(|dispatch| {
-                    dispatch.candidates.iter().any(|candidate| {
-                        self.native_value_captures_current_scope(candidate.callable)
-                    })
+                    let key_captures_current_scope =
+                        if let RuntimeMapCallableDispatchKey::Scalar(slot) = dispatch.key {
+                            self.scope_base_offsets
+                                .last()
+                                .is_some_and(|base_offset| slot.offset > *base_offset)
+                        } else {
+                            false
+                        };
+                    key_captures_current_scope
+                        || dispatch.candidates.iter().any(|candidate| {
+                            self.native_value_captures_current_scope(candidate.callable)
+                        })
                 }),
             NativeValue::Int
             | NativeValue::Bool
@@ -17901,6 +18001,16 @@ impl NativeCodeGenerator {
             .expect("native compiler always has a scope")
             .insert(name, slot);
         slot
+    }
+
+    fn allocate_anonymous_slot(&mut self, value: NativeValue) -> VarSlot {
+        self.next_stack_offset += 8;
+        self.asm.sub_reg_imm8(Reg::Rsp, 8);
+        VarSlot {
+            id: self.fresh_var_slot_id(),
+            offset: self.next_stack_offset,
+            value,
+        }
     }
 
     fn bind_constant(&mut self, name: String, value: NativeValue) -> VarSlot {

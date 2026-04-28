@@ -312,8 +312,8 @@ key whose type has no compatible static keys returns static `null`; all-`null`
 compatible values also return static `null` for both hits and misses. If the
 compatible entries are all callable values, immediate calls through that lookup
 dispatch to the selected lambda or builtin branch and merge the same supported
-native return shapes; runtime string-key lookups can also be bound to immutable
-values and called later through the same dispatch path. Static
+native return shapes; runtime string/int/bool-key lookups can also be bound to
+immutable values and called later through the same dispatch path. Static
 `null` is supported for printing, equality, and `Map#get` misses; `()` is
 supported for printing, static string concatenation, equality, and
 `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
