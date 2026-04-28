@@ -246,7 +246,7 @@ cargo run -- -e "1 + 2"
   bindings of `FileInput#lines` / `readLines` and matching simple
   `open(...readLines...)` callbacks, with `size`, `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda `map` producing string line lists,
-  String-accumulator `foldLeft` with inline or aliased reducers, `join`,
+  String/Int-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
   runtime `foreach`, and
   equality / `assertResult` support

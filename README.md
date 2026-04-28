@@ -213,7 +213,7 @@ used as paths for `FileInput#all`, direct file-input printing, simple
 direct printing or immutable printable bindings of `FileInput#lines` /
 `readLines` including matching simple `open(...readLines...)` callbacks; those
 runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, `map`,
-with inline or aliased lambdas, String-accumulator `foldLeft` with inline or
+with inline or aliased lambdas, String/Int-accumulator `foldLeft` with inline or
 aliased reducers, `split` / `join` with static or runtime string delimiters on
 runtime strings, runtime `foreach`, `toString`, string concatenation, and equality /
 `assertResult` checks against static string

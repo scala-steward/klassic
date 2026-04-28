@@ -117,7 +117,7 @@ the module layout is described in `docs/architecture-rust.md`.
   `readLines`, and matching simple `open(...readLines...)` callbacks. Runtime
   line-list values also support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`,
   inline or aliased-lambda `map` that produces string line lists,
-  String-accumulator `foldLeft` with inline or aliased reducers, `join`,
+  String/Int-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
   runtime `foreach`, `toString`, string concatenation, and
   equality / `assertResult` checks
