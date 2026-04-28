@@ -10859,12 +10859,53 @@ impl NativeCodeGenerator {
             .and_then(|lambda| lambda.return_value)
     }
 
+    fn callee_return_value_hint(&self, callee: &Expr) -> Option<NativeValue> {
+        match callee {
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|expr| self.callee_return_value_hint(expr)),
+            Expr::Cleanup { body, .. } => self.callee_return_value_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let then_value = self.callee_return_value_hint(then_branch)?;
+                let else_value = self.callee_return_value_hint(else_branch)?;
+                match (then_value, else_value) {
+                    (NativeValue::RuntimeString { .. }, NativeValue::RuntimeString { .. })
+                    | (
+                        NativeValue::RuntimeLinesList { .. },
+                        NativeValue::RuntimeLinesList { .. },
+                    ) => Some(then_value),
+                    _ if then_value == else_value => Some(then_value),
+                    _ => None,
+                }
+            }
+            _ => self.static_lambda_callee_return_value(callee),
+        }
+    }
+
     fn static_value_for_return_hint(&self, expr: &Expr) -> Option<StaticValue> {
         match expr {
             Expr::Identifier { name, .. } => self.lookup_static_value(name).or_else(|| {
                 self.lookup_var(name)
                     .and_then(|slot| self.static_value_from_native(slot.value))
             }),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|expr| self.static_value_for_return_hint(expr)),
+            Expr::Cleanup { body, .. } => self.static_value_for_return_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let then_value = self.static_value_for_return_hint(then_branch)?;
+                let else_value = self.static_value_for_return_hint(else_branch)?;
+                self.static_value_equal(&then_value, &else_value)
+                    .then_some(then_value)
+            }
             Expr::FieldAccess { target, field, .. } => {
                 let StaticValue::StaticRecord { label } =
                     self.static_value_for_return_hint(target)?
@@ -11102,9 +11143,11 @@ impl NativeCodeGenerator {
                     true
                 }
                 callee
-                    if self.static_lambda_callee_return_value(callee).is_some_and(
-                        |return_value| matches!(return_value, NativeValue::RuntimeString { .. }),
-                    ) =>
+                    if self
+                        .callee_return_value_hint(callee)
+                        .is_some_and(|return_value| {
+                            matches!(return_value, NativeValue::RuntimeString { .. })
+                        }) =>
                 {
                     true
                 }
@@ -11218,11 +11261,11 @@ impl NativeCodeGenerator {
                         true
                     }
                     callee
-                        if self.static_lambda_callee_return_value(callee).is_some_and(
-                            |return_value| {
+                        if self
+                            .callee_return_value_hint(callee)
+                            .is_some_and(|return_value| {
                                 matches!(return_value, NativeValue::RuntimeLinesList { .. })
-                            },
-                        ) =>
+                            }) =>
                     {
                         true
                     }

@@ -118,6 +118,8 @@ the module layout is described in `docs/architecture-rust.md`.
   `Map#get` / `.get` lookups with literal or folded static keys for such `def`s
   retain the runtime return metadata for string concatenation and runtime
   line-list helper dispatch.
+- Block, cleanup, and same-runtime-return conditional callees retain those
+  runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so
   runtime `String` / `List<String>` returns can merge through dynamic `if`
   result buffers.

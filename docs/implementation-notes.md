@@ -171,6 +171,8 @@ lookups from static lists including `tail` and `cons` chains, and static
 `def`s retain the annotated runtime return metadata, allowing aliased calls to
 be recognized by string concatenation, dynamic string-branch merging, and
 runtime line-list helpers.
+Block, cleanup, and same-runtime-return conditional callees carry the same
+return hint for immediate calls that feed those contexts.
 Immediate calls on conditional function values are lowered from
 `(if (cond) f else g)(args...)` to branch-local calls, preserving argument
 evaluation on the selected path while reusing dynamic `if` result buffers for

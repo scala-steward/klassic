@@ -620,12 +620,16 @@ fn builds_native_executable_for_runtime_return_function_aliases() {
 def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
 val rev = reverseFrom
 val keep = keepLines
+mutable cleanups = 0
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(rev(text, length(text) - 1) + rev("xy", 1))
 println(join(keep(lines, 2), "|") + "/" + join(keep(["x", "y"], 1), ":"))
+println(({{ rev }})(text, length(text) - 1) + ({{ rev }} cleanup {{ cleanups += 1 }})("xy", 1))
+println(join(({{ keep }} cleanup {{ cleanups += 10 }})(lines, 2), "|"))
 assertResult("cbayx")(rev(text, length(text) - 1) + rev("xy", 1))
 assertResult("a|b|c/x:y")(join(keep(lines, 2), "|") + "/" + join(keep(["x", "y"], 1), ":"))
+assertResult(11)(cleanups)
 "#,
             text_path.display(),
             lines_path.display()
@@ -669,7 +673,10 @@ assertResult("a|b|c/x:y")(join(keep(lines, 2), "|") + "/" + join(keep(["x", "y"]
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "cbayx\na|b|c/x:y\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "cbayx\na|b|c/x:y\ncbayx\na|b|c\n"
+    );
     assert!(run.stderr.is_empty());
 }
 
@@ -779,6 +786,7 @@ val lines = FileInput#lines("{}")
 val pickedText = (if(usePlain) reverseFrom else markedReverseFrom)(text, length(text) - 1)
 val pickedLines = (if(usePlain) keepLines else dropHead)(lines, 1)
 println(pickedText + (if(usePlain) reverseFrom else markedReverseFrom)("xy", 1))
+println((if(usePlain) reverseFrom else markedReverseFrom)(text, length(text) - 1) + "!")
 println(join(pickedLines, "|"))
 "#,
             text_path.display(),
@@ -827,7 +835,10 @@ println(join(pickedLines, "|"))
         String::from_utf8_lossy(&true_run.stdout),
         String::from_utf8_lossy(&true_run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&true_run.stdout), "cbayx\na|b|c\n");
+    assert_eq!(
+        String::from_utf8_lossy(&true_run.stdout),
+        "cbayx\ncba!\na|b|c\n"
+    );
     assert!(true_run.stderr.is_empty());
 
     assert!(
@@ -836,7 +847,10 @@ println(join(pickedLines, "|"))
         String::from_utf8_lossy(&false_run.stdout),
         String::from_utf8_lossy(&false_run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&false_run.stdout), "cba!yx!\nb|c\n");
+    assert_eq!(
+        String::from_utf8_lossy(&false_run.stdout),
+        "cba!yx!\ncba!!\nb|c\n"
+    );
     assert!(false_run.stderr.is_empty());
 }
 

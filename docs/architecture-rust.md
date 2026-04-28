@@ -78,7 +78,8 @@ cargo run -- -e "1 + 2"
   value aliases, static record fields, direct or method-style static-list
   `head` lookups including `tail` and `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys preserving those runtime
-  return hints,
+  return hints, plus block, cleanup, and same-runtime-return conditional callees
+  preserving those hints,
   immediate calls on conditional function values lowered to branch-local calls,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call
