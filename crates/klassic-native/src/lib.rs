@@ -4130,21 +4130,7 @@ impl NativeCodeGenerator {
                 )
             }
             NativeValue::RuntimeLinesList { data, len } => {
-                let needle = self.compile_expr(&arguments[1])?;
-                let Some(needle) = self.native_string_ref(needle) else {
-                    return Err(unsupported(
-                        span,
-                        "native runtime lines contains for non-string needle",
-                    ));
-                };
-                self.emit_runtime_lines_contains_string(
-                    NativeStringRef {
-                        data,
-                        len: NativeStringLen::Runtime(len),
-                    },
-                    needle,
-                );
-                Ok(NativeValue::Bool)
+                self.compile_runtime_lines_contains_value(data, len, &arguments[1])
             }
             _ => Err(unsupported(
                 span,
@@ -4189,6 +4175,27 @@ impl NativeCodeGenerator {
             .iter()
             .any(|element| self.static_value_equal_user(element, &needle));
         self.asm.mov_imm64(Reg::Rax, u64::from(contains));
+        Ok(NativeValue::Bool)
+    }
+
+    fn compile_runtime_lines_contains_value(
+        &mut self,
+        data: DataLabel,
+        len: DataLabel,
+        value: &Expr,
+    ) -> Result<NativeValue, Diagnostic> {
+        let needle = self.compile_expr(value)?;
+        if let Some(needle) = self.native_string_ref(needle) {
+            self.emit_runtime_lines_contains_string(
+                NativeStringRef {
+                    data,
+                    len: NativeStringLen::Runtime(len),
+                },
+                needle,
+            );
+        } else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+        }
         Ok(NativeValue::Bool)
     }
 
@@ -4388,21 +4395,7 @@ impl NativeCodeGenerator {
         let collection = self.compile_expr(&set_arguments[0])?;
         match collection {
             NativeValue::RuntimeLinesList { data, len } => {
-                let needle = self.compile_expr(&value_arguments[0])?;
-                let Some(needle) = self.native_string_ref(needle) else {
-                    return Err(unsupported(
-                        span,
-                        "native runtime lines contains for non-string needle",
-                    ));
-                };
-                self.emit_runtime_lines_contains_string(
-                    NativeStringRef {
-                        data,
-                        len: NativeStringLen::Runtime(len),
-                    },
-                    needle,
-                );
-                return Ok(NativeValue::Bool);
+                return self.compile_runtime_lines_contains_value(data, len, &value_arguments[0]);
             }
             NativeValue::StaticString { .. } | NativeValue::RuntimeString { .. } => {
                 let input = self
