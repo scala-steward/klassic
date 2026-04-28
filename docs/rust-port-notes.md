@@ -135,8 +135,9 @@ the module layout is described in `docs/architecture-rust.md`.
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, evaluating only the selected
   branch's call arguments at runtime and merging supported native return shapes.
   Runtime string/int/bool-key lookup results from all-callable static maps can
-  also be bound to immutable values, called later, and printed with the selected
-  callable display.
+  also be bound to immutable values, called later, and formatted with the
+  selected callable display through printing, interpolation, string
+  concatenation, and `toString`.
 - Block, cleanup, and same-runtime-return conditional callees retain those
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so

@@ -6794,6 +6794,15 @@ impl NativeCodeGenerator {
             }
             NativeValue::Bool => self
                 .emit_bool_rax_to_runtime_string_ref(span, "toString result exceeds 65536 bytes"),
+            NativeValue::RuntimeMapCallableDispatch(label) => {
+                return Ok(
+                    self.emit_runtime_map_callable_dispatch_display_runtime_string(
+                        label,
+                        span,
+                        "toString result exceeds 65536 bytes",
+                    ),
+                );
+            }
             NativeValue::StaticLambda { label } => {
                 let Some(display) = self.conditional_builtin_displays.get(&label).cloned() else {
                     return Err(unsupported(span, "native toString for non-static value"));
@@ -10782,6 +10791,145 @@ impl NativeCodeGenerator {
         self.emit_append_text_to_runtime_buffer(data, offset, &text, span, overflow_message);
     }
 
+    fn emit_runtime_map_callable_dispatch_display_runtime_string(
+        &mut self,
+        label: RuntimeMapCallableDispatchLabel,
+        span: Span,
+        overflow_message: &str,
+    ) -> NativeValue {
+        let output = self.runtime_string_scratch_value();
+        let NativeValue::RuntimeString { data, len } = output else {
+            unreachable!("runtime string scratch should be a runtime string")
+        };
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(offset);
+        self.emit_append_runtime_map_callable_dispatch_display_to_runtime_buffer(
+            data,
+            offset,
+            label,
+            span,
+            overflow_message,
+        );
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        output
+    }
+
+    fn emit_append_runtime_map_callable_dispatch_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        label: RuntimeMapCallableDispatchLabel,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let Some(dispatch) = self.runtime_map_callable_dispatches.get(label.0).cloned() else {
+            self.emit_append_text_to_runtime_buffer(
+                data,
+                offset,
+                "<function>",
+                span,
+                overflow_message,
+            );
+            return;
+        };
+        let done = self.asm.create_text_label();
+        let branches = match dispatch.key {
+            RuntimeMapCallableDispatchKey::String(key) => dispatch
+                .candidates
+                .into_iter()
+                .filter_map(|candidate| {
+                    let RuntimeMapCallableCandidateKey::String(entry_key) = candidate.key else {
+                        return None;
+                    };
+                    let label = self.asm.create_text_label();
+                    self.emit_native_string_equality(key, entry_key);
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.jcc_label(Condition::NotEqual, label);
+                    Some((label, candidate.callable))
+                })
+                .collect::<Vec<_>>(),
+            RuntimeMapCallableDispatchKey::Scalar(slot) => {
+                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+                dispatch
+                    .candidates
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        let RuntimeMapCallableCandidateKey::Scalar(entry_key) = candidate.key
+                        else {
+                            return None;
+                        };
+                        let label = self.asm.create_text_label();
+                        self.asm.mov_imm64(Reg::Rax, entry_key);
+                        self.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+                        self.asm.jcc_label(Condition::Equal, label);
+                        Some((label, candidate.callable))
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
+        self.emit_append_text_to_runtime_buffer(data, offset, "null", span, overflow_message);
+        self.asm.jmp_label(done);
+        for (label, callable) in branches {
+            self.asm.bind_text_label(label);
+            self.emit_append_callable_value_display_to_runtime_buffer(
+                data,
+                offset,
+                callable,
+                span,
+                overflow_message,
+            );
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+    }
+
+    fn emit_append_callable_value_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        callable: NativeValue,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        match callable {
+            NativeValue::StaticLambda { label } => {
+                if let Some(display) = self.conditional_builtin_displays.get(&label).cloned() {
+                    self.emit_append_conditional_builtin_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        &display,
+                        span,
+                        overflow_message,
+                    );
+                } else {
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        "<function>",
+                        span,
+                        overflow_message,
+                    );
+                }
+            }
+            NativeValue::BuiltinFunction { label } => {
+                self.emit_append_builtin_display_to_runtime_buffer(
+                    data,
+                    offset,
+                    label,
+                    span,
+                    overflow_message,
+                );
+            }
+            _ => self.emit_append_text_to_runtime_buffer(
+                data,
+                offset,
+                "<function>",
+                span,
+                overflow_message,
+            ),
+        }
+    }
+
     fn emit_append_text_to_runtime_buffer(
         &mut self,
         data: DataLabel,
@@ -12551,6 +12699,16 @@ impl NativeCodeGenerator {
                 "string concatenation result exceeds 65536 bytes",
             ));
         }
+        if let NativeValue::RuntimeMapCallableDispatch(label) = value {
+            let rendered = self.emit_runtime_map_callable_dispatch_display_runtime_string(
+                label,
+                span,
+                "string concatenation result exceeds 65536 bytes",
+            );
+            return self
+                .native_string_ref(rendered)
+                .ok_or_else(|| unsupported(span, "native string concatenation"));
+        }
         if let Some(static_value) = self.static_value_from_native(value) {
             if self.static_value_has_conditional_builtin_display(&static_value) {
                 let rendered = self.emit_static_value_display_runtime_string(&static_value, span);
@@ -14266,6 +14424,14 @@ impl NativeCodeGenerator {
                     self.emit_append_bool_rax_to_runtime_buffer_offset_label(
                         data,
                         offset,
+                        span,
+                        "string interpolation result exceeds 65536 bytes",
+                    );
+                } else if let NativeValue::RuntimeMapCallableDispatch(label) = fragment {
+                    self.emit_append_runtime_map_callable_dispatch_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        label,
                         span,
                         "string interpolation result exceeds 65536 bytes",
                     );
@@ -17410,6 +17576,12 @@ impl NativeCodeGenerator {
         self.asm.mov_data_addr(Reg::R10, offset);
         self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
         self.asm.mov_data_addr(Reg::R10, len);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
+    }
+
+    fn emit_reset_runtime_buffer_offset_label(&mut self, offset: DataLabel) {
+        self.asm.mov_data_addr(Reg::R10, offset);
+        self.asm.mov_imm64(Reg::R9, 0);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
     }
 

@@ -313,8 +313,9 @@ compatible values also return static `null` for both hits and misses. If the
 compatible entries are all callable values, immediate calls through that lookup
 dispatch to the selected lambda or builtin branch and merge the same supported
 native return shapes; runtime string/int/bool-key lookups can also be bound to
-immutable values, called later, and printed with the selected callable display
-through the same dispatch path. Static
+immutable values, called later, and formatted through printing, interpolation,
+string concatenation, or `toString` with the selected callable display through
+the same dispatch path. Static
 `null` is supported for printing, equality, and `Map#get` misses; `()` is
 supported for printing, static string concatenation, equality, and
 `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
