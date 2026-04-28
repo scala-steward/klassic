@@ -6968,16 +6968,19 @@ def blockId(x) = {{
   val y = x
   y
 }}
+def render(x) = "value=" + x
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(id(text))
 println(join(id(lines), "|"))
 println(first(lines))
 println(blockId(text))
+println(render(text))
 assertResult("omega")(id(text))
 assertResult(["red", "blue"])(id(lines))
 assertResult("red")(first(lines))
 assertResult("omega")(blockId(text))
+assertResult("value=omega")(render(text))
 "#,
             text_path.display(),
             lines_path.display()
@@ -7023,7 +7026,7 @@ assertResult("omega")(blockId(text))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "omega\nred|blue\nred\nomega\n"
+        "omega\nred|blue\nred\nomega\nvalue=omega\n"
     );
     assert!(run.stderr.is_empty());
 }

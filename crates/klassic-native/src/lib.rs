@@ -19522,6 +19522,7 @@ fn native_value_hint_from_expr(expr: &Expr) -> Option<NativeValue> {
             UnaryOp::Not => Some(NativeValue::Bool),
         },
         Expr::Binary { op, .. } => match op {
+            BinaryOp::Add if binary_add_contains_string_literal(expr) => None,
             BinaryOp::Add
             | BinaryOp::Subtract
             | BinaryOp::Multiply
@@ -19556,6 +19557,33 @@ fn native_value_hint_from_expr(expr: &Expr) -> Option<NativeValue> {
             Some(NativeValue::Unit)
         }
         _ => None,
+    }
+}
+
+fn binary_add_contains_string_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::String { .. } => true,
+        Expr::Binary {
+            lhs,
+            op: BinaryOp::Add,
+            rhs,
+            ..
+        } => binary_add_contains_string_literal(lhs) || binary_add_contains_string_literal(rhs),
+        Expr::Block { expressions, .. } => expressions
+            .last()
+            .is_some_and(binary_add_contains_string_literal),
+        Expr::Cleanup { body, .. } => binary_add_contains_string_literal(body),
+        Expr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            binary_add_contains_string_literal(then_branch)
+                || else_branch
+                    .as_deref()
+                    .is_some_and(binary_add_contains_string_literal)
+        }
+        _ => false,
     }
 }
 
