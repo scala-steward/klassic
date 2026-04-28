@@ -1097,8 +1097,10 @@ impl NativeCodeGenerator {
             | Expr::TypeClassDeclaration { span, .. }
             | Expr::InstanceDeclaration { span, .. }
             | Expr::TheoremDeclaration { span, .. }
-            | Expr::AxiomDeclaration { span, .. }
-            | Expr::PegRuleBlock { span } => Err(unsupported(*span, native_feature_name(expr))),
+            | Expr::AxiomDeclaration { span, .. } => {
+                Err(unsupported(*span, native_feature_name(expr)))
+            }
+            Expr::PegRuleBlock { .. } => Ok(NativeValue::Unit),
         }
     }
 
@@ -16154,7 +16156,9 @@ fn native_value_hint_from_expr(expr: &Expr) -> Option<NativeValue> {
         }
         Expr::Block { expressions, .. } => expressions.last().and_then(native_value_hint_from_expr),
         Expr::Cleanup { body, .. } => native_value_hint_from_expr(body),
-        Expr::While { .. } | Expr::Foreach { .. } => Some(NativeValue::Unit),
+        Expr::While { .. } | Expr::Foreach { .. } | Expr::PegRuleBlock { .. } => {
+            Some(NativeValue::Unit)
+        }
         _ => None,
     }
 }

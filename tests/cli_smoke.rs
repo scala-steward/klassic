@@ -114,7 +114,11 @@ fn builds_native_executable_for_basic_program() {
         .as_nanos();
     let source_path = std::env::temp_dir().join(format!("klassic-native-basic-{unique}.kl"));
     let output_path = std::env::temp_dir().join(format!("klassic-native-basic-{unique}"));
-    fs::write(&source_path, "println(1 + 2)\nprintln(true)\n").expect("source should write");
+    fs::write(
+        &source_path,
+        "println(1 + 2)\nprintln(true)\nval parsed = {\n  rule {\n    S = \"a\";\n  }\n  7\n}\nprintln(parsed)\n",
+    )
+    .expect("source should write");
 
     let build = Command::new(klassic_bin())
         .args([
@@ -138,7 +142,7 @@ fn builds_native_executable_for_basic_program() {
     let _ = fs::remove_file(&output_path);
 
     assert!(run.status.success());
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\ntrue\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\ntrue\n7\n");
     assert!(run.stderr.is_empty());
 }
 
