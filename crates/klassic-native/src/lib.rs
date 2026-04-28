@@ -2614,6 +2614,26 @@ impl NativeCodeGenerator {
                 self.asm.bind_text_label(ok);
                 Ok(Some(NativeValue::Unit))
             }
+            "toString" | "substring" | "at" | "matches" | "split" | "trim" | "trimLeft"
+            | "trimRight" | "replace" | "replaceAll" | "toLowerCase" | "toUpperCase"
+            | "startsWith" | "endsWith" | "isEmptyString" | "indexOf" | "lastIndexOf"
+            | "length" | "repeat" | "reverse" | "join" | "contains" | "double" | "sqrt" | "int"
+            | "floor" | "ceil" | "abs" | "size" | "Map#size" | "Set#size" | "isEmpty"
+            | "Map#isEmpty" | "Set#isEmpty" | "tail" | "Map#containsKey" | "containsKey"
+            | "Map#containsValue" | "containsValue" | "Map#get" | "get" | "Set#contains" => {
+                let callee = Expr::Identifier {
+                    name: name.to_string(),
+                    span,
+                };
+                self.compile_call(&callee, arguments, span).map(Some)
+            }
+            "cons" if arguments.len() == 2 => {
+                let callee = Expr::Identifier {
+                    name: name.to_string(),
+                    span,
+                };
+                self.compile_call(&callee, arguments, span).map(Some)
+            }
             _ => Ok(None),
         }
     }

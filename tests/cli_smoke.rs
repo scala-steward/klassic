@@ -2619,7 +2619,7 @@ fn builds_native_executable_for_side_effect_builtin_function_values() {
     ));
     fs::write(
         &source_path,
-        "val printers = [println]\n({ println(\"pick println\"); println })(\"inline print\")\nhead(printers)(\"list print\")\n({ println(\"pick sleep\"); sleep })(0)\n({ println(\"pick assert\"); assert })(true)\nprintln(\"done\")\n",
+        "val printers = [println]\nval word = head(args())\nval parts = ({ println(\"pick split\"); split })(word, \",\")\n({ println(\"pick println\"); println })(\"inline print\")\nhead(printers)(\"list print\")\n({ println(\"pick sleep\"); sleep })(0)\n({ println(\"pick assert\"); assert })(true)\nprintln(({ println(\"pick upper\"); toUpperCase })(word))\nprintln(({ println(\"pick length\"); length })(word))\nprintln(({ println(\"pick join\"); join })(parts, \"|\"))\nprintln(({ println(\"pick contains\"); contains })(parts)(\"bc\"))\nprintln(\"done\")\n",
     )
     .expect("source should write");
 
@@ -2642,6 +2642,7 @@ fn builds_native_executable_for_side_effect_builtin_function_values() {
     assert!(build.stderr.is_empty());
 
     let run = Command::new(&output_path)
+        .arg("ab,bc")
         .output()
         .expect("generated executable should run");
 
@@ -2651,7 +2652,7 @@ fn builds_native_executable_for_side_effect_builtin_function_values() {
     assert!(run.status.success());
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "pick println\ninline print\nlist print\npick sleep\npick assert\ndone\n"
+        "pick split\npick println\ninline print\nlist print\npick sleep\npick assert\npick upper\nAB,BC\npick length\n5\npick join\nab|bc\npick contains\ntrue\ndone\n"
     );
     assert!(run.stderr.is_empty());
 }

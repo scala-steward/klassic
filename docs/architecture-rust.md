@@ -173,9 +173,11 @@ cargo run -- -e "1 + 2"
   evaluate to a static lambda or builtin function value preserve callee side
   effects before applying the returned callable, including side-effecting builtin
   values like `println`, `sleep`, `assert`, `thread`, and File/Dir helpers that
-  update or inspect the native virtual file-system facts. Supported curried
-  helpers returned from effectful callee expressions, such as `assertResult`,
-  `cons`, `contains`, `map`, imported `Set#contains`, and three-stage `foldLeft`, preserve
+  update or inspect the native virtual file-system facts, plus string/list
+  helpers such as `toUpperCase`, `split`, `join`, and `contains` when their
+  arguments are runtime strings or runtime line lists. Supported curried helpers
+  returned from effectful callee expressions, such as `assertResult`, `cons`,
+  `contains`, `map`, imported `Set#contains`, and three-stage `foldLeft`, preserve
   those callee effects too. Collection and Map/Set helper builtin values such as
   `size`, `head`, `tail`, `isEmpty`, `contains`, `Map#get`, and `Set#contains` use the same
   static helper path when they are called through effectful value expressions.

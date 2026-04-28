@@ -142,6 +142,10 @@ or imported `Set#contains`, and for three-stage `foldLeft`.
 Collection and Map/Set helper builtin values such as `size`, `head`, `tail`,
 `isEmpty`, `contains`, `Map#get`, and `Set#contains` also reuse the same static helper path
 when they are called through an effectful value-producing callee.
+String and line-list helper builtin values such as `toUpperCase`, `length`,
+`split`, and `join` similarly reuse the runtime helper paths, so effectful
+callee expressions can feed runtime strings or runtime line lists into them
+without falling back to static argument recovery.
 Returned lambdas also carry native slots for captured runtime locals. If a
 block, inline lambda, or call-site inlined function returns a lambda that
 captures one of its stack slots, native codegen preserves that allocation so
