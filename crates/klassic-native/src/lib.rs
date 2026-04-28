@@ -410,6 +410,7 @@ enum RuntimeMapGetValueKind {
     Int,
     Bool,
     String,
+    Lines,
 }
 
 #[derive(Clone, Debug)]
@@ -5857,7 +5858,10 @@ impl NativeCodeGenerator {
         }
         let value_kind =
             self.runtime_map_get_value_kind(candidates.iter().map(|(_, value)| value), span)?;
-        let output = if value_kind == RuntimeMapGetValueKind::String {
+        let output = if matches!(
+            value_kind,
+            RuntimeMapGetValueKind::String | RuntimeMapGetValueKind::Lines
+        ) {
             Some((
                 self.asm.data_label_with_bytes(&vec![0; 65_536]),
                 self.asm.data_label_with_i64s(&[0]),
@@ -5891,6 +5895,10 @@ impl NativeCodeGenerator {
                 let (data, len) = output.expect("string map get should allocate output");
                 NativeValue::RuntimeString { data, len }
             }
+            RuntimeMapGetValueKind::Lines => {
+                let (data, len) = output.expect("line-list map get should allocate output");
+                NativeValue::RuntimeLinesList { data, len }
+            }
         })
     }
 
@@ -5905,6 +5913,9 @@ impl NativeCodeGenerator {
                 StaticValue::Int(_) => RuntimeMapGetValueKind::Int,
                 StaticValue::Bool(_) => RuntimeMapGetValueKind::Bool,
                 StaticValue::StaticString { .. } => RuntimeMapGetValueKind::String,
+                value if self.static_string_list_content_from_value(value).is_some() => {
+                    RuntimeMapGetValueKind::Lines
+                }
                 _ => {
                     return Err(unsupported(
                         span,
@@ -5956,6 +5967,23 @@ impl NativeCodeGenerator {
                     },
                     span,
                     "Map#get string result exceeds 65536 bytes",
+                );
+            }
+            (RuntimeMapGetValueKind::Lines, value) => {
+                let (data, output_len) = output.expect("line-list map get should allocate output");
+                let content = self
+                    .static_string_list_content_from_value(value)
+                    .expect("line-list map get value should be a static string list");
+                let input_data = self.asm.data_label_with_bytes(content.as_bytes());
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    data,
+                    output_len,
+                    NativeStringRef {
+                        data: input_data,
+                        len: NativeStringLen::Immediate(content.len()),
+                    },
+                    span,
+                    "Map#get line-list result exceeds 65536 bytes",
                 );
             }
             _ => unreachable!("Map#get runtime value kind should match static value"),
@@ -10616,19 +10644,26 @@ impl NativeCodeGenerator {
         span: Span,
         name: &str,
     ) -> Result<String, Diagnostic> {
-        let values = self
+        let value = self
             .static_value_from_native(value)
-            .and_then(|value| self.static_list_values_from_value(&value))
             .ok_or_else(|| unsupported(span, &format!("native {name} for non-static list")))?;
+        if self.static_list_values_from_value(&value).is_none() {
+            return Err(unsupported(
+                span,
+                &format!("native {name} for non-static list"),
+            ));
+        }
+        self.static_string_list_content_from_value(&value)
+            .ok_or_else(|| unsupported(span, &format!("native {name} for non-string list element")))
+    }
+
+    fn static_string_list_content_from_value(&self, value: &StaticValue) -> Option<String> {
+        let values = self.static_list_values_from_value(value)?;
         let lines = values
             .iter()
-            .map(|value| {
-                self.static_string_from_value(value).ok_or_else(|| {
-                    unsupported(span, &format!("native {name} for non-string list element"))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(lines.join("\n"))
+            .map(|value| self.static_string_from_value(value))
+            .collect::<Option<Vec<_>>>()?;
+        Some(lines.join("\n"))
     }
 
     fn runtime_write_lines_content_ref(

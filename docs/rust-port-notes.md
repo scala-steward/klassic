@@ -121,9 +121,9 @@ the module layout is described in `docs/architecture-rust.md`.
   retain the runtime return metadata for string concatenation and runtime
   line-list helper dispatch.
 - Static maps can also lower runtime string/int/bool `Map#get` / `.get` keys
-  when the compatible entries return uniformly string, int, or boolean values;
-  runtime misses report a native diagnostic until the native path has dynamic
-  tagged `null` values.
+  when the compatible entries return uniformly string, string-list, int, or
+  boolean values; runtime misses report a native diagnostic until the native
+  path has dynamic tagged `null` values.
 - Static maps of callable values support immediate runtime-key dispatch via
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, evaluating only the selected
   branch's call arguments at runtime and merging supported native return shapes.

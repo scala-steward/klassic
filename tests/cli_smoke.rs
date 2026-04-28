@@ -1207,6 +1207,7 @@ def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else
 val stringFns = %["reverse": reverseFrom]
 val lineFns = %["keep": keepLines]
 val builtinFns = %["lower": toLowerCase, "upper": toUpperCase]
+val lineGroups = %["keep": ["a", "b", "c"], "short": ["x"]]
 val suffix = "verse"
 val keepKey = "ke" + "ep"
 val runtimeStringKey = head(args())
@@ -1222,6 +1223,7 @@ println(Map#get(stringFns, runtimeStringKey)(text, length(text) - 1))
 println(stringFns.get(runtimeStringKey)("xy", 1))
 println(join(Map#get(lineFns, runtimeLineKey)(lines, 2), "|"))
 println(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
+println(join(Map#get(lineGroups, runtimeLineKey), "|"))
 assertResult("cbayx")(Map#get(stringFns, "reverse")(text, length(text) - 1) + stringFns.get("reverse")("xy", 1))
 assertResult(["a", "b", "c"])(lineFns.get("keep")(lines, 2))
 assertResult("cbayx")(Map#get(stringFns, "re" + suffix)(text, length(text) - 1) + stringFns.get("re" + suffix)("xy", 1))
@@ -1230,6 +1232,7 @@ assertResult("cba")(Map#get(stringFns, runtimeStringKey)(text, length(text) - 1)
 assertResult("yx")(stringFns.get(runtimeStringKey)("xy", 1))
 assertResult(["a", "b", "c"])(Map#get(lineFns, runtimeLineKey)(lines, 2))
 assertResult("ABC")(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
+assertResult(["a", "b", "c"])(Map#get(lineGroups, runtimeLineKey))
 "#,
             text_path.display(),
             lines_path.display()
@@ -1278,7 +1281,7 @@ assertResult("ABC")(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\na|b|c\n"
     );
     assert!(run.stderr.is_empty());
 }

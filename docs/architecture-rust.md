@@ -185,8 +185,9 @@ cargo run -- -e "1 + 2"
   `Set#contains` use the same static helper path when they are called through
   effectful value expressions. Static maps can also lower `Map#get` / `.get`
   with runtime string/int/bool keys to native comparisons when the compatible
-  values are uniformly string, int, or boolean; a runtime miss reports a native
-  diagnostic because this untagged path cannot materialize a dynamic `null`.
+  values are uniformly string, string-list, int, or boolean; a runtime miss
+  reports a native diagnostic because this untagged path cannot materialize a
+  dynamic `null`.
   Immediate calls through runtime-key lookups of static callable maps, such as
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, dispatch to the selected
   lambda or builtin branch and merge the supported native return shapes.
