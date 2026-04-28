@@ -5100,6 +5100,8 @@ val runtimeLeft = FileInput#all(prefixPath)
 val decorateRuntime = (line) => runtimeLeft + line + right
 val runtimeDecoratedLines = runtimeLines.map(decorateRuntime)
 val runtimeFoldedViaAlias = foldLeft(runtimeLines)("")((acc, line) => acc + runtimeLeft + line + right)
+val reversedLines = foldLeft(runtimeLines)([])((acc, line) => cons(line)(acc))
+val seededReversedLines = runtimeLines.foldLeft(["line-z"], (acc, line) => cons(line)(acc))
 println(shoutedLines)
 println(join(shoutedLines, "|"))
 println(upperLines)
@@ -5112,6 +5114,8 @@ println(decoratedLines)
 println(foldedViaAlias)
 println(runtimeDecoratedLines)
 println(runtimeFoldedViaAlias)
+println(reversedLines)
+println(seededReversedLines)
 assertResult(["line-0", "line-a", "line-b"])(prefixedLines)
 assertResult(["line-a!", "line-b!"])(shoutedLines)
 assertResult(["LINE-A", "LINE-B"])(upperLines)
@@ -5124,6 +5128,8 @@ assertResult(["<line-a>", "<line-b>"])(decoratedLines)
 assertResult("<line-a><line-b>")(foldedViaAlias)
 assertResult(["<line-a>", "<line-b>"])(runtimeDecoratedLines)
 assertResult("<line-a><line-b>")(runtimeFoldedViaAlias)
+assertResult(["line-b", "line-a"])(reversedLines)
+assertResult(["line-b", "line-a", "line-z"])(seededReversedLines)
 assert(prefixedLines == ["line-0", "line-a", "line-b"])
 FileOutput#writeLines(rewrittenPath, prefixedLines)
 println(FileInput#all(rewrittenPath))
@@ -5190,7 +5196,7 @@ FileOutput#delete(rewrittenPath)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\nline-0\nline-a\nline-b\n"
+        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\n[line-b, line-a]\n[line-b, line-a, line-z]\nline-0\nline-a\nline-b\n"
     );
     assert!(run.stderr.is_empty());
 }

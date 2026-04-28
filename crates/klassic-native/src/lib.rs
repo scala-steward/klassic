@@ -3763,6 +3763,10 @@ impl NativeCodeGenerator {
                 value: DataLabel,
                 value_kind: NativeValue,
             },
+            Lines {
+                data: DataLabel,
+                len: DataLabel,
+            },
             String {
                 data: DataLabel,
                 len: DataLabel,
@@ -3783,11 +3787,24 @@ impl NativeCodeGenerator {
                 value,
                 value_kind: initial,
             }
+        } else if self.native_value_is_lines_list_compatible(initial) {
+            let initial =
+                self.native_lines_ref_from_value(initial, span, "foldLeft line-list accumulator")?;
+            let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+            let len = self.asm.data_label_with_i64s(&[0]);
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                initial,
+                span,
+                "foldLeft line-list accumulator exceeds 65536 bytes",
+            );
+            RuntimeLineFoldAccumulator::Lines { data, len }
         } else {
             let Some(initial) = self.native_string_ref(initial) else {
                 return Err(unsupported(
                     span,
-                    "native foldLeft over runtime lines for non-string, non-Int, or non-Bool initial value",
+                    "native foldLeft over runtime lines for non-string, non-list, non-Int, or non-Bool initial value",
                 ));
             };
             let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
@@ -3881,6 +3898,12 @@ impl NativeCodeGenerator {
                     let slot = self.allocate_slot(acc_param.clone(), value_kind);
                     self.asm.store_rbp_slot(slot.offset, Reg::Rax);
                 }
+                RuntimeLineFoldAccumulator::Lines { data, len } => {
+                    self.bind_constant(
+                        acc_param.clone(),
+                        NativeValue::RuntimeLinesList { data, len },
+                    );
+                }
                 RuntimeLineFoldAccumulator::String { data, len } => {
                     self.bind_constant(acc_param.clone(), NativeValue::RuntimeString { data, len });
                 }
@@ -3907,6 +3930,20 @@ impl NativeCodeGenerator {
                     self.asm.mov_data_addr(Reg::R10, value);
                     self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
                 }
+                RuntimeLineFoldAccumulator::Lines { data, len } => {
+                    let next_acc = self.native_lines_ref_from_value(
+                        next_acc,
+                        span,
+                        "foldLeft line-list accumulator",
+                    )?;
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        data,
+                        len,
+                        next_acc,
+                        span,
+                        "foldLeft line-list accumulator exceeds 65536 bytes",
+                    );
+                }
                 RuntimeLineFoldAccumulator::String { data, len } => {
                     let Some(next_acc) = self.native_string_ref(next_acc) else {
                         return Err(unsupported(
@@ -3931,6 +3968,9 @@ impl NativeCodeGenerator {
                     self.asm.mov_data_addr(Reg::Rax, value);
                     self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
                     Ok(value_kind)
+                }
+                RuntimeLineFoldAccumulator::Lines { data, len } => {
+                    Ok(NativeValue::RuntimeLinesList { data, len })
                 }
                 RuntimeLineFoldAccumulator::String { data, len } => {
                     Ok(NativeValue::RuntimeString { data, len })

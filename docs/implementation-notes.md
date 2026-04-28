@@ -348,7 +348,7 @@ printable bindings of `FileInput#lines` / `readLines` are also supported.
 Runtime line-list values also support `size`, `isEmpty`, `head`, `tail`,
 `cons`, `contains`, inline-lambda `map` or aliased-lambda /
 builtin-function-value `map` that produces string line lists,
-String/Int/Bool-accumulator direct or method-style `foldLeft` with inline or aliased reducers,
+String/Int/Bool/List<String>-accumulator direct or method-style `foldLeft` with inline or aliased reducers,
 `split` / `join` with static or runtime string delimiters on
 runtime strings. Runtime `split` preserves empty-input, leading, consecutive,
 and trailing empty fields for non-empty delimiters and splits UTF-8 code point
