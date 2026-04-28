@@ -250,7 +250,8 @@ cargo run -- -e "1 + 2"
   file helpers such as `readAll`, `readLines`, `length`, and `cleanup`. Direct
   printing or immutable printable bindings of `FileInput#lines` / `readLines`
   are also supported, with `size`, `isEmpty`, `head`, `tail`,
-  `cons`, inline or aliased-lambda `map` producing string line lists,
+  `cons`, inline or aliased-lambda and builtin-function-value `map` producing
+  string line lists,
   String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
   runtime `foreach`, and

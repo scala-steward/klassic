@@ -3554,6 +3554,91 @@ FileOutput#delete(rewrittenPath)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_line_map_builtin_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let input_path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-line-map-builtin-holder-{unique}.txt"
+    ));
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-line-map-builtin-{unique}.txt"));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-line-map-builtin-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-line-map-builtin-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val path = FileInput#all("{}")
+val lines = FileInput#lines(path)
+val trimLine = trim
+val pickedUpper = {{
+  println("pick mapper")
+  toUpperCase
+}}
+val trimmed = lines.map(trimLine)
+val directUpper = map(lines)(toUpperCase)
+val pickedUpperLines = lines.map(pickedUpper)
+println(trimmed)
+println(directUpper)
+println(pickedUpperLines)
+assertResult(["alpha", "beta"])(trimmed)
+assertResult(["  ALPHA  ", "BETA"])(directUpper)
+assertResult(["  ALPHA  ", "BETA"])(pickedUpperLines)
+"#,
+            input_path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime line map builtin value build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("input path holder should write after native build");
+    fs::write(&input_path, "  alpha  \nbeta").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&input_path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime line map builtin value run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "pick mapper\n[alpha, beta]\n[  ALPHA  , BETA]\n[  ALPHA  , BETA]\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_line_to_string() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

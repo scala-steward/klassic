@@ -218,9 +218,10 @@ parameter flows through supported runtime string and file helpers, including
 `readAll` / `readLines`, `length`, `cleanup`, or returning the path itself.
 Direct printing or immutable printable bindings of `FileInput#lines` /
 `readLines` are also supported; those
-runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, `map`,
-with inline or aliased lambdas, String/Int/Bool-accumulator `foldLeft` with inline or
-aliased reducers, `split` / `join` with static or runtime string delimiters on
+runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`,
+`contains`, `map` with inline or aliased lambdas and builtin function values,
+String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers,
+`split` / `join` with static or runtime string delimiters on
 runtime strings, runtime `foreach`, `toString`, string concatenation, and equality /
 `assertResult` checks against static string
 lists or other runtime line lists, and `FileOutput#writeLines` can write them back out,

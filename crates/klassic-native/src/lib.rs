@@ -2716,19 +2716,52 @@ impl NativeCodeGenerator {
             }
             _ => {
                 let value = self.compile_expr(expr)?;
-                let NativeValue::StaticLambda { label } = value else {
-                    return Err(unsupported(span, non_lambda_feature));
-                };
-                self.static_lambdas
-                    .get(label.0)
-                    .cloned()
-                    .ok_or_else(|| unsupported(span, non_lambda_feature))?
+                match value {
+                    NativeValue::StaticLambda { label } => self
+                        .static_lambdas
+                        .get(label.0)
+                        .cloned()
+                        .ok_or_else(|| unsupported(span, non_lambda_feature))?,
+                    NativeValue::BuiltinFunction { label } => {
+                        let name = self
+                            .builtin_aliases
+                            .get(label.0)
+                            .cloned()
+                            .ok_or_else(|| unsupported(span, non_lambda_feature))?;
+                        self.runtime_line_builtin_lambda(name, arity, span)
+                    }
+                    _ => return Err(unsupported(span, non_lambda_feature)),
+                }
             }
         };
         if lambda.params.len() != arity {
             return Err(unsupported(span, arity_feature));
         }
         Ok(lambda)
+    }
+
+    fn runtime_line_builtin_lambda(&self, name: String, arity: usize, span: Span) -> StaticLambda {
+        let params = (0..arity)
+            .map(|index| format!("$klassic_runtime_line_arg{index}"))
+            .collect::<Vec<_>>();
+        let arguments = params
+            .iter()
+            .map(|name| Expr::Identifier {
+                name: name.clone(),
+                span,
+            })
+            .collect::<Vec<_>>();
+        StaticLambda {
+            params,
+            body: Expr::Call {
+                callee: Box::new(Expr::Identifier { name, span }),
+                arguments,
+                span,
+            },
+            captures: HashMap::new(),
+            runtime_captures: HashMap::new(),
+            contains_thread_call: false,
+        }
     }
 
     fn bind_runtime_line_lambda_captures(&mut self, lambda: &StaticLambda) {

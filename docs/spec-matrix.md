@@ -84,7 +84,8 @@ The repository contains a Rust-native language implementation with:
   Int-list `foreach`, static Int list literals
   with constant arithmetic and bitwise elements, generic static list arenas,
   printable runtime line-list bindings with `size` / `isEmpty` / `head` /
-  `tail` / `cons` / `contains` / `map` with inline or aliased lambdas /
+  `tail` / `cons` / `contains` / `map` with inline or aliased lambdas and
+  builtin function values /
   String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers /
   runtime `split` / `join` with static or runtime string delimiters / runtime `foreach` /
   `toString` / string concatenation / static-list and runtime-list equality /
