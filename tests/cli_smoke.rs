@@ -2484,6 +2484,78 @@ fn builds_native_executable_for_builtin_function_aliases() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_conditional_builtin_function_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-conditional-builtin-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-conditional-builtin-{unique}"));
+    fs::write(
+        &source_path,
+        "val flag = size(CommandLine#args()) == 0\nval lower = toLowerCase\nval upper = toUpperCase\nval pickCase = if(flag) toLowerCase else toUpperCase\nval aliasPick = if(flag) lower else upper\nval fns = [if(flag) lower else upper]\nval rec = record { f: if(flag) toLowerCase else toUpperCase }\nval mapFns = %[\"case\": if(flag) lower else upper]\nprintln((if(flag) toLowerCase else toUpperCase)(\"AbC\"))\nprintln(pickCase(\"AbC\"))\nprintln(aliasPick(\"AbC\"))\nprintln(head(fns)(\"AbC\"))\nprintln(rec.f(\"AbC\"))\nprintln(Map#get(mapFns, \"case\")(\"AbC\"))\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "conditional builtin function value build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let lower_run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run without args");
+    let upper_run = Command::new(&output_path)
+        .arg("upper")
+        .output()
+        .expect("generated executable should run with args");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        lower_run.status.success(),
+        "conditional builtin function value lower run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&lower_run.stdout),
+        String::from_utf8_lossy(&lower_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&lower_run.stdout),
+        "abc\nabc\nabc\nabc\nabc\nabc\n"
+    );
+    assert!(lower_run.stderr.is_empty());
+
+    assert!(
+        upper_run.status.success(),
+        "conditional builtin function value upper run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&upper_run.stdout),
+        String::from_utf8_lossy(&upper_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&upper_run.stdout),
+        "ABC\nABC\nABC\nABC\nABC\nABC\n"
+    );
+    assert!(upper_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_thread_builtin_function_values() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

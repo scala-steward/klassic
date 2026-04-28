@@ -946,7 +946,14 @@ impl NativeCodeGenerator {
                         .get(label.0)
                         .map(|lambda| lambda.params.len());
                 }
-                None
+                if let Some(StaticValue::BuiltinFunction { label }) = self.lookup_static_value(name)
+                {
+                    return self
+                        .builtin_aliases
+                        .get(label.0)
+                        .and_then(|name| Self::builtin_callable_arity(name));
+                }
+                Self::builtin_callable_arity(&self.builtin_name_for_identifier(name))
             }
             Expr::Lambda { params, .. } => Some(params.len()),
             Expr::Block { expressions, .. } if expressions.len() == 1 => expressions
@@ -958,8 +965,96 @@ impl NativeCodeGenerator {
                     .static_lambdas
                     .get(label.0)
                     .map(|lambda| lambda.params.len()),
+                StaticValue::BuiltinFunction { label } => self
+                    .builtin_aliases
+                    .get(label.0)
+                    .and_then(|name| Self::builtin_callable_arity(name)),
                 _ => None,
             },
+        }
+    }
+
+    fn builtin_callable_arity(name: &str) -> Option<usize> {
+        match name {
+            "ToDo"
+            | "StandardInput#all"
+            | "StandardInput#lines"
+            | "Environment#vars"
+            | "CommandLine#args"
+            | "Dir#current"
+            | "Dir#home"
+            | "Dir#temp" => Some(0),
+            "println"
+            | "printlnError"
+            | "sleep"
+            | "thread"
+            | "stopwatch"
+            | "assert"
+            | "toString"
+            | "trim"
+            | "trimLeft"
+            | "trimRight"
+            | "toLowerCase"
+            | "toUpperCase"
+            | "isEmptyString"
+            | "length"
+            | "reverse"
+            | "double"
+            | "sqrt"
+            | "int"
+            | "floor"
+            | "ceil"
+            | "abs"
+            | "size"
+            | "Map#size"
+            | "Set#size"
+            | "isEmpty"
+            | "Map#isEmpty"
+            | "Set#isEmpty"
+            | "head"
+            | "tail"
+            | "FileOutput#exists"
+            | "FileOutput#delete"
+            | "Environment#get"
+            | "Environment#exists"
+            | "Process#exit"
+            | "FileInput#all"
+            | "FileInput#lines"
+            | "FileInput#readAll"
+            | "FileInput#readLines"
+            | "Dir#exists"
+            | "Dir#mkdir"
+            | "Dir#mkdirs"
+            | "Dir#isDirectory"
+            | "Dir#isFile"
+            | "Dir#list"
+            | "Dir#listFull"
+            | "Dir#delete" => Some(1),
+            "at"
+            | "matches"
+            | "split"
+            | "startsWith"
+            | "endsWith"
+            | "indexOf"
+            | "lastIndexOf"
+            | "repeat"
+            | "join"
+            | "contains"
+            | "Set#contains"
+            | "Map#containsKey"
+            | "containsKey"
+            | "Map#containsValue"
+            | "containsValue"
+            | "Map#get"
+            | "get"
+            | "FileOutput#write"
+            | "FileOutput#append"
+            | "FileOutput#writeLines"
+            | "FileInput#open"
+            | "Dir#copy"
+            | "Dir#move" => Some(2),
+            "substring" | "replace" | "replaceAll" => Some(3),
+            _ => None,
         }
     }
 
@@ -8320,8 +8415,6 @@ impl NativeCodeGenerator {
     }
 
     fn static_call_value_by_name(&mut self, name: &str, arguments: &[Expr]) -> Option<StaticValue> {
-        let canonical_name = self.canonical_builtin_name(name);
-        let name = canonical_name.as_str();
         if let Some(function) = self.functions.get(name).cloned() {
             let values = arguments
                 .iter()
@@ -8331,6 +8424,8 @@ impl NativeCodeGenerator {
                 return Some(value);
             }
         }
+        let builtin_name = self.builtin_name_for_identifier(name);
+        let name = builtin_name.as_str();
         match name {
             "map" if arguments.len() == 2 => self.static_direct_map_value(arguments),
             "bind" if arguments.len() == 2 => {
@@ -8516,13 +8611,13 @@ impl NativeCodeGenerator {
         name: &str,
         arguments: &[StaticValue],
     ) -> Option<StaticValue> {
-        let canonical_name = self.canonical_builtin_name(name);
-        let name = canonical_name.as_str();
         if let Some(function) = self.functions.get(name).cloned()
             && let Some(value) = self.static_function_call_value_from_values(&function, arguments)
         {
             return Some(value);
         }
+        let builtin_name = self.builtin_name_for_identifier(name);
+        let name = builtin_name.as_str();
         if let Some(value) = self.static_string_helper_call_value_from_values(name, arguments) {
             return Some(value);
         }
