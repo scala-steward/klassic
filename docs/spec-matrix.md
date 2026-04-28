@@ -75,7 +75,7 @@ The repository contains a Rust-native language implementation with:
   and static `Map#get` / `.get` lookups with literal or folded static keys
   preserving those runtime return hints plus block, cleanup, and
   same-runtime-return conditional callees preserving them, immediate calls on conditional function values,
-  immutable bindings from pure conditional callable branches synthesized into branch-local-call lambdas,
+  pure conditional callable branches in immutable bindings or static aggregate elements synthesized into branch-local-call lambdas,
   top-level and inline lambda calls with the same annotated parameter matching,
   immutable static string/list bindings, simple unannotated integer/boolean return inference,
   streamed `println` / `printlnError` string interpolation, compile-time folded

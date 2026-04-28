@@ -784,6 +784,11 @@ val usePlain = size(CommandLine#args()) == 0
 mutable picks = 0
 val chosenText = if({{ picks += 1; usePlain }}) reverseFrom else markedReverseFrom
 val chosenLines = if(usePlain) keepLines else dropHead
+val stringFns = [if({{ picks += 10; usePlain }}) reverseFrom else markedReverseFrom]
+val lineFns = [if(usePlain) keepLines else dropHead]
+val recordFns = record {{ text: if(usePlain) reverseFrom else markedReverseFrom, lines: if(usePlain) keepLines else dropHead }}
+val stringMap = %["text": if(usePlain) reverseFrom else markedReverseFrom]
+val lineMap = %["lines": if(usePlain) keepLines else dropHead]
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 val pickedText = (if(usePlain) reverseFrom else markedReverseFrom)(text, length(text) - 1)
@@ -794,8 +799,14 @@ println(join(pickedLines, "|"))
 println(picks)
 println(chosenText(text, length(text) - 1))
 println(join(chosenLines(lines, 1), "|"))
+println(head(stringFns)(text, length(text) - 1))
+println(join(head(lineFns)(lines, 1), "|"))
+println(recordFns.text(text, length(text) - 1))
+println(join(recordFns.lines(lines, 1), "|"))
+println(Map#get(stringMap, "text")(text, length(text) - 1))
+println(join(Map#get(lineMap, "lines")(lines, 1), "|"))
 println(picks)
-assertResult(1)(picks)
+assertResult(11)(picks)
 	"#,
             text_path.display(),
             lines_path.display()
@@ -845,7 +856,7 @@ assertResult(1)(picks)
     );
     assert_eq!(
         String::from_utf8_lossy(&true_run.stdout),
-        "cbayx\ncba!\na|b|c\n1\ncba\na|b|c\n1\n"
+        "cbayx\ncba!\na|b|c\n11\ncba\na|b|c\ncba\na|b|c\ncba\na|b|c\ncba\na|b|c\n11\n"
     );
     assert!(true_run.stderr.is_empty());
 
@@ -857,7 +868,7 @@ assertResult(1)(picks)
     );
     assert_eq!(
         String::from_utf8_lossy(&false_run.stdout),
-        "cba!yx!\ncba!!\nb|c\n1\ncba!\nb|c\n1\n"
+        "cba!yx!\ncba!!\nb|c\n11\ncba!\nb|c\ncba!\nb|c\ncba!\nb|c\ncba!\nb|c\n11\n"
     );
     assert!(false_run.stderr.is_empty());
 }

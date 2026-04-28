@@ -81,8 +81,8 @@ cargo run -- -e "1 + 2"
   return hints, plus block, cleanup, and same-runtime-return conditional callees
   preserving those hints,
   immediate calls on conditional function values lowered to branch-local calls,
-  immutable bindings from pure conditional callable branches lowered to
-  synthesized branch-local-call lambdas,
+  pure conditional callable branches in immutable bindings or static aggregates
+  lowered to synthesized branch-local-call lambdas,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call
   sites when they capture mutable locals.

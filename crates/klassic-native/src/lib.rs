@@ -851,12 +851,12 @@ impl NativeCodeGenerator {
         }
     }
 
-    fn compile_conditional_callable_binding(
+    fn compile_conditional_callable_value(
         &mut self,
-        name: &str,
         value: &Expr,
         span: Span,
-    ) -> Result<bool, Diagnostic> {
+        name_hint: Option<&str>,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
         let Expr::If {
             condition,
             then_branch,
@@ -864,13 +864,13 @@ impl NativeCodeGenerator {
             ..
         } = value
         else {
-            return Ok(false);
+            return Ok(None);
         };
         if !static_expr_is_pure(then_branch) || !static_expr_is_pure(else_branch) {
-            return Ok(false);
+            return Ok(None);
         }
         let Some(arity) = self.conditional_callable_arity(then_branch, else_branch) else {
-            return Ok(false);
+            return Ok(None);
         };
         let return_value = self.conditional_callable_return_value_hint(then_branch, else_branch);
 
@@ -882,7 +882,11 @@ impl NativeCodeGenerator {
             ));
         }
 
-        let condition_name = format!("__native_if_callable_{name}_{}", self.static_lambdas.len());
+        let condition_name = format!(
+            "__native_if_callable_{}_{}",
+            name_hint.unwrap_or("value"),
+            self.static_lambdas.len()
+        );
         let condition_slot = self.allocate_slot(condition_name.clone(), NativeValue::Bool);
         self.asm.store_rbp_slot(condition_slot.offset, Reg::Rax);
 
@@ -921,7 +925,19 @@ impl NativeCodeGenerator {
             return_value,
             contains_thread_call,
         );
-        self.bind_constant(name.to_string(), NativeValue::StaticLambda { label });
+        Ok(Some(NativeValue::StaticLambda { label }))
+    }
+
+    fn compile_conditional_callable_binding(
+        &mut self,
+        name: &str,
+        value: &Expr,
+        span: Span,
+    ) -> Result<bool, Diagnostic> {
+        let Some(value) = self.compile_conditional_callable_value(value, span, Some(name))? else {
+            return Ok(false);
+        };
+        self.bind_constant(name.to_string(), value);
         Ok(true)
     }
 
@@ -1077,6 +1093,9 @@ impl NativeCodeGenerator {
                 else_branch,
                 span,
             } => {
+                if let Some(value) = self.compile_conditional_callable_value(expr, *span, None)? {
+                    return Ok(value);
+                }
                 if let Some(value) = self.compile_statically_selected_if(
                     condition,
                     then_branch,
