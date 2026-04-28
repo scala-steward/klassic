@@ -781,6 +781,9 @@ def markedReverseFrom(s: String, i: Int): String = if(i < 0) "!" else s.at(i) + 
 def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
 def dropHead(lines: List<String>, n: Int): List<String> = tail(lines)
 val usePlain = size(CommandLine#args()) == 0
+mutable picks = 0
+val chosenText = if({{ picks += 1; usePlain }}) reverseFrom else markedReverseFrom
+val chosenLines = if(usePlain) keepLines else dropHead
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 val pickedText = (if(usePlain) reverseFrom else markedReverseFrom)(text, length(text) - 1)
@@ -788,7 +791,12 @@ val pickedLines = (if(usePlain) keepLines else dropHead)(lines, 1)
 println(pickedText + (if(usePlain) reverseFrom else markedReverseFrom)("xy", 1))
 println((if(usePlain) reverseFrom else markedReverseFrom)(text, length(text) - 1) + "!")
 println(join(pickedLines, "|"))
-"#,
+println(picks)
+println(chosenText(text, length(text) - 1))
+println(join(chosenLines(lines, 1), "|"))
+println(picks)
+assertResult(1)(picks)
+	"#,
             text_path.display(),
             lines_path.display()
         ),
@@ -837,7 +845,7 @@ println(join(pickedLines, "|"))
     );
     assert_eq!(
         String::from_utf8_lossy(&true_run.stdout),
-        "cbayx\ncba!\na|b|c\n"
+        "cbayx\ncba!\na|b|c\n1\ncba\na|b|c\n1\n"
     );
     assert!(true_run.stderr.is_empty());
 
@@ -849,7 +857,7 @@ println(join(pickedLines, "|"))
     );
     assert_eq!(
         String::from_utf8_lossy(&false_run.stdout),
-        "cba!yx!\ncba!!\nb|c\n"
+        "cba!yx!\ncba!!\nb|c\n1\ncba!\nb|c\n1\n"
     );
     assert!(false_run.stderr.is_empty());
 }

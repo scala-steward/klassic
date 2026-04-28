@@ -177,6 +177,11 @@ Immediate calls on conditional function values are lowered from
 `(if (cond) f else g)(args...)` to branch-local calls, preserving argument
 evaluation on the selected path while reusing dynamic `if` result buffers for
 runtime string and line-list returns.
+Immutable bindings initialized from pure conditional callable branches evaluate
+and save the condition once, then bind a synthesized static lambda whose body
+performs the branch-local call. This keeps `val f = if (cond) a else b; f(x)`
+usable for runtime-returning functions without adding a general heap function
+value representation yet.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

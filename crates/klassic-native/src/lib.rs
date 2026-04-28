@@ -851,6 +851,150 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn compile_conditional_callable_binding(
+        &mut self,
+        name: &str,
+        value: &Expr,
+        span: Span,
+    ) -> Result<bool, Diagnostic> {
+        let Expr::If {
+            condition,
+            then_branch,
+            else_branch: Some(else_branch),
+            ..
+        } = value
+        else {
+            return Ok(false);
+        };
+        if !static_expr_is_pure(then_branch) || !static_expr_is_pure(else_branch) {
+            return Ok(false);
+        }
+        let Some(arity) = self.conditional_callable_arity(then_branch, else_branch) else {
+            return Ok(false);
+        };
+        let return_value = self.conditional_callable_return_value_hint(then_branch, else_branch);
+
+        let condition_value = self.compile_expr(condition)?;
+        if condition_value != NativeValue::Bool {
+            return Err(unsupported(
+                span,
+                "native conditional callable condition for non-Bool",
+            ));
+        }
+
+        let condition_name = format!("__native_if_callable_{name}_{}", self.static_lambdas.len());
+        let condition_slot = self.allocate_slot(condition_name.clone(), NativeValue::Bool);
+        self.asm.store_rbp_slot(condition_slot.offset, Reg::Rax);
+
+        let params = (0..arity)
+            .map(|index| format!("__native_if_arg_{index}"))
+            .collect::<Vec<_>>();
+        let arguments = params
+            .iter()
+            .map(|param| Expr::Identifier {
+                name: param.clone(),
+                span,
+            })
+            .collect::<Vec<_>>();
+        let body = Expr::Call {
+            callee: Box::new(Expr::If {
+                condition: Box::new(Expr::Identifier {
+                    name: condition_name,
+                    span,
+                }),
+                then_branch: then_branch.clone(),
+                else_branch: Some(else_branch.clone()),
+                span,
+            }),
+            arguments,
+            span,
+        };
+        let captures = self.current_static_captures();
+        let runtime_captures = self.current_runtime_captures();
+        let thread_aliases = self.current_thread_aliases();
+        let contains_thread_call = expr_contains_thread_call(&body, &thread_aliases);
+        let label = self.intern_static_lambda(
+            params,
+            body,
+            captures,
+            runtime_captures,
+            return_value,
+            contains_thread_call,
+        );
+        self.bind_constant(name.to_string(), NativeValue::StaticLambda { label });
+        Ok(true)
+    }
+
+    fn conditional_callable_arity(&self, then_branch: &Expr, else_branch: &Expr) -> Option<usize> {
+        let then_arity = self.callable_arity_for_conditional_binding(then_branch)?;
+        let else_arity = self.callable_arity_for_conditional_binding(else_branch)?;
+        (then_arity == else_arity).then_some(then_arity)
+    }
+
+    fn callable_arity_for_conditional_binding(&self, expr: &Expr) -> Option<usize> {
+        match expr {
+            Expr::Identifier { name, .. } => {
+                if let Some(function) = self.functions.get(name) {
+                    return Some(function.params.len());
+                }
+                if let Some(StaticValue::StaticLambda { label }) = self.lookup_static_value(name) {
+                    return self
+                        .static_lambdas
+                        .get(label.0)
+                        .map(|lambda| lambda.params.len());
+                }
+                None
+            }
+            Expr::Lambda { params, .. } => Some(params.len()),
+            Expr::Block { expressions, .. } if expressions.len() == 1 => expressions
+                .last()
+                .and_then(|expr| self.callable_arity_for_conditional_binding(expr)),
+            Expr::Block { .. } | Expr::If { .. } => None,
+            _ => match self.static_value_for_return_hint(expr)? {
+                StaticValue::StaticLambda { label } => self
+                    .static_lambdas
+                    .get(label.0)
+                    .map(|lambda| lambda.params.len()),
+                _ => None,
+            },
+        }
+    }
+
+    fn conditional_callable_return_value_hint(
+        &self,
+        then_branch: &Expr,
+        else_branch: &Expr,
+    ) -> Option<NativeValue> {
+        let then_value = self.callable_return_value_hint_for_conditional_binding(then_branch)?;
+        let else_value = self.callable_return_value_hint_for_conditional_binding(else_branch)?;
+        match (then_value, else_value) {
+            (NativeValue::RuntimeString { .. }, NativeValue::RuntimeString { .. })
+            | (NativeValue::RuntimeLinesList { .. }, NativeValue::RuntimeLinesList { .. }) => {
+                Some(then_value)
+            }
+            _ if then_value == else_value => Some(then_value),
+            _ => None,
+        }
+    }
+
+    fn callable_return_value_hint_for_conditional_binding(
+        &self,
+        expr: &Expr,
+    ) -> Option<NativeValue> {
+        match expr {
+            Expr::Identifier { name, .. } => self
+                .functions
+                .get(name)
+                .map(|function| function.return_value)
+                .or_else(|| self.callee_return_value_hint(expr)),
+            Expr::Block { expressions, .. } if expressions.len() == 1 => expressions
+                .last()
+                .and_then(|expr| self.callable_return_value_hint_for_conditional_binding(expr)),
+            Expr::Block { .. } | Expr::If { .. } => None,
+            _ => self.callee_return_value_hint(expr),
+        }
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> Result<NativeValue, Diagnostic> {
         match expr {
             Expr::Int { value, .. } => {
@@ -1023,6 +1167,9 @@ impl NativeCodeGenerator {
                 span,
                 ..
             } => {
+                if !mutable && self.compile_conditional_callable_binding(name, value, *span)? {
+                    return Ok(NativeValue::Unit);
+                }
                 if !mutable && let Some(alias) = self.builtin_alias_from_expr(value) {
                     let label = self.intern_builtin_alias(alias);
                     self.bind_constant(name.clone(), NativeValue::BuiltinFunction { label });

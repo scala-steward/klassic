@@ -109,6 +109,9 @@ metadata for immediate calls.
 Immediate calls on conditional function values lower to branch-local calls, so
 runtime string and line-list return values can merge through the existing
 dynamic `if` result buffers.
+Immutable bindings initialized from pure conditional callable branches snapshot
+the condition once, then store a synthesized callable that performs the same
+branch-local call when invoked.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Inline and top-level lambda calls use the same annotated `String` /

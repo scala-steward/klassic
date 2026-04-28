@@ -123,6 +123,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - Immediate calls on conditional function values lower to branch-local calls, so
   runtime `String` / `List<String>` returns can merge through dynamic `if`
   result buffers.
+- Immutable `val` bindings initialized from pure conditional callable branches
+  snapshot the condition once and bind a synthesized callable that dispatches to
+  the selected branch at call time.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
 - Static strings also use the runtime slice path for `substring` / `at` when
