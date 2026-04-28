@@ -76,9 +76,11 @@ cargo run -- -e "1 + 2"
   reentrant and self-calls staged before shared parameter buffers are updated,
   fixed-buffer annotated `String` / `List<String>` returns copied into call-site buffers, function
   value aliases, static record fields, direct or method-style static-list
-  `head` lookups including `tail` and `cons` chains, and static `Map#get` /
-  `.get` lookups with literal or folded static keys preserving those runtime
-  return hints, plus block, cleanup, and same-runtime-return conditional callees
+  `head` lookups including `tail` and `cons` chains, static `Map#get` / `.get`
+  lookups with literal or folded static keys preserving those runtime return
+  hints, and runtime string/int/bool key lookups from static maps when the
+  compatible values are all strings, ints, or booleans, plus block, cleanup,
+  and same-runtime-return conditional callees
   preserving those hints,
   immediate calls on conditional function values lowered to branch-local calls,
   pure conditional callable branches in immutable bindings or static aggregates
@@ -179,8 +181,12 @@ cargo run -- -e "1 + 2"
   returned from effectful callee expressions, such as `assertResult`, `cons`,
   `contains`, `map`, imported `Set#contains`, and three-stage `foldLeft`, preserve
   those callee effects too. Collection and Map/Set helper builtin values such as
-  `size`, `head`, `tail`, `isEmpty`, `contains`, `Map#get`, and `Set#contains` use the same
-  static helper path when they are called through effectful value expressions.
+  `size`, `head`, `tail`, `isEmpty`, `contains`, `Map#get`, and
+  `Set#contains` use the same static helper path when they are called through
+  effectful value expressions. Static maps can also lower `Map#get` / `.get`
+  with runtime string/int/bool keys to native comparisons when the compatible
+  values are uniformly string, int, or boolean; a runtime miss reports a native
+  diagnostic because this untagged path cannot materialize a dynamic `null`.
   Lambdas also remember the native stack slots for captured runtime bindings;
   when a block, inline lambda, or call-site inlined function returns such a
   lambda, the captured slots are kept alive so block/function-local mutable

@@ -120,6 +120,10 @@ the module layout is described in `docs/architecture-rust.md`.
   `Map#get` / `.get` lookups with literal or folded static keys for such `def`s
   retain the runtime return metadata for string concatenation and runtime
   line-list helper dispatch.
+- Static maps can also lower runtime string/int/bool `Map#get` / `.get` keys
+  when the compatible entries return uniformly string, int, or boolean values;
+  runtime misses report a native diagnostic until the native path has dynamic
+  tagged `null` values.
 - Block, cleanup, and same-runtime-return conditional callees retain those
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so

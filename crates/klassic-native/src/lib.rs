@@ -405,6 +405,13 @@ enum NativeStringLen {
     Runtime(DataLabel),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuntimeMapGetValueKind {
+    Int,
+    Bool,
+    String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum StaticValue {
     Int(i64),
@@ -5369,6 +5376,19 @@ impl NativeCodeGenerator {
             ));
         }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
+        let before_static_scopes = self.static_scopes.clone();
+        let key_preview = self.preview_static_value_after_effectful_eval(&key_arguments[0]);
+        self.static_scopes = before_static_scopes;
+        if key_preview.is_none() {
+            let key = self.compile_expr(&key_arguments[0])?;
+            if let Some(key) = self.native_string_ref(key) {
+                return self.compile_static_map_get_runtime_string_key(entries, key, span);
+            }
+            if matches!(key, NativeValue::Int | NativeValue::Bool) {
+                return self.compile_static_map_get_runtime_scalar_key(entries, key, span);
+            }
+            return Err(unsupported(span, "native Map#get for non-static key"));
+        }
         let key = self.static_value_from_argument_preserving_effects(
             &key_arguments[0],
             span,
@@ -5380,6 +5400,173 @@ impl NativeCodeGenerator {
             .map(|(_, value)| value.clone())
             .unwrap_or(StaticValue::Null);
         Ok(self.emit_static_value(&value))
+    }
+
+    fn compile_static_map_get_runtime_string_key(
+        &mut self,
+        entries: Vec<(StaticValue, StaticValue)>,
+        key: NativeStringRef,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let candidates = entries
+            .into_iter()
+            .filter_map(|(entry_key, value)| {
+                self.static_value_string_ref(&entry_key)
+                    .map(|entry_key| (entry_key, value))
+            })
+            .collect::<Vec<_>>();
+        self.compile_static_map_get_runtime_candidates(
+            candidates,
+            |compiler, entry_key| {
+                compiler.emit_native_string_equality(key, entry_key);
+                compiler.asm.cmp_reg_imm8(Reg::Rax, 0);
+                Condition::NotEqual
+            },
+            span,
+        )
+    }
+
+    fn compile_static_map_get_runtime_scalar_key(
+        &mut self,
+        entries: Vec<(StaticValue, StaticValue)>,
+        key: NativeValue,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let candidates = entries
+            .into_iter()
+            .filter_map(|(entry_key, value)| {
+                Self::static_value_scalar_bits(&entry_key, key).map(|entry_key| (entry_key, value))
+            })
+            .collect::<Vec<_>>();
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.compile_static_map_get_runtime_candidates(
+            candidates,
+            |compiler, entry_key| {
+                compiler.asm.mov_imm64(Reg::Rax, entry_key);
+                compiler.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+                Condition::Equal
+            },
+            span,
+        )
+    }
+
+    fn compile_static_map_get_runtime_candidates<K>(
+        &mut self,
+        candidates: Vec<(K, StaticValue)>,
+        mut emit_match_condition: impl FnMut(&mut Self, K) -> Condition,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if candidates.is_empty() {
+            return Err(unsupported(
+                span,
+                "native Map#get for runtime key with no compatible static keys",
+            ));
+        }
+        let value_kind =
+            self.runtime_map_get_value_kind(candidates.iter().map(|(_, value)| value), span)?;
+        let output = if value_kind == RuntimeMapGetValueKind::String {
+            Some((
+                self.asm.data_label_with_bytes(&vec![0; 65_536]),
+                self.asm.data_label_with_i64s(&[0]),
+            ))
+        } else {
+            None
+        };
+        let done = self.asm.create_text_label();
+        let branches = candidates
+            .into_iter()
+            .map(|(entry_key, value)| {
+                let label = self.asm.create_text_label();
+                let condition = emit_match_condition(self, entry_key);
+                self.asm.jcc_label(condition, label);
+                (label, value)
+            })
+            .collect::<Vec<_>>();
+
+        self.emit_runtime_error(span, "Map#get runtime key was not found");
+        for (label, value) in branches {
+            self.asm.bind_text_label(label);
+            self.emit_runtime_map_get_value(value_kind, &value, output, span);
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+
+        Ok(match value_kind {
+            RuntimeMapGetValueKind::Int => NativeValue::Int,
+            RuntimeMapGetValueKind::Bool => NativeValue::Bool,
+            RuntimeMapGetValueKind::String => {
+                let (data, len) = output.expect("string map get should allocate output");
+                NativeValue::RuntimeString { data, len }
+            }
+        })
+    }
+
+    fn runtime_map_get_value_kind<'a>(
+        &self,
+        values: impl IntoIterator<Item = &'a StaticValue>,
+        span: Span,
+    ) -> Result<RuntimeMapGetValueKind, Diagnostic> {
+        let mut kind = None;
+        for value in values {
+            let value_kind = match value {
+                StaticValue::Int(_) => RuntimeMapGetValueKind::Int,
+                StaticValue::Bool(_) => RuntimeMapGetValueKind::Bool,
+                StaticValue::StaticString { .. } => RuntimeMapGetValueKind::String,
+                _ => {
+                    return Err(unsupported(
+                        span,
+                        "native Map#get runtime key for non-scalar map value",
+                    ));
+                }
+            };
+            if let Some(kind) = kind {
+                if kind != value_kind {
+                    return Err(unsupported(
+                        span,
+                        "native Map#get runtime key for mixed map value types",
+                    ));
+                }
+            } else {
+                kind = Some(value_kind);
+            }
+        }
+        kind.ok_or_else(|| {
+            unsupported(
+                span,
+                "native Map#get runtime key with no compatible map values",
+            )
+        })
+    }
+
+    fn emit_runtime_map_get_value(
+        &mut self,
+        kind: RuntimeMapGetValueKind,
+        value: &StaticValue,
+        output: Option<(DataLabel, DataLabel)>,
+        span: Span,
+    ) {
+        match (kind, value) {
+            (RuntimeMapGetValueKind::Int, StaticValue::Int(value)) => {
+                self.asm.mov_imm64(Reg::Rax, *value as u64);
+            }
+            (RuntimeMapGetValueKind::Bool, StaticValue::Bool(value)) => {
+                self.asm.mov_imm64(Reg::Rax, u64::from(*value));
+            }
+            (RuntimeMapGetValueKind::String, StaticValue::StaticString { label, len }) => {
+                let (data, output_len) = output.expect("string map get should allocate output");
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    data,
+                    output_len,
+                    NativeStringRef {
+                        data: *label,
+                        len: NativeStringLen::Immediate(*len),
+                    },
+                    span,
+                    "Map#get string result exceeds 65536 bytes",
+                );
+            }
+            _ => unreachable!("Map#get runtime value kind should match static value"),
+        }
     }
 
     fn compile_static_set_contains_direct(

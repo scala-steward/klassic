@@ -73,8 +73,10 @@ The repository contains a Rust-native language implementation with:
   fixed-buffer annotated `String` / `List<String>` function returns copied into
   call-site buffers, function value aliases, static record fields, direct or
   method-style static-list `head` lookups including `tail` and `cons` chains,
-  and static `Map#get` / `.get` lookups with literal or folded static keys
-  preserving those runtime return hints plus block, cleanup, and
+  and static `Map#get` / `.get` lookups with literal or folded static keys plus
+  runtime string/int/bool `Map#get` / `.get` keys for static maps with uniform
+  string, int, or boolean compatible values preserving those runtime return
+  hints plus block, cleanup, and
   same-runtime-return conditional callees preserving them, immediate calls on conditional function values,
   pure conditional callable branches in immutable bindings or static aggregate elements synthesized into branch-local-call lambdas for user callables and supported builtin function values with matching arity while preserving selected-branch builtin display through printing, interpolation, string concatenation, `toString`, and failing `assertResult` messages, including returned callables and aggregate display, effectful callee expressions returning string/list helper builtin values with runtime string or runtime line-list arguments,
   top-level and inline lambda calls with the same annotated parameter matching,
