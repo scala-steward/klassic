@@ -3933,6 +3933,20 @@ impl NativeCodeGenerator {
         }
         let helper_name = match field {
             "map" => return self.compile_static_map(std::slice::from_ref(target), arguments, span),
+            "foldLeft" => {
+                if arguments.len() != 2 {
+                    return Err(Diagnostic::compile(
+                        span,
+                        format!("foldLeft expects 2 arguments but got {}", arguments.len()),
+                    ));
+                }
+                return self.compile_static_fold_left(
+                    std::slice::from_ref(target),
+                    &arguments[..1],
+                    &arguments[1..],
+                    span,
+                );
+            }
             "bind" => {
                 if arguments.len() != 1 {
                     return Err(Diagnostic::compile(

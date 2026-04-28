@@ -219,7 +219,7 @@ cargo run -- -e "1 + 2"
   native folds run.
   Static-list `map` and `foldLeft` can unroll lambdas with mutable prefix
   effects when their final result expression is still statically recoverable;
-  method-style `xs.map(f)` uses the same path.
+  method-style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same path.
   Static string/Map/Set helper calls may still fold their final helper result
   after emitting impure argument blocks, when those resulting argument values
   are statically recoverable.
@@ -254,7 +254,7 @@ cargo run -- -e "1 + 2"
   are also supported, with `size`, `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda and builtin-function-value `map` producing
   string line lists,
-  String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers, `join`,
+  String/Int/Bool-accumulator direct or method-style `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,
   runtime `foreach`, and
   equality / `assertResult` support

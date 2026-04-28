@@ -127,7 +127,7 @@ Static equality and `assertResult` over aggregate values also preserve
 side-effecting expected/actual expressions while comparing recovered values.
 Static-list `map` and `foldLeft` can also unroll lambdas with mutable prefix
 effects when the final lambda result remains statically recoverable; method
-style `xs.map(f)` uses the same native path.
+style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same native path.
 Static string/Map/Set helper calls that can still determine static argument
 values after evaluating impure argument blocks preserve those generated side
 effects before folding the helper result.
@@ -221,7 +221,7 @@ Direct printing or immutable printable bindings of `FileInput#lines` /
 `readLines` are also supported; those
 runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`,
 `contains`, `map` with inline or aliased lambdas and builtin function values,
-String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers,
+String/Int/Bool-accumulator direct or method-style `foldLeft` with inline or aliased reducers,
 `split` / `join` with static or runtime string delimiters on
 runtime strings, runtime `foreach`, `toString`, string concatenation, and equality /
 `assertResult` checks against static string
