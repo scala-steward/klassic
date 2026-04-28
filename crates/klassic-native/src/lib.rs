@@ -450,6 +450,7 @@ struct StaticLambda {
     body: Expr,
     captures: HashMap<String, StaticValue>,
     runtime_captures: HashMap<String, VarSlot>,
+    return_value: Option<NativeValue>,
     contains_thread_call: bool,
 }
 
@@ -992,6 +993,7 @@ impl NativeCodeGenerator {
                     body.as_ref().clone(),
                     self.current_static_captures(),
                     self.current_runtime_captures(),
+                    None,
                     expr_contains_thread_call(body, &thread_aliases),
                 );
                 Ok(NativeValue::StaticLambda { label })
@@ -1713,6 +1715,13 @@ impl NativeCodeGenerator {
         if let Some(StaticValue::StaticLambda { label }) = self.lookup_static_value(callee_name) {
             let lambda_body_is_pure = self.static_lambdas.get(label.0).is_some_and(|lambda| {
                 !lambda.contains_thread_call
+                    && !matches!(
+                        lambda.return_value,
+                        Some(
+                            NativeValue::RuntimeString { .. }
+                                | NativeValue::RuntimeLinesList { .. }
+                        )
+                    )
                     && static_expr_is_pure(&lambda.body)
                     && !self.lambda_uses_runtime_captures(lambda)
             });
@@ -2927,6 +2936,7 @@ impl NativeCodeGenerator {
                     body: body.as_ref().clone(),
                     captures: self.current_static_captures(),
                     runtime_captures: self.current_runtime_captures(),
+                    return_value: None,
                     contains_thread_call: expr_contains_thread_call(body, &thread_aliases),
                 }
             }
@@ -2976,6 +2986,7 @@ impl NativeCodeGenerator {
             },
             captures: HashMap::new(),
             runtime_captures: HashMap::new(),
+            return_value: None,
             contains_thread_call: false,
         }
     }
@@ -7399,6 +7410,7 @@ impl NativeCodeGenerator {
                     body.as_ref().clone(),
                     self.current_static_captures(),
                     self.current_runtime_captures(),
+                    None,
                     expr_contains_thread_call(body, &thread_aliases),
                 );
                 Some(StaticValue::StaticLambda { label })
@@ -8669,6 +8681,7 @@ impl NativeCodeGenerator {
                     body.as_ref().clone(),
                     captures,
                     self.current_runtime_captures(),
+                    None,
                     expr_contains_thread_call(body, &thread_aliases),
                 );
                 Some(StaticValue::StaticLambda { label })
@@ -9376,6 +9389,7 @@ impl NativeCodeGenerator {
         body: Expr,
         captures: HashMap<String, StaticValue>,
         runtime_captures: HashMap<String, VarSlot>,
+        return_value: Option<NativeValue>,
         contains_thread_call: bool,
     ) -> LambdaLabel {
         let label = LambdaLabel(self.static_lambdas.len());
@@ -9384,6 +9398,7 @@ impl NativeCodeGenerator {
             body,
             captures,
             runtime_captures,
+            return_value,
             contains_thread_call,
         });
         label
@@ -9396,6 +9411,7 @@ impl NativeCodeGenerator {
             function.body,
             HashMap::new(),
             HashMap::new(),
+            Some(function.return_value),
             function.contains_thread_call,
         );
         Some(StaticValue::StaticLambda { label })
@@ -10775,6 +10791,19 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn static_lambda_identifier_return_value(&self, name: &str) -> Option<NativeValue> {
+        let label = match self.lookup_static_value(name).or_else(|| {
+            self.lookup_var(name)
+                .and_then(|slot| self.static_value_from_native(slot.value))
+        })? {
+            StaticValue::StaticLambda { label } => label,
+            _ => return None,
+        };
+        self.static_lambdas
+            .get(label.0)
+            .and_then(|lambda| lambda.return_value)
+    }
+
     fn expr_may_yield_runtime_string(&self, expr: &Expr) -> bool {
         match expr {
             Expr::String { value, .. } if value.contains("#{") => true,
@@ -10809,6 +10838,15 @@ impl NativeCodeGenerator {
                     if self.functions.get(name).is_some_and(|function| {
                         matches!(function.return_value, NativeValue::RuntimeString { .. })
                     }) =>
+                {
+                    true
+                }
+                Expr::Identifier { name, .. }
+                    if self
+                        .static_lambda_identifier_return_value(name)
+                        .is_some_and(|return_value| {
+                            matches!(return_value, NativeValue::RuntimeString { .. })
+                        }) =>
                 {
                     true
                 }
@@ -10918,6 +10956,15 @@ impl NativeCodeGenerator {
                         if self.functions.get(name).is_some_and(|function| {
                             matches!(function.return_value, NativeValue::RuntimeLinesList { .. })
                         }) =>
+                    {
+                        true
+                    }
+                    Expr::Identifier { name, .. }
+                        if self
+                            .static_lambda_identifier_return_value(name)
+                            .is_some_and(|return_value| {
+                                matches!(return_value, NativeValue::RuntimeLinesList { .. })
+                            }) =>
                     {
                         true
                     }

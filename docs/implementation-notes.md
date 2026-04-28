@@ -165,6 +165,9 @@ directly because their bodies are emitted at the call site.
 Annotated `String` / `List<String>` returns use function-owned return buffers;
 direct call sites immediately copy those buffers into call-site-local buffers so
 neighboring calls can be composed without clobbering each other.
+Function value aliases created from those `def`s retain the annotated runtime
+return metadata, allowing aliased calls to be recognized by string concatenation,
+dynamic string-branch merging, and runtime line-list helpers.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument
