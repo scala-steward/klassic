@@ -255,6 +255,8 @@ parameter flows through supported runtime string and file helpers, including
 `readAll` / `readLines`, `length`, `cleanup`, or returning the path itself.
 Mutable runtime string and runtime line-list bindings copy assignments into
 fixed buffers, so loops can update string accumulators and line-list cursors.
+Closures that capture those fixed buffers stay on the native inline-call path
+instead of being mistaken for statically foldable lambdas.
 Effectful callee expressions that return string/list helper builtin values,
 such as `toUpperCase`, `split`, `join`, or `contains`, also dispatch through
 the runtime string and runtime line-list native helper paths.

@@ -10349,7 +10349,13 @@ impl NativeCodeGenerator {
         let mut names = lambda
             .runtime_captures
             .iter()
-            .filter(|(_, slot)| slot.offset > 0)
+            .filter(|(_, slot)| {
+                slot.offset > 0
+                    || matches!(
+                        slot.value,
+                        NativeValue::RuntimeString { .. } | NativeValue::RuntimeLinesList { .. }
+                    )
+            })
             .map(|(name, _)| name.clone())
             .collect::<HashSet<_>>();
         for param in &lambda.params {

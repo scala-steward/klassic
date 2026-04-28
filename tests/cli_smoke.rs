@@ -609,11 +609,16 @@ fn builds_native_executable_for_mutable_runtime_string_and_line_list_bindings() 
         &source_path,
         format!(
             r#"mutable text = FileInput#all("{}")
+val currentText = () => text
 text = text + "!"
 text = toUpperCase(text)
+println(currentText())
 println(text)
 
 mutable rest = FileInput#lines("{}")
+val currentHead = () => head(rest)
+println(currentHead())
+assertResult("a")(currentHead())
 mutable joined = ""
 while(!rest.isEmpty()) {{
   joined = joined + head(rest)
@@ -623,6 +628,7 @@ println(joined)
 rest = ["x", "y"]
 rest = cons("z")(rest)
 println(join(rest, "|"))
+assertResult("HELLO!")(currentText())
 assertResult("HELLO!")(text)
 assertResult("abc")(joined)
 assertResult(["z", "x", "y"])(rest)
@@ -669,7 +675,10 @@ assertResult(["z", "x", "y"])(rest)
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "HELLO!\nabc\nz|x|y\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "HELLO!\nHELLO!\na\nabc\nz|x|y\n"
+    );
     assert!(run.stderr.is_empty());
 }
 

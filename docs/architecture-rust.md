@@ -272,7 +272,8 @@ cargo run -- -e "1 + 2"
   callback values can return it or pass it through supported runtime string and
   file helpers such as `readAll`, `readLines`, `length`, and `cleanup`.
   Mutable runtime string and line-list bindings copy assignments into fixed
-  buffers, allowing loop-carried string accumulators and line-list cursors.
+  buffers, allowing loop-carried string accumulators, line-list cursors, and
+  closures that observe later assignments.
   Direct printing or immutable printable bindings of `FileInput#lines` / `readLines`
   are also supported, with `size`, `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda and builtin-function-value `map` producing

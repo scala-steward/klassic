@@ -150,6 +150,9 @@ Returned lambdas also carry native slots for captured runtime locals. If a
 block, inline lambda, or call-site inlined function returns a lambda that
 captures one of its stack slots, native codegen preserves that allocation so
 block/function-local mutable closure state is shared across later calls.
+Fixed-buffer runtime string and line-list captures are treated as runtime
+captures even when their binding is stored as a constant data label, so closures
+that observe later assignments are inlined instead of being statically folded.
 Unannotated functions whose return value is a runtime-capturing lambda are
 therefore compiled by inlining at the call site instead of forcing an integer
 return ABI. Returned static aggregates are inspected recursively too, which
