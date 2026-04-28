@@ -270,8 +270,10 @@ cargo run -- -e "1 + 2"
   direct file-input printing. `FileInput#open` callbacks with runtime paths bind
   the stream parameter as a runtime string, so callback bodies and callable
   callback values can return it or pass it through supported runtime string and
-  file helpers such as `readAll`, `readLines`, `length`, and `cleanup`. Direct
-  printing or immutable printable bindings of `FileInput#lines` / `readLines`
+  file helpers such as `readAll`, `readLines`, `length`, and `cleanup`.
+  Mutable runtime string and line-list bindings copy assignments into fixed
+  buffers, allowing loop-carried string accumulators and line-list cursors.
+  Direct printing or immutable printable bindings of `FileInput#lines` / `readLines`
   are also supported, with `size`, `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda and builtin-function-value `map` producing
   string line lists,

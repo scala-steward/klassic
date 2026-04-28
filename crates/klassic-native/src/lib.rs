@@ -1342,6 +1342,44 @@ impl NativeCodeGenerator {
                         }
                         Ok(NativeValue::Unit)
                     }
+                    value if *mutable && matches!(value, NativeValue::RuntimeLinesList { .. }) => {
+                        let mutable = self.runtime_lines_list_scratch_value();
+                        let NativeValue::RuntimeLinesList { data, len } = mutable else {
+                            unreachable!("runtime line-list scratch should be a runtime line list")
+                        };
+                        let input = self.native_lines_ref_from_value(
+                            value,
+                            *span,
+                            "mutable line-list binding",
+                        )?;
+                        self.emit_copy_native_string_to_runtime_string_buffer(
+                            data,
+                            len,
+                            input,
+                            *span,
+                            "mutable line-list binding exceeds 65536 bytes",
+                        );
+                        self.bind_constant(name.clone(), mutable);
+                        Ok(NativeValue::Unit)
+                    }
+                    value if *mutable && self.native_string_ref(value).is_some() => {
+                        let mutable = self.runtime_string_scratch_value();
+                        let NativeValue::RuntimeString { data, len } = mutable else {
+                            unreachable!("runtime string scratch should be a runtime string")
+                        };
+                        let input = self
+                            .native_string_ref(value)
+                            .expect("native string ref was checked");
+                        self.emit_copy_native_string_to_runtime_string_buffer(
+                            data,
+                            len,
+                            input,
+                            *span,
+                            "mutable string binding exceeds 65536 bytes",
+                        );
+                        self.bind_constant(name.clone(), mutable);
+                        Ok(NativeValue::Unit)
+                    }
                     NativeValue::Null
                     | NativeValue::StaticFloat { .. }
                     | NativeValue::StaticDouble { .. }
@@ -1408,6 +1446,44 @@ impl NativeCodeGenerator {
                         self.remove_static_value(name);
                     }
                     return Ok(compiled);
+                }
+                match slot.value {
+                    NativeValue::RuntimeString { data, len } => {
+                        let compiled = self.compile_expr(value)?;
+                        let Some(input) = self.native_string_ref(compiled) else {
+                            return Err(unsupported(
+                                *span,
+                                "native string assignment for this value type",
+                            ));
+                        };
+                        self.emit_copy_native_string_to_runtime_string_buffer(
+                            data,
+                            len,
+                            input,
+                            *span,
+                            "string assignment exceeds 65536 bytes",
+                        );
+                        self.remove_static_value(name);
+                        return Ok(slot.value);
+                    }
+                    NativeValue::RuntimeLinesList { data, len } => {
+                        let compiled = self.compile_expr(value)?;
+                        let input = self.native_lines_ref_from_value(
+                            compiled,
+                            *span,
+                            "line-list assignment",
+                        )?;
+                        self.emit_copy_native_string_to_runtime_string_buffer(
+                            data,
+                            len,
+                            input,
+                            *span,
+                            "line-list assignment exceeds 65536 bytes",
+                        );
+                        self.remove_static_value(name);
+                        return Ok(slot.value);
+                    }
+                    _ => {}
                 }
                 if !matches!(slot.value, NativeValue::Int | NativeValue::Bool) {
                     return Err(unsupported(*span, "native assignment to this value type"));
@@ -14762,6 +14838,27 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn native_lines_ref_from_value(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+        name: &str,
+    ) -> Result<NativeStringRef, Diagnostic> {
+        match value {
+            NativeValue::RuntimeLinesList { data, len } => Ok(NativeStringRef {
+                data,
+                len: NativeStringLen::Runtime(len),
+            }),
+            value => {
+                let content = self.static_write_lines_content_from_native(value, span, name)?;
+                Ok(NativeStringRef {
+                    data: self.asm.data_label_with_bytes(content.as_bytes()),
+                    len: NativeStringLen::Immediate(content.len()),
+                })
+            }
+        }
+    }
+
     fn emit_load_native_string_len(&mut self, dst: Reg, len: NativeStringLen) {
         match len {
             NativeStringLen::Immediate(value) => self.asm.mov_imm64(dst, value as u64),
@@ -19083,13 +19180,13 @@ mod tests {
     #[test]
     fn rejects_unsupported_native_construct_after_typecheck() {
         let source = r#"
-            mutable s = "x"
+            mutable xs = [1]
             mutable i = 0
             while(i < 2) {
-              s = s + "y"
+              xs = [i]
               i += 1
             }
-            println(s)
+            println(xs)
         "#;
         let error = compile_source_to_elf("<test>", source, NativeCompilerConfig::default())
             .expect_err("dynamic aggregate updates are not native-compiled yet");

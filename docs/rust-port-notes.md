@@ -156,6 +156,8 @@ the module layout is described in `docs/architecture-rust.md`.
   `FileInput#open(path, stream => FileInput#readAll(stream))` callbacks,
   direct printing or immutable printable bindings of `FileInput#lines` /
   `readLines`, and matching simple `open(...readLines...)` callbacks. Runtime
+  string and line-list values can also be held in mutable fixed-buffer bindings,
+  so native loops can update string accumulators and line-list cursors. Runtime
   line-list values also support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`,
   inline or aliased-lambda `map` that produces string line lists,
   String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers, `join`,

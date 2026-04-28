@@ -169,6 +169,11 @@ observed the old value.
 Top-level lambda declarations and inline lambda calls use the same annotated
 `String` / `List<String>` parameter matching, but bind the actual call-site value
 directly because their bodies are emitted at the call site.
+Mutable native `String` and `List<String>` bindings are represented as fixed
+runtime buffers. Initial values and later assignments copy static or runtime
+string/line-list content into those buffers, so dynamic loops can maintain
+string accumulators and consume runtime line-list cursors without changing the
+binding's native value shape.
 Annotated `String` / `List<String>` returns use function-owned return buffers;
 direct call sites immediately copy those buffers into call-site-local buffers so
 neighboring calls can be composed without clobbering each other.

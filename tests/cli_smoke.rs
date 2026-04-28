@@ -593,6 +593,88 @@ assertResult(4)(sizePlus(firstLines, sizePlus(secondLines, 0)))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_mutable_runtime_string_and_line_list_bindings() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-mutable-runtime-{unique}.kl"));
+    let text_path =
+        std::env::temp_dir().join(format!("klassic-native-mutable-runtime-text-{unique}.txt"));
+    let lines_path =
+        std::env::temp_dir().join(format!("klassic-native-mutable-runtime-lines-{unique}.txt"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-mutable-runtime-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"mutable text = FileInput#all("{}")
+text = text + "!"
+text = toUpperCase(text)
+println(text)
+
+mutable rest = FileInput#lines("{}")
+mutable joined = ""
+while(!rest.isEmpty()) {{
+  joined = joined + head(rest)
+  rest = tail(rest)
+}}
+println(joined)
+rest = ["x", "y"]
+rest = cons("z")(rest)
+println(join(rest, "|"))
+assertResult("HELLO!")(text)
+assertResult("abc")(joined)
+assertResult(["z", "x", "y"])(rest)
+"#,
+            text_path.display(),
+            lines_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "mutable runtime binding build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&text_path, "hello").expect("text should write after native build");
+    fs::write(&lines_path, "a\nb\nc").expect("lines should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&text_path);
+    let _ = fs::remove_file(&lines_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "mutable runtime binding run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "HELLO!\nabc\nz|x|y\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_recursive_runtime_string_return() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
