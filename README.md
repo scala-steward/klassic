@@ -99,9 +99,9 @@ string/list frames are available.
 Annotated `String` and `List<String>` function returns use fixed return buffers
 that are copied into call-site buffers so adjacent calls do not overwrite each
 other.
-Function value aliases for such `def`s preserve the runtime return metadata, so
-aliased calls can still participate in string concatenation and line-list
-helpers.
+Function value aliases and static record fields for such `def`s preserve the
+runtime return metadata, so aliased calls can still participate in string
+concatenation and line-list helpers.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Inline and top-level lambda calls use the same annotated `String` /

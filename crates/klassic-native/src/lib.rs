@@ -4509,6 +4509,10 @@ impl NativeCodeGenerator {
         };
 
         if static_expr_is_pure(&lambda.body)
+            && !matches!(
+                lambda.return_value,
+                Some(NativeValue::RuntimeString { .. } | NativeValue::RuntimeLinesList { .. })
+            )
             && !self.lambda_uses_runtime_captures(&lambda)
             && arguments.iter().all(|argument| {
                 self.preview_static_value_after_effectful_eval(argument)
@@ -10791,17 +10795,32 @@ impl NativeCodeGenerator {
         }
     }
 
-    fn static_lambda_identifier_return_value(&self, name: &str) -> Option<NativeValue> {
-        let label = match self.lookup_static_value(name).or_else(|| {
-            self.lookup_var(name)
-                .and_then(|slot| self.static_value_from_native(slot.value))
-        })? {
+    fn static_lambda_callee_return_value(&self, callee: &Expr) -> Option<NativeValue> {
+        let label = match self.static_value_for_return_hint(callee)? {
             StaticValue::StaticLambda { label } => label,
             _ => return None,
         };
         self.static_lambdas
             .get(label.0)
             .and_then(|lambda| lambda.return_value)
+    }
+
+    fn static_value_for_return_hint(&self, expr: &Expr) -> Option<StaticValue> {
+        match expr {
+            Expr::Identifier { name, .. } => self.lookup_static_value(name).or_else(|| {
+                self.lookup_var(name)
+                    .and_then(|slot| self.static_value_from_native(slot.value))
+            }),
+            Expr::FieldAccess { target, field, .. } => {
+                let StaticValue::StaticRecord { label } =
+                    self.static_value_for_return_hint(target)?
+                else {
+                    return None;
+                };
+                self.static_record_field(label, field)
+            }
+            _ => None,
+        }
     }
 
     fn expr_may_yield_runtime_string(&self, expr: &Expr) -> bool {
@@ -10841,12 +10860,10 @@ impl NativeCodeGenerator {
                 {
                     true
                 }
-                Expr::Identifier { name, .. }
-                    if self
-                        .static_lambda_identifier_return_value(name)
-                        .is_some_and(|return_value| {
-                            matches!(return_value, NativeValue::RuntimeString { .. })
-                        }) =>
+                callee
+                    if self.static_lambda_callee_return_value(callee).is_some_and(
+                        |return_value| matches!(return_value, NativeValue::RuntimeString { .. }),
+                    ) =>
                 {
                     true
                 }
@@ -10959,12 +10976,12 @@ impl NativeCodeGenerator {
                     {
                         true
                     }
-                    Expr::Identifier { name, .. }
-                        if self
-                            .static_lambda_identifier_return_value(name)
-                            .is_some_and(|return_value| {
+                    callee
+                        if self.static_lambda_callee_return_value(callee).is_some_and(
+                            |return_value| {
                                 matches!(return_value, NativeValue::RuntimeLinesList { .. })
-                            }) =>
+                            },
+                        ) =>
                     {
                         true
                     }

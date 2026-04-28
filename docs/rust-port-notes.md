@@ -113,8 +113,9 @@ the module layout is described in `docs/architecture-rust.md`.
   per-call string/list frames exist.
 - Annotated `String` / `List<String>` returns use fixed function return buffers
   that direct call sites copy into call-site-local buffers.
-- Function value aliases for such `def`s retain the runtime return metadata for
-  string concatenation and runtime line-list helper dispatch.
+- Function value aliases and static record fields for such `def`s retain the
+  runtime return metadata for string concatenation and runtime line-list helper
+  dispatch.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
 - Static strings also use the runtime slice path for `substring` / `at` when

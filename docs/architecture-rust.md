@@ -75,10 +75,10 @@ cargo run -- -e "1 + 2"
   `List<String>` parameters for scalar-returning recursive functions whose
   self-calls pass the buffered value through unchanged, fixed-buffer annotated
   `String` / `List<String>` returns copied into call-site buffers, function
-  value aliases preserving those runtime return hints, top-level and inline
-  lambda calls with the same annotated parameter matching, and top-level lambda
-  bindings lowered as static functions or inlined at call sites when they
-  capture mutable locals.
+  value aliases and static record fields preserving those runtime return hints,
+  top-level and inline lambda calls with the same annotated parameter matching,
+  and top-level lambda bindings lowered as static functions or inlined at call
+  sites when they capture mutable locals.
   Temporary stack pushes used while evaluating native call arguments are tracked
   alongside local slots, so nested argument expressions can allocate closure
   captures without overwriting saved argument values.
