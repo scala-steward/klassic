@@ -1204,8 +1204,11 @@ fn builds_native_executable_for_runtime_return_map_function_values() {
         format!(
             r#"def reverseFrom(s: String, i: Int): String = if(i < 0) "" else s.at(i) + reverseFrom(s, i - 1)
 def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
+def plusOne(x: Int): Int = x + 1
+def plusTwo(x: Int): Int = x + 2
 val stringFns = %["reverse": reverseFrom]
 val lineFns = %["keep": keepLines]
+val intFns = %["one": plusOne, "two": plusTwo]
 val builtinFns = %["lower": toLowerCase, "upper": toUpperCase]
 val builtinFnsByLength = %[3: toLowerCase, 5: toUpperCase]
 val builtinFnsByFlag = %[true: toUpperCase, false: toLowerCase]
@@ -1217,6 +1220,7 @@ val keepKey = "ke" + "ep"
 val runtimeStringKey = head(args())
 val runtimeLineKey = head(tail(args()))
 val runtimeBuiltinKey = head(tail(tail(args())))
+val runtimeIntFnKey = head(tail(tail(tail(args()))))
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(Map#get(stringFns, "reverse")(text, length(text) - 1) + stringFns.get("reverse")("xy", 1))
@@ -1236,6 +1240,8 @@ println(pickedLengthBuiltin("AbC"))
 val pickedFlagBuiltin = Map#get(builtinFnsByFlag, runtimeBuiltinKey == "upper")
 println(pickedFlagBuiltin)
 println(pickedFlagBuiltin("AbC"))
+val pickedIntFn = Map#get(intFns, runtimeIntFnKey)
+println(pickedIntFn(40))
 val pickedSameBuiltin = Map#get(sameBuiltinFns, runtimeBuiltinKey)
 println(pickedSameBuiltin)
 println(pickedSameBuiltin("AbC"))
@@ -1253,6 +1259,7 @@ assertResult("ABC")(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
 assertResult("ABC")(pickedBuiltin("AbC"))
 assertResult("ABC")(pickedLengthBuiltin("AbC"))
 assertResult("ABC")(pickedFlagBuiltin("AbC"))
+assertResult(42)(pickedIntFn(40))
 assertResult("ABC")(pickedSameBuiltin("AbC"))
 assertResult(["a", "b", "c"])(Map#get(lineGroups, runtimeLineKey))
 assert(lineGroups.containsValue(Map#get(lineGroups, runtimeLineKey)))
@@ -1289,6 +1296,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
         .arg("reverse")
         .arg("keep")
         .arg("upper")
+        .arg("two")
         .output()
         .expect("generated executable should run");
 
@@ -1305,7 +1313,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n42\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }
