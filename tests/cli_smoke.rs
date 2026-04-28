@@ -2495,7 +2495,7 @@ fn builds_native_executable_for_conditional_builtin_function_values() {
         std::env::temp_dir().join(format!("klassic-native-conditional-builtin-{unique}"));
     fs::write(
         &source_path,
-        "def chooseCase() = {\n  val nestedFlag = size(CommandLine#args()) == 0\n  if(nestedFlag) toLowerCase else toUpperCase\n}\nval flag = size(CommandLine#args()) == 0\nval lower = toLowerCase\nval upper = toUpperCase\nval pickCase = if(flag) toLowerCase else toUpperCase\nval aliasPick = if(flag) lower else upper\nval fns = [if(flag) lower else upper]\nval rec = record { f: if(flag) toLowerCase else toUpperCase }\nval mapFns = %[\"case\": if(flag) lower else upper]\nval returnedPick = chooseCase()\nprintln(if(flag) toLowerCase else toUpperCase)\nprintln(pickCase)\nprintln(aliasPick)\nprintln(head(fns))\nprintln(rec.f)\nprintln(Map#get(mapFns, \"case\"))\nprintln(returnedPick)\nprintln(toString(fns))\nprintln(toString(rec))\nprintln(toString(mapFns))\nprintln(\"picked=#{aliasPick}\")\nprintln(toString(pickCase))\nprintln(toString(returnedPick))\nprintln((if(flag) toLowerCase else toUpperCase)(\"AbC\"))\nprintln(pickCase(\"AbC\"))\nprintln(aliasPick(\"AbC\"))\nprintln(head(fns)(\"AbC\"))\nprintln(rec.f(\"AbC\"))\nprintln(Map#get(mapFns, \"case\")(\"AbC\"))\nprintln(returnedPick(\"AbC\"))\n",
+        "def chooseCase() = {\n  val nestedFlag = size(CommandLine#args()) == 0\n  if(nestedFlag) toLowerCase else toUpperCase\n}\nval flag = size(CommandLine#args()) == 0\nval lower = toLowerCase\nval upper = toUpperCase\nval pickCase = if(flag) toLowerCase else toUpperCase\nval aliasPick = if(flag) lower else upper\nval fns = [if(flag) lower else upper]\nval rec = record { f: if(flag) toLowerCase else toUpperCase }\nval mapFns = %[\"case\": if(flag) lower else upper]\nval aggregateText = \"fns=#{fns}; rec=#{rec}; map=#{mapFns}\"\nval returnedPick = chooseCase()\nprintln(if(flag) toLowerCase else toUpperCase)\nprintln(pickCase)\nprintln(aliasPick)\nprintln(head(fns))\nprintln(rec.f)\nprintln(Map#get(mapFns, \"case\"))\nprintln(returnedPick)\nprintln(toString(fns))\nprintln(toString(rec))\nprintln(toString(mapFns))\nprintln(aggregateText)\nprintln(\"picked=#{aliasPick}\")\nprintln(toString(pickCase))\nprintln(toString(returnedPick))\nprintln((if(flag) toLowerCase else toUpperCase)(\"AbC\"))\nprintln(pickCase(\"AbC\"))\nprintln(aliasPick(\"AbC\"))\nprintln(head(fns)(\"AbC\"))\nprintln(rec.f(\"AbC\"))\nprintln(Map#get(mapFns, \"case\")(\"AbC\"))\nprintln(returnedPick(\"AbC\"))\n",
     )
     .expect("source should write");
 
@@ -2537,7 +2537,7 @@ fn builds_native_executable_for_conditional_builtin_function_values() {
     );
     assert_eq!(
         String::from_utf8_lossy(&lower_run.stdout),
-        "<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n[<builtin:toLowerCase>]\n#(<builtin:toLowerCase>)\n%[case: <builtin:toLowerCase>]\npicked=<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\nabc\nabc\nabc\nabc\nabc\nabc\nabc\n"
+        "<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\n[<builtin:toLowerCase>]\n#(<builtin:toLowerCase>)\n%[case: <builtin:toLowerCase>]\nfns=[<builtin:toLowerCase>]; rec=#(<builtin:toLowerCase>); map=%[case: <builtin:toLowerCase>]\npicked=<builtin:toLowerCase>\n<builtin:toLowerCase>\n<builtin:toLowerCase>\nabc\nabc\nabc\nabc\nabc\nabc\nabc\n"
     );
     assert!(lower_run.stderr.is_empty());
 
@@ -2549,7 +2549,7 @@ fn builds_native_executable_for_conditional_builtin_function_values() {
     );
     assert_eq!(
         String::from_utf8_lossy(&upper_run.stdout),
-        "<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n[<builtin:toUpperCase>]\n#(<builtin:toUpperCase>)\n%[case: <builtin:toUpperCase>]\npicked=<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\nABC\nABC\nABC\nABC\nABC\nABC\nABC\n"
+        "<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\n[<builtin:toUpperCase>]\n#(<builtin:toUpperCase>)\n%[case: <builtin:toUpperCase>]\nfns=[<builtin:toUpperCase>]; rec=#(<builtin:toUpperCase>); map=%[case: <builtin:toUpperCase>]\npicked=<builtin:toUpperCase>\n<builtin:toUpperCase>\n<builtin:toUpperCase>\nABC\nABC\nABC\nABC\nABC\nABC\nABC\n"
     );
     assert!(upper_run.stderr.is_empty());
 }

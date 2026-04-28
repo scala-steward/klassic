@@ -86,7 +86,7 @@ cargo run -- -e "1 + 2"
   supported builtin function values with matching arity, with conditional
   builtin display metadata preserving selected-branch `<builtin:name>` output
   through printing and `toString`, including for returned callables and static
-  aggregates,
+  aggregates in bound interpolation strings,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call
   sites when they capture mutable locals.

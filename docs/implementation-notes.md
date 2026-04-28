@@ -186,7 +186,9 @@ matching arity without adding a general heap function value representation yet.
 For conditional builtin branches, the synthesized callable also keeps display
 metadata so printing, interpolation, and `toString` emit the selected branch's
 `<builtin:name>`, even after the callable is returned from a function or nested
-inside a static aggregate.
+inside a static aggregate. Bound interpolation strings that include such
+aggregates use the runtime interpolation buffer rather than freezing a
+`<function>` placeholder at native build time.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

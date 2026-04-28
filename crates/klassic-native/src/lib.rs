@@ -12055,6 +12055,9 @@ impl NativeCodeGenerator {
                 } else {
                     self.static_value_from_expr_with_bindings(&parsed, bindings)?
                 };
+                if self.static_value_has_conditional_builtin_display(&value) {
+                    return None;
+                }
                 result.push_str(&self.static_value_display_string(&value));
             } else {
                 result.push(chars[index]);
@@ -13138,19 +13141,28 @@ impl NativeCodeGenerator {
                         "string interpolation result exceeds 65536 bytes",
                     );
                 } else if let Some(static_value) = self.static_value_from_native(fragment) {
-                    let text = self.static_value_display_string(&static_value);
-                    let label = self.asm.data_label_with_bytes(text.as_bytes());
-                    let fragment = NativeStringRef {
-                        data: label,
-                        len: NativeStringLen::Immediate(text.len()),
-                    };
-                    self.emit_append_native_string_to_runtime_buffer_offset_label(
-                        data,
-                        offset,
-                        fragment,
-                        span,
-                        "string interpolation result exceeds 65536 bytes",
-                    );
+                    if self.static_value_has_conditional_builtin_display(&static_value) {
+                        self.emit_append_static_value_display_to_runtime_buffer(
+                            data,
+                            offset,
+                            &static_value,
+                            span,
+                        );
+                    } else {
+                        let text = self.static_value_display_string(&static_value);
+                        let label = self.asm.data_label_with_bytes(text.as_bytes());
+                        let fragment = NativeStringRef {
+                            data: label,
+                            len: NativeStringLen::Immediate(text.len()),
+                        };
+                        self.emit_append_native_string_to_runtime_buffer_offset_label(
+                            data,
+                            offset,
+                            fragment,
+                            span,
+                            "string interpolation result exceeds 65536 bytes",
+                        );
+                    }
                 } else {
                     return Err(unsupported(span, "native string interpolation"));
                 }
