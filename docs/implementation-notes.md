@@ -160,9 +160,10 @@ runtime strings plus static or runtime line lists into those buffers, then pass
 only scalar `Int` / `Bool` parameters through the ordinary register/stack ABI;
 this lets simple self-recursive scanners such as `countA(s: String, i: Int): Int` and
 `countLines(lines: List<String>, i: Int): Int` compile without call-site
-inlining. Self-recursive calls must pass those buffered parameters through
-unchanged for now; recursive calls that rewrite the string or line-list argument
-are rejected instead of overwriting the shared parameter buffer.
+inlining. When a self-recursive call rewrites a `String` or `List<String>`
+parameter, native codegen first copies the new value into a staged runtime
+buffer, finishes evaluating the remaining arguments, then copies staged values
+into the shared parameter buffers immediately before the scalar call ABI.
 Top-level lambda declarations and inline lambda calls use the same annotated
 `String` / `List<String>` parameter matching, but bind the actual call-site value
 directly because their bodies are emitted at the call site.

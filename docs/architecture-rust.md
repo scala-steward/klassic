@@ -72,9 +72,9 @@ cargo run -- -e "1 + 2"
   literal or lambda-value jobs for the current native sample surface, simple unannotated
   integer/boolean return inference, stack-passed arguments beyond the first six
   integer/boolean native function parameters, annotated runtime `String` /
-  `List<String>` parameters for scalar-returning recursive functions whose
-  self-calls pass the buffered value through unchanged, fixed-buffer annotated
-  `String` / `List<String>` returns copied into call-site buffers, function
+  `List<String>` parameters for scalar-returning recursive functions, including
+  self-calls that rewrite those buffered values through staged copies,
+  fixed-buffer annotated `String` / `List<String>` returns copied into call-site buffers, function
   value aliases, static record fields, direct or method-style static-list
   `head` lookups including `tail` and `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys preserving those runtime

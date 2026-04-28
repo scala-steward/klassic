@@ -111,8 +111,8 @@ the module layout is described in `docs/architecture-rust.md`.
   `List<String>` parameters by copying the argument into fixed
   function-parameter buffers before scalar register/stack arguments are passed.
   `List<String>` accepts both static string lists and runtime line lists.
-  Self-recursive calls that rewrite those buffered arguments are rejected until
-  per-call string/list frames exist.
+  Self-recursive calls that rewrite those buffered arguments stage the new
+  string/list values before updating the shared function-parameter buffers.
 - Annotated `String` / `List<String>` returns use fixed function return buffers
   that direct call sites copy into call-site-local buffers.
 - Function value aliases, static record fields, direct or method-style `head`

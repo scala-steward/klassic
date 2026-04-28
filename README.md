@@ -94,8 +94,9 @@ runtime integer/boolean arguments without folding away impure lambda bodies.
 Recursive scalar-returning native functions can also accept annotated `String`
 and `List<String>` parameters by copying runtime strings or static/runtime line
 lists into fixed function-parameter buffers before the scalar call ABI is invoked;
-self-recursive calls must pass those parameters through unchanged until per-call
-string/list frames are available.
+self-recursive calls that rewrite those parameters stage the new string or
+line-list value before updating the shared parameter buffer, preserving
+left-to-right argument evaluation.
 Annotated `String` and `List<String>` function returns use fixed return buffers
 that are copied into call-site buffers so adjacent calls do not overwrite each
 other.

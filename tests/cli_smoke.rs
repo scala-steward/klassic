@@ -295,7 +295,7 @@ assertResult(3)(countA(text, 0))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-fn native_build_rejects_recursive_runtime_string_parameter_rewrite() {
+fn builds_native_executable_for_recursive_runtime_string_parameter_rewrite() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time should be monotonic")
@@ -313,8 +313,12 @@ fn native_build_rejects_recursive_runtime_string_parameter_rewrite() {
         &source_path,
         format!(
             r#"def consume(s: String, i: Int): Int = if(i >= length(s)) i else consume(substring(s, 1, length(s)), i + 1)
+def sumOldLengths(s: String, acc: Int): Int = if(isEmptyString(s)) acc else sumOldLengths(substring(s, 1, length(s)), acc + length(s))
 val text = FileInput#all("{}")
 println(consume(text, 0))
+println(sumOldLengths(text, 0))
+assertResult(3)(consume(text, 0))
+assertResult(21)(sumOldLengths(text, 0))
 "#,
             input_path.display()
         ),
@@ -331,17 +335,32 @@ println(consume(text, 0))
         .output()
         .expect("klassic build should run");
 
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&output_path);
-
-    assert!(!build.status.success());
-    assert!(build.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&build.stderr)
-            .contains("native recursive string parameter must be passed unchanged"),
-        "{}",
+        build.status.success(),
+        "recursive runtime string rewrite build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "banana").expect("input source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive runtime string rewrite run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n21\n");
+    assert!(run.stderr.is_empty());
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -413,7 +432,7 @@ assertResult(2)(countLines(["one", "two"], 0))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-fn native_build_rejects_recursive_runtime_line_list_parameter_rewrite() {
+fn builds_native_executable_for_recursive_runtime_line_list_parameter_rewrite() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time should be monotonic")
@@ -431,8 +450,12 @@ fn native_build_rejects_recursive_runtime_line_list_parameter_rewrite() {
         &source_path,
         format!(
             r#"def consume(lines: List<String>, count: Int): Int = if(lines.isEmpty()) count else consume(tail(lines), count + 1)
+def sumOldSizes(lines: List<String>, acc: Int): Int = if(lines.isEmpty()) acc else sumOldSizes(tail(lines), acc + lines.size())
 val lines = FileInput#lines("{}")
 println(consume(lines, 0))
+println(sumOldSizes(lines, 0))
+assertResult(3)(consume(lines, 0))
+assertResult(6)(sumOldSizes(lines, 0))
 "#,
             input_path.display()
         ),
@@ -449,17 +472,33 @@ println(consume(lines, 0))
         .output()
         .expect("klassic build should run");
 
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&output_path);
-
-    assert!(!build.status.success());
-    assert!(build.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&build.stderr)
-            .contains("native recursive line-list parameter must be passed unchanged"),
-        "{}",
+        build.status.success(),
+        "recursive runtime line-list rewrite build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "alpha\nbeta\ngamma")
+        .expect("input source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive runtime line-list rewrite run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n6\n");
+    assert!(run.stderr.is_empty());
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

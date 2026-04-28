@@ -2379,22 +2379,44 @@ impl NativeCodeGenerator {
                 ),
             ));
         }
+        let mut staged_recursive_runtime_arguments = Vec::new();
         let mut scalar_argument_count = 0usize;
         for (argument, expected_value) in arguments.iter().zip(function.param_values.iter()) {
             let value = self.compile_expr(argument)?;
             if let NativeValue::RuntimeString { data, len } = expected_value {
-                if recursive_call_to_active_function && value != *expected_value {
-                    return Err(unsupported(
-                        span,
-                        "native recursive string parameter must be passed unchanged",
-                    ));
-                }
                 let Some(input) = self.native_string_ref(value) else {
                     return Err(unsupported(
                         span,
                         "native function string argument for this value type",
                     ));
                 };
+                if recursive_call_to_active_function && value != *expected_value {
+                    let staged = self.runtime_string_scratch_value();
+                    let NativeValue::RuntimeString {
+                        data: staged_data,
+                        len: staged_len,
+                    } = staged
+                    else {
+                        unreachable!("runtime string scratch should be a runtime string")
+                    };
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        staged_data,
+                        staged_len,
+                        input,
+                        span,
+                        "function string argument exceeds 65536 bytes",
+                    );
+                    staged_recursive_runtime_arguments.push((
+                        *data,
+                        *len,
+                        NativeStringRef {
+                            data: staged_data,
+                            len: NativeStringLen::Runtime(staged_len),
+                        },
+                        "function string argument exceeds 65536 bytes",
+                    ));
+                    continue;
+                }
                 self.emit_copy_native_string_to_runtime_string_buffer(
                     *data,
                     *len,
@@ -2405,12 +2427,6 @@ impl NativeCodeGenerator {
                 continue;
             }
             if let NativeValue::RuntimeLinesList { data, len } = expected_value {
-                if recursive_call_to_active_function && value != *expected_value {
-                    return Err(unsupported(
-                        span,
-                        "native recursive line-list parameter must be passed unchanged",
-                    ));
-                }
                 let input = if let NativeValue::RuntimeLinesList {
                     data: input_data,
                     len: input_len,
@@ -2431,6 +2447,33 @@ impl NativeCodeGenerator {
                         len: NativeStringLen::Immediate(content.len()),
                     }
                 };
+                if recursive_call_to_active_function && value != *expected_value {
+                    let staged = self.runtime_lines_list_scratch_value();
+                    let NativeValue::RuntimeLinesList {
+                        data: staged_data,
+                        len: staged_len,
+                    } = staged
+                    else {
+                        unreachable!("runtime line-list scratch should be a runtime line list")
+                    };
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        staged_data,
+                        staged_len,
+                        input,
+                        span,
+                        "function line-list argument exceeds 65536 bytes",
+                    );
+                    staged_recursive_runtime_arguments.push((
+                        *data,
+                        *len,
+                        NativeStringRef {
+                            data: staged_data,
+                            len: NativeStringLen::Runtime(staged_len),
+                        },
+                        "function line-list argument exceeds 65536 bytes",
+                    ));
+                    continue;
+                }
                 self.emit_copy_native_string_to_runtime_string_buffer(
                     *data,
                     *len,
@@ -2457,6 +2500,15 @@ impl NativeCodeGenerator {
                     "native function argument for this value type",
                 ));
             }
+        }
+        for (data, len, input, overflow_message) in staged_recursive_runtime_arguments {
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                input,
+                span,
+                overflow_message,
+            );
         }
         let arg_regs = argument_registers(scalar_argument_count);
         let pass_on_stack = scalar_argument_count > arg_regs.len();
