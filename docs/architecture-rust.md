@@ -84,7 +84,8 @@ cargo run -- -e "1 + 2"
   pure conditional callable branches in immutable bindings or static aggregates
   lowered to synthesized branch-local-call lambdas for user callables and
   supported builtin function values with matching arity, with conditional
-  builtin display metadata preserving selected-branch `<builtin:name>` output,
+  builtin display metadata preserving selected-branch `<builtin:name>` output
+  through printing and `toString`,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call
   sites when they capture mutable locals.

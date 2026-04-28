@@ -113,7 +113,8 @@ Pure conditional callable branches used in immutable bindings or static
 aggregate elements snapshot the condition once, then store a synthesized
 callable that performs the same branch-local call when invoked, including
 supported builtin function values with matching arity. Conditional builtin
-callables keep evaluator-style selected-branch `<builtin:name>` display.
+callables keep evaluator-style selected-branch `<builtin:name>` display,
+including through interpolation and `toString`.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Inline and top-level lambda calls use the same annotated `String` /

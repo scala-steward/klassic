@@ -3747,6 +3747,10 @@ impl NativeCodeGenerator {
                     ));
                 }
                 if let Some(value) = self.static_value_from_pure_expr(&arguments[0]) {
+                    if let Some(display) = self.conditional_builtin_display_for_static_value(&value)
+                    {
+                        return Ok(self.emit_conditional_builtin_display_string(&display, span));
+                    }
                     return Ok(self.emit_static_string(self.static_value_display_string(&value)));
                 }
                 let before_static_scopes = self.static_scopes.clone();
@@ -3758,6 +3762,10 @@ impl NativeCodeGenerator {
                         span,
                         "native toString for non-static value",
                     )?;
+                    if let Some(display) = self.conditional_builtin_display_for_static_value(&value)
+                    {
+                        return Ok(self.emit_conditional_builtin_display_string(&display, span));
+                    }
                     return Ok(self.emit_static_string(self.static_value_display_string(&value)));
                 }
                 let value = self.compile_expr(&arguments[0])?;
@@ -5773,6 +5781,12 @@ impl NativeCodeGenerator {
             }
             NativeValue::Bool => self
                 .emit_bool_rax_to_runtime_string_ref(span, "toString result exceeds 65536 bytes"),
+            NativeValue::StaticLambda { label } => {
+                let Some(display) = self.conditional_builtin_displays.get(&label).cloned() else {
+                    return Err(unsupported(span, "native toString for non-static value"));
+                };
+                return Ok(self.emit_conditional_builtin_display_string(&display, span));
+            }
             _ => return Err(unsupported(span, "native toString for non-static value")),
         };
         let NativeStringLen::Runtime(len) = text.len else {
@@ -5782,6 +5796,62 @@ impl NativeCodeGenerator {
             data: text.data,
             len,
         })
+    }
+
+    fn conditional_builtin_display_for_static_value(
+        &self,
+        value: &StaticValue,
+    ) -> Option<ConditionalBuiltinDisplay> {
+        let StaticValue::StaticLambda { label } = value else {
+            return None;
+        };
+        self.conditional_builtin_displays.get(label).cloned()
+    }
+
+    fn emit_conditional_builtin_display_string(
+        &mut self,
+        display: &ConditionalBuiltinDisplay,
+        span: Span,
+    ) -> NativeValue {
+        let Some(condition_slot) = self.lookup_var(&display.condition_name) else {
+            return self.emit_static_string("<function>".to_string());
+        };
+        let output = self.runtime_string_scratch_value();
+        let NativeValue::RuntimeString { data, len } = output else {
+            unreachable!("runtime string scratch should be a runtime string")
+        };
+        let else_label = self.asm.create_text_label();
+        let end_label = self.asm.create_text_label();
+        self.asm.load_rbp_slot(Reg::Rax, condition_slot.offset);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, else_label);
+        self.emit_copy_builtin_display_to_runtime_string(data, len, display.then_label, span);
+        self.asm.jmp_label(end_label);
+        self.asm.bind_text_label(else_label);
+        self.emit_copy_builtin_display_to_runtime_string(data, len, display.else_label, span);
+        self.asm.bind_text_label(end_label);
+        output
+    }
+
+    fn emit_copy_builtin_display_to_runtime_string(
+        &mut self,
+        data: DataLabel,
+        len: DataLabel,
+        label: BuiltinLabel,
+        span: Span,
+    ) {
+        let text = self.builtin_function_display_string(label);
+        let input_data = self.asm.data_label_with_bytes(text.as_bytes());
+        self.emit_copy_native_string_to_runtime_string_buffer(
+            data,
+            len,
+            NativeStringRef {
+                data: input_data,
+                len: NativeStringLen::Immediate(text.len()),
+            },
+            span,
+            "toString result exceeds 65536 bytes",
+        );
     }
 
     fn emit_environment_get_key_ref(
