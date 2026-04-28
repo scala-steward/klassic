@@ -296,6 +296,8 @@ to be readable at native build time.
 Static strings use the same runtime slice emitter for `substring` / `at` when
 their index expressions are mutable or otherwise dynamic integers, so loops can
 walk known strings without requiring every index to fold at build time.
+Static string `split` and static string-list `join` likewise route through
+runtime buffers when their delimiters are runtime strings.
 `Dir#move` likewise treats non-virtual runtime moves as unknown File/Dir state
 after emitting the rename syscall, preventing later native folds from using
 stale build-time filesystem facts.

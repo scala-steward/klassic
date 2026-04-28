@@ -3438,6 +3438,19 @@ impl NativeCodeGenerator {
                 }
                 let input =
                     self.static_string_from_argument_preserving_effects(&arguments[0], span, name)?;
+                if self.expr_may_yield_runtime_string(&arguments[1]) {
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    let delimiter = self.compile_expr(&arguments[1])?;
+                    let Some(delimiter) = self.native_string_ref(delimiter) else {
+                        return Err(unsupported(span, "native split for non-string delimiter"));
+                    };
+                    return Ok(
+                        self.emit_runtime_string_split_runtime_delimiter(input, delimiter, span)
+                    );
+                }
                 let delimiter =
                     self.static_string_from_argument_preserving_effects(&arguments[1], span, name)?;
                 let elements = if delimiter.is_empty() {
@@ -3671,6 +3684,21 @@ impl NativeCodeGenerator {
                 span,
             ));
         }
+        if self.expr_may_yield_runtime_string(&arguments[1]) {
+            let delimiter = self.compile_expr(&arguments[1])?;
+            let Some(delimiter) = self.native_string_ref(delimiter) else {
+                return Err(unsupported(span, "native join for non-string delimiter"));
+            };
+            let NativeValue::StaticList { label } = list else {
+                return Err(unsupported(span, "native join for non-static string list"));
+            };
+            let elements = self
+                .static_lists
+                .get(label.0)
+                .map(|list| list.elements.clone())
+                .unwrap_or_default();
+            return self.emit_static_string_list_join_runtime_delimiter(elements, delimiter, span);
+        }
         let delimiter =
             self.static_string_from_argument_preserving_effects(&arguments[1], span, "join")?;
         let NativeValue::StaticList { label } = list else {
@@ -3691,6 +3719,51 @@ impl NativeCodeGenerator {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(self.emit_static_string(parts.join(&delimiter)))
+    }
+
+    fn emit_static_string_list_join_runtime_delimiter(
+        &mut self,
+        elements: Vec<StaticValue>,
+        delimiter: NativeStringRef,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let output = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let output_len = self.asm.data_label_with_i64s(&[0]);
+        let output_offset = self.asm.data_label_with_i64s(&[0]);
+        self.asm.mov_data_addr(Reg::R10, output_offset);
+        self.asm.mov_imm64(Reg::R9, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
+
+        for (index, value) in elements.iter().enumerate() {
+            let StaticValue::StaticString { label, len } = value else {
+                return Err(unsupported(span, "native join for non-string list element"));
+            };
+            if index > 0 {
+                self.emit_append_native_string_to_runtime_buffer_offset_label(
+                    output,
+                    output_offset,
+                    delimiter,
+                    span,
+                    "join result exceeds 65536 bytes",
+                );
+            }
+            self.emit_append_native_string_to_runtime_buffer_offset_label(
+                output,
+                output_offset,
+                NativeStringRef {
+                    data: *label,
+                    len: NativeStringLen::Immediate(*len),
+                },
+                span,
+                "join result exceeds 65536 bytes",
+            );
+        }
+        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
+        Ok(NativeValue::RuntimeString {
+            data: output,
+            len: output_len,
+        })
     }
 
     fn compile_numeric_helper(

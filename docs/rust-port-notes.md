@@ -106,6 +106,8 @@ the module layout is described in `docs/architecture-rust.md`.
   fixed-buffer runtime strings.
 - Static strings also use the runtime slice path for `substring` / `at` when
   their indexes are mutable or otherwise dynamic integers.
+- Static string `split` and static string-list `join` accept runtime string
+  delimiters by routing through fixed runtime buffers.
 - Recursive functions that still need call-site inlining are rejected with a
   compile diagnostic instead of recursively inlining until the compiler stack
   overflows.

@@ -1337,6 +1337,80 @@ assertResult("y")("xy".at(start))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_split_join_runtime_delimiters() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let delimiter_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-delimiter-{unique}.txt"));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-delimiter-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-delimiter-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val delimiter = FileInput#all("{}")
+val parts = "a,b,c".split(delimiter)
+val joined = join(["a", "b", "c"], delimiter)
+val methodJoined = ["x", "y"].join(delimiter)
+println(parts)
+println(join(parts, "|"))
+println(joined)
+println(methodJoined)
+assertResult(["a", "b", "c"])(parts)
+assertResult("a,b,c")(joined)
+assertResult("x,y")(methodJoined)
+"#,
+            delimiter_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime delimiter build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&delimiter_path, ",").expect("delimiter should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&delimiter_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime delimiter run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[a, b, c]\na|b|c\na,b,c\nx,y\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_builtin_function_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
