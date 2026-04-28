@@ -128,7 +128,7 @@ The repository contains a Rust-native language implementation with:
   static map/set/File/Dir helper calls including runtime string/int/boolean
   membership for static string-key/string-valued maps, string sets, and scalar
   list/set/map entries plus builtin module aliases/imports and helper value aliases,
-  static `null`, and static string/list/record/map/
+  immutable static `null` / `()` bindings, and static string/list/record/map/
   set/null/unit `assertResult`, native `ToDo()` runtime failure emission, plus
   native `()` printing and equality, and immutable aliases to directly supported
   builtin functions and curried helpers such as `val sub = substring` and

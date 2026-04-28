@@ -1432,6 +1432,7 @@ impl NativeCodeGenerator {
                         Ok(NativeValue::Unit)
                     }
                     NativeValue::Null
+                    | NativeValue::Unit
                     | NativeValue::StaticFloat { .. }
                     | NativeValue::StaticDouble { .. }
                     | NativeValue::StaticString { .. }

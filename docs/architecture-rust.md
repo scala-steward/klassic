@@ -355,9 +355,10 @@ cargo run -- -e "1 + 2"
   direct variable lookup and existence checks with static or runtime string keys.
   Static
   `Dir` helpers cover existence/type checks, mkdir/mkdirs, list/listFull,
-  delete, copy, and move on static paths. Static `null` is
-  available for printing, equality, and `Map#get` misses. `()` is available for
-  printing, static string concatenation, equality, and `assertResult`. Native
+  delete, copy, and move on static paths. Static `null` is available for
+  immutable bindings, printing, equality, and `Map#get` misses. `()` is
+  available for immutable bindings, printing, static string concatenation,
+  equality, and `assertResult`. Native
   `assertResult` covers integers, booleans, static strings, static integer
   lists, static records, static maps, static sets, static nulls, and unit.
   Ordinary `==` / `!=` covers runtime integers/booleans and static aggregate

@@ -314,11 +314,11 @@ method-style `contains`, `indexOf`, and
 oversized results are reported as source-located runtime errors.
 `FileInput#open` callback
 folding preserves mutable callback effects when the callback's final value
-remains statically recoverable. Static `null` is
-supported for printing and
-`Map#get` misses; `()` is supported for printing, static string concatenation,
-ordinary equality, and `assertResult`. Static strings/lists/records/maps/sets/
-null also support ordinary `==` / `!=` when both sides are statically known.
+remains statically recoverable. Static `null` is supported for immutable
+bindings, printing, ordinary equality, and `Map#get` misses; `()` is supported
+for immutable bindings, printing, static string concatenation, ordinary
+equality, and `assertResult`. Static strings/lists/records/maps/sets/null/unit
+also support ordinary `==` / `!=` when both sides are statically known.
 `ToDo()` emits the same `not implemented yet` runtime failure message from a
 native executable. Native runtime failures for `assert`, `assertResult`,
 `head([])`, negative `sleep`, and negative string helper indexes/counts include

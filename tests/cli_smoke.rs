@@ -5000,7 +5000,7 @@ fn builds_native_executable_for_runtime_to_string_values() {
     let output_path = std::env::temp_dir().join(format!("klassic-native-to-string-{unique}"));
     fs::write(
         &source_path,
-        "val n = size(args())\nval ok = Environment#exists(head(args()))\nval nt = toString(n)\nval okt = toString(ok)\nval unitText = toString(if(ok) () else ())\nval nullText = toString(if(ok) null else null)\nprintln(nt)\nprintln(okt)\nprintln(\"n=\" + nt)\nprintln(\"ok=\" + okt)\nprintln(unitText)\nprintln(nullText)\nprintln(\"unit=\" + unitText)\nprintln(\"null=\" + nullText)\nassertResult(\"1\")(nt)\nassertResult(\"true\")(okt)\nassertResult(\"()\")(unitText)\nassertResult(\"null\")(nullText)\n",
+        "val n = size(args())\nval ok = Environment#exists(head(args()))\nval nt = toString(n)\nval okt = toString(ok)\nval dynamicUnit = if(ok) () else ()\nval dynamicNull = if(ok) null else null\nval unitText = toString(dynamicUnit)\nval nullText = toString(dynamicNull)\nprintln(nt)\nprintln(okt)\nprintln(\"n=\" + nt)\nprintln(\"ok=\" + okt)\nprintln(unitText)\nprintln(nullText)\nprintln(\"unit=\" + unitText)\nprintln(\"null=\" + nullText)\nassertResult(\"1\")(nt)\nassertResult(\"true\")(okt)\nassertResult(\"()\")(unitText)\nassertResult(\"null\")(nullText)\nassertResult(())(dynamicUnit)\nassertResult(null)(dynamicNull)\n",
     )
     .expect("source should write");
 

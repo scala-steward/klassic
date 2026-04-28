@@ -319,9 +319,9 @@ immutable values, called later, and formatted through printing, interpolation,
 string concatenation, or `toString` with the selected callable display through
 the same dispatch path; equality involving those function values follows the
 evaluator's always-false function comparison semantics. Static
-`null` is supported for printing, equality, and `Map#get` misses; `()` is
-supported for printing, static string concatenation, equality, and
-`assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
+`null` is supported for immutable bindings, printing, equality, and `Map#get`
+misses; `()` is supported for immutable bindings, printing, static string
+concatenation, equality, and `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
 `not implemented yet` message with the source location prefix. Native
 `assert(false)` and failing `assertResult` checks now write source-located
 runtime diagnostics to stderr before exiting non-zero, with conditional builtin
