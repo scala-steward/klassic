@@ -5252,14 +5252,11 @@ impl NativeCodeGenerator {
             "FileInput#open",
         )?;
         let path_value = self.static_string_value(path);
-        let value = self.compile_lambda_body_with_static_arguments_preserving_effects(
-            params,
-            body,
-            vec![path_value],
-            span,
-            "native FileInput#open callback body",
-        )?;
-        Ok(self.emit_static_value(&value))
+        self.push_scope();
+        self.bind_static_runtime_value(params[0].clone(), path_value);
+        let result = self.compile_expr(body);
+        self.pop_scope();
+        result
     }
 
     fn file_input_open_callback_name(&self, body: &Expr, param: &str) -> Option<String> {

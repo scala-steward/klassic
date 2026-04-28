@@ -2214,6 +2214,73 @@ assertResult(4)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_file_input_open_runtime_callback_body() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-static-open-runtime-callback-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-static-open-runtime-callback-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        r#"val opened = FileInput#open("static-name", (stream) => {
+  println("stream=" + stream)
+  args()
+})
+println(opened)
+println(join(opened, "|"))
+assertResult(["alpha", "beta"])(opened)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "static FileInput#open runtime callback build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .arg("alpha")
+        .arg("beta")
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "static FileInput#open runtime callback run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "stream=static-name\n[alpha, beta]\nalpha|beta\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_file_input_binding() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

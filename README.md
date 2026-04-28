@@ -204,7 +204,10 @@ Static record fields may contain lambda
 methods that are called with the receiver for native static evaluation. Static
 file input/output helpers for static paths are supported through Linux file
 syscalls plus compile-time virtual file tracking; `FileOutput#write` /
-`FileOutput#append` can also write fixed-buffer runtime string content. Paths
+`FileOutput#append` can also write fixed-buffer runtime string content.
+Static-path `FileInput#open` callback bodies bind the stream path before normal
+native compilation, so they may return supported runtime values as well as
+folded static values. Paths
 whose contents become unknown through runtime writes or dynamic branches
 fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
 `Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.

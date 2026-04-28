@@ -319,7 +319,9 @@ Static-path `FileInput` / `FileOutput` helpers use Linux file syscalls for
 write/append/delete side effects and compile-time virtual file tracking for
 native static reads. `FileOutput#write` / `FileOutput#append` can also write
 fixed-buffer runtime string content and then mark that path's native virtual
-file state as unknown. Unknown paths fall back to runtime `FileInput#all`,
+file state as unknown. Static-path `FileInput#open` callback bodies bind the
+stream path before normal native compilation, so they may return supported
+runtime values as well as folded static values. Unknown paths fall back to runtime `FileInput#all`,
 `FileOutput#exists`, `Dir#exists`, `Dir#isFile`, `Dir#isDirectory`, `Dir#list`,
 and `Dir#listFull` syscalls instead of reusing stale build-time facts. Runtime
 string paths are accepted for the same read/existence/type-check operations and
