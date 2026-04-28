@@ -8553,6 +8553,9 @@ impl NativeCodeGenerator {
             }
             "toString" if arguments.len() == 1 => {
                 let value = self.static_value_from_pure_expr(&arguments[0])?;
+                if self.static_value_has_conditional_builtin_display(&value) {
+                    return None;
+                }
                 let text = self.static_value_display_string(&value);
                 Some(self.static_string_value(text))
             }
@@ -8742,6 +8745,9 @@ impl NativeCodeGenerator {
                 self.static_numeric_call_value_from_value(name, arguments[0].clone())
             }
             "toString" if arguments.len() == 1 => {
+                if self.static_value_has_conditional_builtin_display(&arguments[0]) {
+                    return None;
+                }
                 let text = self.static_value_display_string(&arguments[0]);
                 Some(self.static_string_value(text))
             }
@@ -8887,6 +8893,9 @@ impl NativeCodeGenerator {
     ) -> Option<StaticValue> {
         match name {
             "toString" if arguments.len() == 1 => {
+                if self.static_value_has_conditional_builtin_display(&arguments[0]) {
+                    return None;
+                }
                 let text = self.static_value_display_string(&arguments[0]);
                 Some(self.static_string_value(text))
             }
@@ -9153,6 +9162,11 @@ impl NativeCodeGenerator {
                     && (matches!(lhs, StaticValue::StaticString { .. })
                         || matches!(rhs, StaticValue::StaticString { .. }))
                 {
+                    if self.static_value_has_conditional_builtin_display(&lhs)
+                        || self.static_value_has_conditional_builtin_display(&rhs)
+                    {
+                        return None;
+                    }
                     let lhs = self.static_value_display_string(&lhs);
                     let rhs = self.static_value_display_string(&rhs);
                     return Some(self.static_string_value(format!("{lhs}{rhs}")));
@@ -11310,6 +11324,11 @@ impl NativeCodeGenerator {
         {
             return None;
         }
+        if self.static_value_has_conditional_builtin_display(&lhs)
+            || self.static_value_has_conditional_builtin_display(&rhs)
+        {
+            return None;
+        }
         Some(format!(
             "{}{}",
             self.static_value_display_string(&lhs),
@@ -11450,6 +11469,12 @@ impl NativeCodeGenerator {
             ));
         }
         if let Some(static_value) = self.static_value_from_native(value) {
+            if self.static_value_has_conditional_builtin_display(&static_value) {
+                let rendered = self.emit_static_value_display_runtime_string(&static_value, span);
+                return self
+                    .native_string_ref(rendered)
+                    .ok_or_else(|| unsupported(span, "native string concatenation"));
+            }
             let text = self.static_value_display_string(&static_value);
             let label = self.asm.data_label_with_bytes(text.as_bytes());
             return Ok(NativeStringRef {
