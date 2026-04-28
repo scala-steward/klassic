@@ -6942,6 +6942,94 @@ fn builds_native_executable_for_inline_lambda_runtime_arguments() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_unannotated_inline_runtime_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-unannotated-inline-runtime-{unique}.kl"
+    ));
+    let text_path = std::env::temp_dir().join(format!(
+        "klassic-native-unannotated-inline-runtime-text-{unique}.txt"
+    ));
+    let lines_path = std::env::temp_dir().join(format!(
+        "klassic-native-unannotated-inline-runtime-lines-{unique}.txt"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-unannotated-inline-runtime-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        format!(
+            r#"def id(x) = x
+def first(xs) = head(xs)
+def blockId(x) = {{
+  val y = x
+  y
+}}
+val text = FileInput#all("{}")
+val lines = FileInput#lines("{}")
+println(id(text))
+println(join(id(lines), "|"))
+println(first(lines))
+println(blockId(text))
+assertResult("omega")(id(text))
+assertResult(["red", "blue"])(id(lines))
+assertResult("red")(first(lines))
+assertResult("omega")(blockId(text))
+"#,
+            text_path.display(),
+            lines_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "unannotated inline runtime build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&text_path, "omega").expect("text input should write after native build");
+    fs::write(&lines_path, "red\nblue").expect("lines input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&text_path);
+    let _ = fs::remove_file(&lines_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "unannotated inline runtime run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "omega\nred|blue\nred\nomega\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_inline_lambda_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

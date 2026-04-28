@@ -91,6 +91,9 @@ argument evaluation can allocate local captures safely. Top-level lambda
 bindings are lowered as static functions or inlined at call sites when they
 capture mutable native locals, and direct inline lambda calls can receive
 runtime integer/boolean arguments without folding away impure lambda bodies.
+Call-site inlined unannotated `def`s whose return is inferred from the call site
+also bind actual runtime `String` and `List<String>` arguments directly, so
+small pass-through helpers do not require annotations.
 Recursive scalar-returning native functions can also accept annotated `String`
 and `List<String>` parameters. Call sites stage runtime strings or
 static/runtime line lists into fresh buffers before copying them into fixed

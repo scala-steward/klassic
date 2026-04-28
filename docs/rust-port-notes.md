@@ -156,6 +156,8 @@ the module layout is described in `docs/architecture-rust.md`.
   from functions or nested inside static aggregates.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
+- Call-site inlined unannotated `def`s with inferred returns bind actual runtime
+  `String` / `List<String>` arguments directly, covering small pass-through helpers.
 - Static strings also use the runtime slice path for `substring` / `at` when
   their indexes are mutable or otherwise dynamic integers.
 - Static string `split` and static string-list `join` accept runtime string

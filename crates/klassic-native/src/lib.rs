@@ -3125,7 +3125,8 @@ impl NativeCodeGenerator {
                 self.bind_constant(param.clone(), value);
                 continue;
             }
-            if !flexible && value != expected_value {
+            let accepts_call_site_value = flexible || function.flexible_return;
+            if !accepts_call_site_value && value != expected_value {
                 self.pop_scope();
                 return Err(unsupported(
                     span,

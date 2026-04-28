@@ -71,8 +71,9 @@ cargo run -- -e "1 + 2"
   boolean-returning / boolean-argument functions, queued `thread` bodies from
   literal or lambda-value jobs for the current native sample surface, simple unannotated
   integer/boolean return inference, stack-passed arguments beyond the first six
-  integer/boolean native function parameters, annotated runtime `String` /
-  `List<String>` parameters for scalar-returning recursive functions, including
+  integer/boolean native function parameters, call-site inlined unannotated
+  pass-through `def`s over runtime `String` / `List<String>` values, annotated
+  runtime `String` / `List<String>` parameters for scalar-returning recursive functions, including
   reentrant and self-calls staged before shared parameter buffers are updated,
   fixed-buffer annotated `String` / `List<String>` returns copied into call-site buffers, function
   value aliases, static record fields, direct or method-style static-list
