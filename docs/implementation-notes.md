@@ -124,7 +124,9 @@ use the same guard. Numeric Float/Double binary expressions and string
 concatenation can still preserve mutable block-prefix effects when operands
 ultimately yield static values; non-static string concatenation formats dynamic
 native `Int` / `Boolean` operands into fixed runtime strings. Native `toString`
-uses the same fixed-buffer path for dynamic `Int` / `Boolean` values. Logical
+uses the same fixed-buffer path for dynamic `Int` / `Boolean` values and falls
+back to evaluator-style display for static-native values that survive
+dynamic/effectful evaluation. Logical
 `&&` and `||` keep runtime short-circuiting and do not let skipped RHS static
 mutations leak into later folds. Static call
 folding, inline-call static argument capture,

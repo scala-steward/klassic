@@ -5000,7 +5000,7 @@ fn builds_native_executable_for_runtime_to_string_values() {
     let output_path = std::env::temp_dir().join(format!("klassic-native-to-string-{unique}"));
     fs::write(
         &source_path,
-        "val n = size(args())\nval ok = Environment#exists(head(args()))\nval nt = toString(n)\nval okt = toString(ok)\nprintln(nt)\nprintln(okt)\nprintln(\"n=\" + nt)\nprintln(\"ok=\" + okt)\nassertResult(\"1\")(nt)\nassertResult(\"true\")(okt)\n",
+        "val n = size(args())\nval ok = Environment#exists(head(args()))\nval nt = toString(n)\nval okt = toString(ok)\nval unitText = toString(if(ok) () else ())\nval nullText = toString(if(ok) null else null)\nprintln(nt)\nprintln(okt)\nprintln(\"n=\" + nt)\nprintln(\"ok=\" + okt)\nprintln(unitText)\nprintln(nullText)\nprintln(\"unit=\" + unitText)\nprintln(\"null=\" + nullText)\nassertResult(\"1\")(nt)\nassertResult(\"true\")(okt)\nassertResult(\"()\")(unitText)\nassertResult(\"null\")(nullText)\n",
     )
     .expect("source should write");
 
@@ -5040,7 +5040,7 @@ fn builds_native_executable_for_runtime_to_string_values() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "1\ntrue\nn=1\nok=true\n"
+        "1\ntrue\nn=1\nok=true\n()\nnull\nunit=()\nnull=null\n"
     );
     assert!(run.stderr.is_empty());
 }

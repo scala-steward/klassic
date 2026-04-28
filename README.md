@@ -149,7 +149,9 @@ String concatenation can still preserve mutable block-prefix effects when a
 side ultimately yields a static string value, and native `+` concatenation can
 now build fixed-buffer runtime strings when a static/runtime string is combined
 with dynamic native `Int` or `Boolean` values. Native `toString` also formats
-dynamic `Int` and `Boolean` values into fixed-buffer runtime strings.
+dynamic `Int` and `Boolean` values into fixed-buffer runtime strings, and
+falls back to evaluator-style display for static-native values that survive
+dynamic/effectful evaluation, such as `null` and `()`.
 Logical `&&` and `||` preserve normal short-circuiting in generated native code,
 including static fact tracking, so skipped RHS effects are not used by later
 native folds.

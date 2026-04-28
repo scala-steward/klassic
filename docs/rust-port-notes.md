@@ -106,7 +106,9 @@ the module layout is described in `docs/architecture-rust.md`.
   `Boolean` operands into fixed-buffer runtime strings when the other side is a
   static or runtime string.
 - Native `toString` formats dynamic native `Int` / `Boolean` values into
-  fixed-buffer runtime strings.
+  fixed-buffer runtime strings and reuses evaluator-style display for
+  static-native values that survive dynamic/effectful evaluation, such as
+  `null` and `()`.
 - Scalar-returning recursive native functions can accept annotated `String` and
   `List<String>` parameters by staging the argument into fresh runtime buffers
   before fixed function-parameter buffers are updated and scalar register/stack

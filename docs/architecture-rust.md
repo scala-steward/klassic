@@ -109,7 +109,9 @@ cargo run -- -e "1 + 2"
   codegen, and static string concatenation can produce immutable static values
   from literals, static bindings, and static helper calls. Runtime string
   concatenation can also format dynamic native `Int` / `Boolean` operands into
-  fixed-buffer runtime strings.
+  fixed-buffer runtime strings, and `toString` uses the same display path for
+  dynamic native `Int` / `Boolean` values plus displayable static-native values
+  that survive dynamic/effectful evaluation.
   Int `abs`, `int`, `floor`, and `ceil` are emitted directly. Static
   Double/Float literals and numeric helpers such as `double`, `sqrt`, `abs`,
   `floor`, and `ceil` are folded into printable native constants, with Float
