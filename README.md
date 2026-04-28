@@ -175,7 +175,7 @@ including simple constant arithmetic elements, are emitted into native data
 sections and can be printed or passed to `size`, `isEmpty`,
 `head`, `tail`, and static `cons` / `map` / `foldLeft`; static non-integer lists
 are represented in compile-time arenas and support printing, `foreach`
-unrolling, `size`, `isEmpty`, `head`, `tail`, `join`, static `map` for static
+unrolling, `size`, `isEmpty`, `contains`, `head`, `tail`, `join`, static `map` for static
 mappers, static `foldLeft` for static accumulator reducers such as string
 concatenation, generic static `cons`, ordinary `==` / `!=`, and `assertResult`.
 Known Int-list `foreach` bindings are also available to static folds inside the
@@ -212,7 +212,7 @@ used as paths for `FileInput#all`, direct file-input printing, simple
 `FileInput#open(path, stream => FileInput#readAll(stream))` callbacks, and
 direct printing or immutable printable bindings of `FileInput#lines` /
 `readLines` including matching simple `open(...readLines...)` callbacks; those
-runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `map`,
+runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, `map`,
 with inline or aliased lambdas, String-accumulator `foldLeft` with inline or
 aliased reducers, `split` / `join` with static or runtime string delimiters on
 runtime strings, runtime `foreach`, `toString`, string concatenation, and equality /

@@ -2126,9 +2126,18 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
         }
         "contains" => {
             ensure_arity(name, arguments, 2, span)?;
-            let input = expect_string(&arguments[0], "contains", span)?;
-            let needle = expect_string(&arguments[1], "contains", span)?;
-            Ok(Value::Bool(input.contains(needle)))
+            match &arguments[0] {
+                Value::String(input) => {
+                    let needle = expect_string(&arguments[1], "contains", span)?;
+                    Ok(Value::Bool(input.contains(needle)))
+                }
+                Value::List(values) => Ok(Value::Bool(values.contains(&arguments[1]))),
+                Value::Set(values) => Ok(Value::Bool(values.contains(&arguments[1]))),
+                _ => Err(Diagnostic::runtime(
+                    span,
+                    "contains expects a String, List, or Set receiver",
+                )),
+            }
         }
         "isEmptyString" => {
             ensure_arity(name, arguments, 1, span)?;

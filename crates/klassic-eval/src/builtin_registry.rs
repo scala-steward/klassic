@@ -180,6 +180,7 @@ pub(crate) fn value_method_builtin_name(value: &Value, field: &str) -> Option<&'
             "tail" => Some("tail"),
             "size" => Some("size"),
             "isEmpty" => Some("isEmpty"),
+            "contains" => Some("contains"),
             "join" => Some("join"),
             "map" => Some("map"),
             "foldLeft" => Some("foldLeft"),

@@ -68,7 +68,7 @@ mutable block prefixes are emitted before recovering a static numeric result,
 static integer-list `foreach` unrolling,
 static integer list literals backed by native data labels including bitwise
 integer expressions, list printing, and `size` / `isEmpty` / `head` / `tail` /
-static `cons` / static `map` / static
+`contains` / static `cons` / static `map` / static
 `foldLeft` for those static lists. Int-list `foreach` bindings are also
 registered as static facts inside the unrolled body, allowing static lists,
 records, maps, and sets to be built from the iteration value.
@@ -137,10 +137,10 @@ applied, including side-effecting builtin function values such as `println`,
 `sleep`, `assert`, queued `thread`, and File/Dir helper values that mutate or
 query the native compiler's virtual file-system state. The same callee-effect
 preservation applies when the returned builtin value is used as the first stage
-of a supported curried helper such as `assertResult`, `cons`, `map`, or imported
-`Set#contains`, and for three-stage `foldLeft`.
+of a supported curried helper such as `assertResult`, `cons`, `contains`, `map`,
+or imported `Set#contains`, and for three-stage `foldLeft`.
 Collection and Map/Set helper builtin values such as `size`, `head`, `tail`,
-`isEmpty`, `Map#get`, and `Set#contains` also reuse the same static helper path
+`isEmpty`, `contains`, `Map#get`, and `Set#contains` also reuse the same static helper path
 when they are called through an effectful value-producing callee.
 Returned lambdas also carry native slots for captured runtime locals. If a
 block, inline lambda, or call-site inlined function returns a lambda that
@@ -219,7 +219,7 @@ dictionary-passing typeclass examples such as
 `Show_List_dict(Show_Int_dict).show([1, 2, 3])` fold through captured dictionary
 records, curried `map`, and `join`. Static non-integer lists are represented in a
 compile-time arena and support printing, `size`, `isEmpty`, `head`, `tail`,
-`join`, static `foreach` unrolling, static `map` over static mappers, static
+`contains`, `join`, static `foreach` unrolling, static `map` over static mappers, static
 `foldLeft` over static accumulator reducers such as string concatenation, and
 `assertResult`. Static `cons` supports generic static lists as well as compact
 static integer lists, and Int-list `foldLeft` can now fall back to the generic
@@ -255,7 +255,7 @@ evaluator. Runtime string values can be used as syscall paths for
 `FileInput#open(path, stream => FileInput#readAll(stream))` callbacks, direct
 printing or immutable printable bindings of `FileInput#lines` / `readLines`,
 and matching simple `open(...readLines...)` callbacks. Runtime line-list values
-also support `size`, `isEmpty`, `head`, `tail`, `cons`, inline-lambda `map`
+also support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, inline-lambda `map`
 or aliased-lambda `map`
 that produces string line lists, String-accumulator `foldLeft` with inline or
 aliased reducers, `split` / `join` with static or runtime string delimiters on

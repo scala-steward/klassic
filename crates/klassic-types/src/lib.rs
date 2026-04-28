@@ -2898,6 +2898,7 @@ impl TypeChecker {
                 "tail" => Some(Type::Function(vec![], Box::new(Type::List(inner.clone())))),
                 "size" => Some(Type::Function(vec![], Box::new(Type::Int))),
                 "isEmpty" => Some(Type::Function(vec![], Box::new(Type::Bool))),
+                "contains" => Some(Type::Function(vec![Type::Dynamic], Box::new(Type::Bool))),
                 "join" => Some(Type::Function(vec![Type::String], Box::new(Type::String))),
                 "map" => Some(Type::Function(vec![Type::Dynamic], Box::new(Type::Dynamic))),
                 "foldLeft" => Some(Type::Function(

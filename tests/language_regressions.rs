@@ -324,6 +324,14 @@ fn list_function_specs_are_covered_more_fully() {
         Value::List(vec![Value::Int(2), Value::Int(3), Value::Int(4)])
     );
     assert_eq!(
+        evaluate_text("<expr>", "contains([1 2 3])(2)").unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        evaluate_text("<expr>", "val xs = [\"a\", \"b\"]\nxs.contains(\"c\")").unwrap(),
+        Value::Bool(false)
+    );
+    assert_eq!(
         evaluate_text("<expr>", "[] map x => x + 1").unwrap(),
         Value::List(vec![])
     );

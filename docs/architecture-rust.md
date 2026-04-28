@@ -98,9 +98,9 @@ cargo run -- -e "1 + 2"
   static numeric value. Static integer
   list literals, including simple constant arithmetic and bitwise elements, are
   stored in the native data section and support
-  printing plus `size`, `isEmpty`, `head`, `tail`, and static `cons` / `map` /
+  printing plus `size`, `isEmpty`, `contains`, `head`, `tail`, and static `cons` / `map` /
   `foldLeft`. Static non-integer lists live in a compile-time arena and support
-  printing, `size`, `isEmpty`, `head`, `tail`, `join`, and equality, plus static
+  printing, `size`, `isEmpty`, `contains`, `head`, `tail`, `join`, and equality, plus static
   `foreach` unrolling, static `map` over static mappers, and static `foldLeft`
   over static numeric/string accumulator reducers. Static `cons` also covers
   generic static lists. Known Int-list `foreach` bindings are exposed as static
@@ -157,9 +157,9 @@ cargo run -- -e "1 + 2"
   values like `println`, `sleep`, `assert`, `thread`, and File/Dir helpers that
   update or inspect the native virtual file-system facts. Supported curried
   helpers returned from effectful callee expressions, such as `assertResult`,
-  `cons`, `map`, imported `Set#contains`, and three-stage `foldLeft`, preserve
+  `cons`, `contains`, `map`, imported `Set#contains`, and three-stage `foldLeft`, preserve
   those callee effects too. Collection and Map/Set helper builtin values such as
-  `size`, `head`, `tail`, `isEmpty`, `Map#get`, and `Set#contains` use the same
+  `size`, `head`, `tail`, `isEmpty`, `contains`, `Map#get`, and `Set#contains` use the same
   static helper path when they are called through effectful value expressions.
   Lambdas also remember the native stack slots for captured runtime bindings;
   when a block, inline lambda, or call-site inlined function returns such a

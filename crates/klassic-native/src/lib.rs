@@ -4059,34 +4059,26 @@ impl NativeCodeGenerator {
                     .get(label.0)
                     .map(|set| set.elements.clone())
                     .unwrap_or_default();
-                let before_static_scopes = self.static_scopes.clone();
-                let needle_preview = self.preview_static_value_after_effectful_eval(&arguments[1]);
-                self.static_scopes = before_static_scopes;
-                if needle_preview.is_none() {
-                    let needle = self.compile_expr(&arguments[1])?;
-                    let Some(needle) = self.native_string_ref(needle) else {
-                        return Err(unsupported(
-                            span,
-                            "native Set#contains for non-static value",
-                        ));
-                    };
-                    let candidates = elements
-                        .iter()
-                        .filter_map(|element| self.static_value_string_ref(element))
-                        .collect::<Vec<_>>();
-                    self.emit_static_string_membership(needle, candidates);
-                    return Ok(NativeValue::Bool);
-                }
-                let needle = self.static_value_from_argument_preserving_effects(
+                self.compile_static_values_contains(
+                    elements,
                     &arguments[1],
                     span,
                     "native Set#contains for non-static value",
-                )?;
-                let contains = elements
-                    .iter()
-                    .any(|element| self.static_value_equal_user(element, &needle));
-                self.asm.mov_imm64(Reg::Rax, u64::from(contains));
-                Ok(NativeValue::Bool)
+                )
+            }
+            NativeValue::StaticIntList { .. } | NativeValue::StaticList { .. } => {
+                let collection = self
+                    .static_value_from_native(value)
+                    .expect("static list value should convert back to StaticValue");
+                let elements = self
+                    .static_list_values_from_value(&collection)
+                    .expect("static list should expose elements");
+                self.compile_static_values_contains(
+                    elements,
+                    &arguments[1],
+                    span,
+                    "native contains for non-static value",
+                )
             }
             NativeValue::RuntimeLinesList { data, len } => {
                 let needle = self.compile_expr(&arguments[1])?;
@@ -4107,9 +4099,40 @@ impl NativeCodeGenerator {
             }
             _ => Err(unsupported(
                 span,
-                "native contains for non-static string or set",
+                "native contains for non-static string, list, or set",
             )),
         }
+    }
+
+    fn compile_static_values_contains(
+        &mut self,
+        elements: Vec<StaticValue>,
+        needle: &Expr,
+        span: Span,
+        unsupported_message: &'static str,
+    ) -> Result<NativeValue, Diagnostic> {
+        let before_static_scopes = self.static_scopes.clone();
+        let needle_preview = self.preview_static_value_after_effectful_eval(needle);
+        self.static_scopes = before_static_scopes;
+        if needle_preview.is_none() {
+            let needle = self.compile_expr(needle)?;
+            let Some(needle) = self.native_string_ref(needle) else {
+                return Err(unsupported(span, unsupported_message));
+            };
+            let candidates = elements
+                .iter()
+                .filter_map(|element| self.static_value_string_ref(element))
+                .collect::<Vec<_>>();
+            self.emit_static_string_membership(needle, candidates);
+            return Ok(NativeValue::Bool);
+        }
+        let needle =
+            self.static_value_from_argument_preserving_effects(needle, span, unsupported_message)?;
+        let contains = elements
+            .iter()
+            .any(|element| self.static_value_equal_user(element, &needle));
+        self.asm.mov_imm64(Reg::Rax, u64::from(contains));
+        Ok(NativeValue::Bool)
     }
 
     fn compile_static_map_contains_key_direct(
@@ -4317,35 +4340,66 @@ impl NativeCodeGenerator {
                 "Set#contains expects one set and one value",
             ));
         }
-        let elements = self.static_set_elements_from_expr(&set_arguments[0], span)?;
-        let before_static_scopes = self.static_scopes.clone();
-        let value_preview = self.preview_static_value_after_effectful_eval(&value_arguments[0]);
-        self.static_scopes = before_static_scopes;
-        if value_preview.is_none() {
-            let value = self.compile_expr(&value_arguments[0])?;
-            let Some(value) = self.native_string_ref(value) else {
-                return Err(unsupported(
+        let collection = self.compile_expr(&set_arguments[0])?;
+        match collection {
+            NativeValue::RuntimeLinesList { data, len } => {
+                let needle = self.compile_expr(&value_arguments[0])?;
+                let Some(needle) = self.native_string_ref(needle) else {
+                    return Err(unsupported(
+                        span,
+                        "native runtime lines contains for non-string needle",
+                    ));
+                };
+                self.emit_runtime_lines_contains_string(
+                    NativeStringRef {
+                        data,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    needle,
+                );
+                return Ok(NativeValue::Bool);
+            }
+            NativeValue::StaticString { .. } | NativeValue::RuntimeString { .. } => {
+                let input = self
+                    .native_string_ref(collection)
+                    .expect("string value should expose native string ref");
+                let needle = self.compile_expr(&value_arguments[0])?;
+                let Some(needle) = self.native_string_ref(needle) else {
+                    return Err(unsupported(span, "native contains for non-static string"));
+                };
+                self.emit_native_string_contains(input, needle);
+                return Ok(NativeValue::Bool);
+            }
+            NativeValue::StaticSet { label } => {
+                let elements = self
+                    .static_sets
+                    .get(label.0)
+                    .map(|set| set.elements.clone())
+                    .unwrap_or_default();
+                return self.compile_static_values_contains(
+                    elements,
+                    &value_arguments[0],
                     span,
                     "native Set#contains for non-static value",
-                ));
-            };
-            let candidates = elements
-                .iter()
-                .filter_map(|element| self.static_value_string_ref(element))
-                .collect::<Vec<_>>();
-            self.emit_static_string_membership(value, candidates);
-            return Ok(NativeValue::Bool);
+                );
+            }
+            NativeValue::StaticIntList { .. } | NativeValue::StaticList { .. } => {
+                let collection = self
+                    .static_value_from_native(collection)
+                    .expect("static list value should convert back to StaticValue");
+                let elements = self
+                    .static_list_values_from_value(&collection)
+                    .expect("static list should expose elements");
+                return self.compile_static_values_contains(
+                    elements,
+                    &value_arguments[0],
+                    span,
+                    "native contains for non-static value",
+                );
+            }
+            _ => {}
         }
-        let value = self.static_value_from_argument_preserving_effects(
-            &value_arguments[0],
-            span,
-            "native Set#contains for non-static value",
-        )?;
-        let contains = elements
-            .iter()
-            .any(|element| self.static_value_equal_user(element, &value));
-        self.asm.mov_imm64(Reg::Rax, u64::from(contains));
-        Ok(NativeValue::Bool)
+        Err(unsupported(span, "native set helper for non-static set"))
     }
 
     fn static_value_string_ref(&self, value: &StaticValue) -> Option<NativeStringRef> {
@@ -4390,22 +4444,6 @@ impl NativeCodeGenerator {
             .static_maps
             .get(label.0)
             .map(|map| map.entries.clone())
-            .unwrap_or_default())
-    }
-
-    fn static_set_elements_from_expr(
-        &mut self,
-        expr: &Expr,
-        span: Span,
-    ) -> Result<Vec<StaticValue>, Diagnostic> {
-        let value = self.compile_expr(expr)?;
-        let NativeValue::StaticSet { label } = value else {
-            return Err(unsupported(span, "native set helper for non-static set"));
-        };
-        Ok(self
-            .static_sets
-            .get(label.0)
-            .map(|set| set.elements.clone())
             .unwrap_or_default())
     }
 
@@ -7578,11 +7616,19 @@ impl NativeCodeGenerator {
             "contains" | "Set#contains" if arguments.len() == 2 => {
                 let value = self.static_value_from_pure_expr(&arguments[0])?;
                 let needle = self.static_value_from_pure_expr(&arguments[1])?;
-                match value {
+                match &value {
                     StaticValue::StaticString { .. } if name == "contains" => {
                         let input = self.static_string_from_value(&value)?;
                         let needle = self.static_string_from_value(&needle)?;
                         Some(StaticValue::Bool(input.contains(&needle)))
+                    }
+                    StaticValue::StaticIntList { .. } | StaticValue::StaticList { .. }
+                        if name == "contains" =>
+                    {
+                        let elements = self.static_list_values_from_value(&value)?;
+                        Some(StaticValue::Bool(elements.iter().any(|element| {
+                            self.static_value_equal_user(element, &needle)
+                        })))
                     }
                     StaticValue::StaticSet { label } => {
                         let elements = self.static_sets.get(label.0)?.elements.clone();
@@ -7723,6 +7769,14 @@ impl NativeCodeGenerator {
                     let input = self.static_string_from_value(&arguments[0])?;
                     let needle = self.static_string_from_value(&arguments[1])?;
                     Some(StaticValue::Bool(input.contains(&needle)))
+                }
+                StaticValue::StaticIntList { .. } | StaticValue::StaticList { .. }
+                    if name == "contains" =>
+                {
+                    let elements = self.static_list_values_from_value(&arguments[0])?;
+                    Some(StaticValue::Bool(elements.iter().any(|element| {
+                        self.static_value_equal_user(element, &arguments[1])
+                    })))
                 }
                 StaticValue::StaticSet { label } => {
                     let elements = self.static_sets.get(label.0)?.elements.clone();

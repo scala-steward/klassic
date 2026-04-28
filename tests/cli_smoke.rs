@@ -3237,7 +3237,7 @@ fn builds_native_executable_for_runtime_line_to_string() {
         std::env::temp_dir().join(format!("klassic-native-runtime-line-to-string-{unique}"));
     fs::write(
         &source_path,
-        "val lines = tail(args())\nval trailing = (head(args()) + \",\").split(\",\")\nval empty = split(\"\", \",\")\nprintln(toString(lines))\nprintln(\"lines=\" + lines)\nprintln(toString(trailing))\nprintln(\"empty=\" + empty)\nassertResult(\"[beta, gamma]\")(toString(lines))\nassertResult(\"lines=[beta, gamma]\")(\"lines=\" + lines)\nassertResult(\"[alpha, ]\")(toString(trailing))\nassertResult(\"empty=[]\")(\"empty=\" + empty)\n",
+        "val probe = head(args())\nval lines = tail(args())\nval trailing = (probe + \",\").split(\",\")\nval empty = split(\"\", \",\")\nprintln(toString(lines))\nprintln(\"lines=\" + lines)\nprintln(toString(trailing))\nprintln(\"empty=\" + empty)\nprintln(lines.contains(\"beta\"))\nprintln(contains(lines)(\"gamma\"))\nprintln(lines.contains(probe))\nassertResult(\"[beta, gamma]\")(toString(lines))\nassertResult(\"lines=[beta, gamma]\")(\"lines=\" + lines)\nassertResult(\"[alpha, ]\")(toString(trailing))\nassertResult(\"empty=[]\")(\"empty=\" + empty)\nassert(lines.contains(\"beta\"))\nassert(contains(lines)(\"gamma\"))\nassert(!lines.contains(probe))\n",
     )
     .expect("source should write");
 
@@ -3278,7 +3278,7 @@ fn builds_native_executable_for_runtime_line_to_string() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[beta, gamma]\nlines=[beta, gamma]\n[alpha, ]\nempty=[]\n"
+        "[beta, gamma]\nlines=[beta, gamma]\n[alpha, ]\nempty=[]\ntrue\ntrue\nfalse\n"
     );
     assert!(run.stderr.is_empty());
 }
