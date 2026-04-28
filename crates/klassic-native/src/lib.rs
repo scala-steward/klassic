@@ -825,6 +825,7 @@ impl NativeCodeGenerator {
     fn native_function_param_value(&mut self, annotation: &TypeAnnotation) -> Option<NativeValue> {
         match annotation.text.trim() {
             "String" => Some(self.runtime_string_scratch_value()),
+            "List<String>" => Some(self.runtime_lines_list_scratch_value()),
             _ => native_value_from_annotation(annotation),
         }
     }
@@ -833,6 +834,14 @@ impl NativeCodeGenerator {
         const RUNTIME_STRING_CAP: usize = 65_536;
         NativeValue::RuntimeString {
             data: self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+            len: self.asm.data_label_with_i64s(&[0]),
+        }
+    }
+
+    fn runtime_lines_list_scratch_value(&mut self) -> NativeValue {
+        const RUNTIME_LINES_CAP: usize = 65_536;
+        NativeValue::RuntimeLinesList {
+            data: self.asm.data_label_with_bytes(&vec![0; RUNTIME_LINES_CAP]),
             len: self.asm.data_label_with_i64s(&[0]),
         }
     }
@@ -2023,6 +2032,42 @@ impl NativeCodeGenerator {
                     input,
                     span,
                     "function string argument exceeds 65536 bytes",
+                );
+                continue;
+            }
+            if let NativeValue::RuntimeLinesList { data, len } = expected_value {
+                if recursive_call_to_active_function && value != *expected_value {
+                    return Err(unsupported(
+                        span,
+                        "native recursive line-list parameter must be passed unchanged",
+                    ));
+                }
+                let input = if let NativeValue::RuntimeLinesList {
+                    data: input_data,
+                    len: input_len,
+                } = value
+                {
+                    NativeStringRef {
+                        data: input_data,
+                        len: NativeStringLen::Runtime(input_len),
+                    }
+                } else {
+                    let content = self.static_write_lines_content_from_native(
+                        value,
+                        span,
+                        "function line-list argument",
+                    )?;
+                    NativeStringRef {
+                        data: self.asm.data_label_with_bytes(content.as_bytes()),
+                        len: NativeStringLen::Immediate(content.len()),
+                    }
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    "function line-list argument exceeds 65536 bytes",
                 );
                 continue;
             }

@@ -150,14 +150,15 @@ Unannotated functions whose return value is a runtime-capturing lambda are
 therefore compiled by inlining at the call site instead of forcing an integer
 return ABI. Returned static aggregates are inspected recursively too, which
 allows a record of closures to share the same block-local mutable slot.
-Annotated `String` parameters on scalar-returning native functions use
-function-local fixed runtime buffers. Call sites copy static or runtime strings
-into those buffers, then pass only scalar `Int` / `Bool` parameters through the
-ordinary register/stack ABI; this lets simple self-recursive string scanners
-such as `countA(s: String, i: Int): Int` compile without call-site inlining.
-Self-recursive calls must pass those string parameters through unchanged for now;
-recursive calls that rewrite the string argument are rejected instead of
-overwriting the shared parameter buffer.
+Annotated `String` and `List<String>` parameters on scalar-returning native
+functions use function-local fixed runtime buffers. Call sites copy static or
+runtime strings plus static or runtime line lists into those buffers, then pass
+only scalar `Int` / `Bool` parameters through the ordinary register/stack ABI;
+this lets simple self-recursive scanners such as `countA(s: String, i: Int): Int` and
+`countLines(lines: List<String>, i: Int): Int` compile without call-site
+inlining. Self-recursive calls must pass those buffered parameters through
+unchanged for now; recursive calls that rewrite the string or line-list argument
+are rejected instead of overwriting the shared parameter buffer.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

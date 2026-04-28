@@ -105,10 +105,12 @@ the module layout is described in `docs/architecture-rust.md`.
   static or runtime string.
 - Native `toString` formats dynamic native `Int` / `Boolean` values into
   fixed-buffer runtime strings.
-- Scalar-returning recursive native functions can accept annotated `String`
-  parameters by copying the argument into fixed function-parameter buffers before
-  scalar register/stack arguments are passed. Self-recursive calls that rewrite
-  those string arguments are rejected until per-call string frames exist.
+- Scalar-returning recursive native functions can accept annotated `String` and
+  `List<String>` parameters by copying the argument into fixed
+  function-parameter buffers before scalar register/stack arguments are passed.
+  `List<String>` accepts both static string lists and runtime line lists.
+  Self-recursive calls that rewrite those buffered arguments are rejected until
+  per-call string/list frames exist.
 - Static strings also use the runtime slice path for `substring` / `at` when
   their indexes are mutable or otherwise dynamic integers.
 - Static string `split` and static string-list `join` accept runtime string
