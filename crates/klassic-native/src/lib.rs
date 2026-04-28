@@ -3540,11 +3540,13 @@ impl NativeCodeGenerator {
                         span,
                         name,
                     )?;
-                    let to = self.static_string_from_argument_preserving_effects(
-                        &arguments[2],
-                        span,
-                        name,
-                    )?;
+                    let to = self.compile_expr(&arguments[2])?;
+                    let Some(to) = self.native_string_ref(to) else {
+                        return Err(unsupported(
+                            span,
+                            "native replaceAll for non-string replacement",
+                        ));
+                    };
                     return Ok(
                         self.emit_runtime_string_replace_all_static_pattern(input, from, to, span)
                     );
@@ -3572,6 +3574,27 @@ impl NativeCodeGenerator {
                     };
                     return Ok(
                         self.emit_runtime_string_replace_first_dynamic(input, from, to, span)
+                    );
+                }
+                if name == "replaceAll" && self.expr_may_yield_runtime_string(&arguments[2]) {
+                    let from = self.static_string_from_argument_preserving_effects(
+                        &arguments[1],
+                        span,
+                        name,
+                    )?;
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    let to = self.compile_expr(&arguments[2])?;
+                    let Some(to) = self.native_string_ref(to) else {
+                        return Err(unsupported(
+                            span,
+                            "native replaceAll for non-string replacement",
+                        ));
+                    };
+                    return Ok(
+                        self.emit_runtime_string_replace_all_static_pattern(input, from, to, span)
                     );
                 }
                 let from =
@@ -14027,7 +14050,7 @@ impl NativeCodeGenerator {
         &mut self,
         input: NativeStringRef,
         pattern: String,
-        replacement: String,
+        replacement: NativeStringRef,
         span: Span,
     ) -> NativeValue {
         if pattern == "[0-9]" {
@@ -14042,14 +14065,12 @@ impl NativeCodeGenerator {
     fn emit_runtime_string_replace_all_ascii_digits(
         &mut self,
         input: NativeStringRef,
-        replacement: String,
+        replacement: NativeStringRef,
         span: Span,
     ) -> NativeValue {
         const RUNTIME_STRING_CAP: usize = 65_536;
         let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
         let len = self.asm.data_label_with_i64s(&[0]);
-        let replacement_label = self.asm.data_label_with_bytes(replacement.as_bytes());
-        let replacement_len = replacement.len();
 
         self.asm.mov_data_addr(Reg::Rsi, input.data);
         self.emit_load_native_string_len(Reg::Rdx, input.len);
@@ -14073,11 +14094,10 @@ impl NativeCodeGenerator {
         self.asm.jcc_label(Condition::Greater, copy);
 
         self.asm.bind_text_label(replace);
-        self.emit_append_static_string_to_runtime_buffer_dynamic(
+        self.emit_append_native_string_to_runtime_buffer_dynamic(
             Reg::Rbx,
             Reg::R9,
-            replacement_label,
-            replacement_len,
+            replacement,
             span,
             "replaceAll result exceeds 65536 bytes",
         );
@@ -14108,25 +14128,22 @@ impl NativeCodeGenerator {
     fn emit_runtime_string_replace_all_empty_pattern(
         &mut self,
         input: NativeStringRef,
-        replacement: String,
+        replacement: NativeStringRef,
         span: Span,
     ) -> NativeValue {
         const RUNTIME_STRING_CAP: usize = 65_536;
         let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
         let len = self.asm.data_label_with_i64s(&[0]);
-        let replacement_label = self.asm.data_label_with_bytes(replacement.as_bytes());
-        let replacement_len = replacement.len();
 
         self.asm.mov_data_addr(Reg::Rsi, input.data);
         self.emit_load_native_string_len(Reg::Rdx, input.len);
         self.asm.mov_data_addr(Reg::Rbx, data);
         self.asm.mov_imm64(Reg::R8, 0);
         self.asm.mov_imm64(Reg::R9, 0);
-        self.emit_append_static_string_to_runtime_buffer_dynamic(
+        self.emit_append_native_string_to_runtime_buffer_dynamic(
             Reg::Rbx,
             Reg::R9,
-            replacement_label,
-            replacement_len,
+            replacement,
             span,
             "replaceAll result exceeds 65536 bytes",
         );
@@ -14158,11 +14175,10 @@ impl NativeCodeGenerator {
         self.asm.jcc_label(Condition::Equal, loop_label);
 
         self.asm.bind_text_label(append_separator);
-        self.emit_append_static_string_to_runtime_buffer_dynamic(
+        self.emit_append_native_string_to_runtime_buffer_dynamic(
             Reg::Rbx,
             Reg::R9,
-            replacement_label,
-            replacement_len,
+            replacement,
             span,
             "replaceAll result exceeds 65536 bytes",
         );
@@ -14179,16 +14195,14 @@ impl NativeCodeGenerator {
         &mut self,
         input: NativeStringRef,
         pattern: String,
-        replacement: String,
+        replacement: NativeStringRef,
         span: Span,
     ) -> NativeValue {
         const RUNTIME_STRING_CAP: usize = 65_536;
         let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
         let len = self.asm.data_label_with_i64s(&[0]);
         let pattern_label = self.asm.data_label_with_bytes(pattern.as_bytes());
-        let replacement_label = self.asm.data_label_with_bytes(replacement.as_bytes());
         let pattern_len = pattern.len();
-        let replacement_len = replacement.len();
 
         self.asm.mov_data_addr(Reg::Rsi, input.data);
         self.emit_load_native_string_len(Reg::Rdx, input.len);
@@ -14228,11 +14242,10 @@ impl NativeCodeGenerator {
         self.asm.jmp_label(match_loop);
 
         self.asm.bind_text_label(matched);
-        self.emit_append_static_string_to_runtime_buffer_dynamic(
+        self.emit_append_native_string_to_runtime_buffer_dynamic(
             Reg::Rbx,
             Reg::R9,
-            replacement_label,
-            replacement_len,
+            replacement,
             span,
             "replaceAll result exceeds 65536 bytes",
         );
@@ -14405,30 +14418,38 @@ impl NativeCodeGenerator {
         NativeValue::RuntimeString { data, len }
     }
 
-    fn emit_append_static_string_to_runtime_buffer_dynamic(
+    fn emit_append_native_string_to_runtime_buffer_dynamic(
         &mut self,
         output_base: Reg,
         output_offset: Reg,
-        label: DataLabel,
-        len: usize,
+        input: NativeStringRef,
         span: Span,
         overflow_message: &str,
     ) {
-        self.asm.mov_data_addr(Reg::R10, label);
-        self.asm.mov_imm64(Reg::Rcx, 0);
+        self.asm.push_reg(Reg::Rsi);
+        self.asm.push_reg(Reg::Rdx);
+        self.asm.push_reg(Reg::R8);
+        self.asm.push_reg(Reg::Rdi);
+        self.asm.mov_data_addr(Reg::Rsi, input.data);
+        self.emit_load_native_string_len(Reg::Rdx, input.len);
+        self.asm.mov_imm64(Reg::R8, 0);
         let loop_label = self.asm.create_text_label();
         let done = self.asm.create_text_label();
         self.asm.bind_text_label(loop_label);
-        self.asm.cmp_reg_imm32(Reg::Rcx, len as i32);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
         self.asm.jcc_label(Condition::Equal, done);
         self.emit_runtime_buffer_capacity_check(output_offset, 65_536, span, overflow_message);
-        self.asm.movzx_byte_indexed(Reg::Rax, Reg::R10, Reg::Rcx);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
         self.asm
             .mov_byte_indexed_reg8(output_base, output_offset, Reg8::Al);
         self.asm.inc_reg(output_offset);
-        self.asm.inc_reg(Reg::Rcx);
+        self.asm.inc_reg(Reg::R8);
         self.asm.jmp_label(loop_label);
         self.asm.bind_text_label(done);
+        self.asm.pop_reg(Reg::Rdi);
+        self.asm.pop_reg(Reg::R8);
+        self.asm.pop_reg(Reg::Rdx);
+        self.asm.pop_reg(Reg::Rsi);
     }
 
     fn emit_append_native_string_to_runtime_buffer_offset_label(

@@ -276,8 +276,9 @@ cargo run -- -e "1 + 2"
   static or runtime integer counts,
   ASCII `toLowerCase` / `toUpperCase`,
   simple `matches` with static or runtime patterns, first-occurrence `replace`
-  with static or runtime literal operands, all-occurrence `replaceAll`, UTF-8
-  `reverse`, `startsWith`, `endsWith`, method-style `contains`, `indexOf`, and
+  with static or runtime literal operands, all-occurrence `replaceAll` with
+  static patterns and static or runtime replacement strings, UTF-8 `reverse`,
+  `startsWith`, `endsWith`, method-style `contains`, `indexOf`, and
   `lastIndexOf` are also supported. Oversized results fail with
   source-located runtime diagnostics. `FileInput#open`
   callback folding preserves mutable callback effects when final values remain

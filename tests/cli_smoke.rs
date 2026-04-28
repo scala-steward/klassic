@@ -1552,6 +1552,83 @@ assertResult("hohoho")(method)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_replace_all_runtime_replacement() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-replace-all-input-{unique}.txt"));
+    let replacement_path = std::env::temp_dir().join(format!(
+        "klassic-native-replace-all-replacement-{unique}.txt"
+    ));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-replace-all-dynamic-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-replace-all-dynamic-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val input = FileInput#all("{}")
+val replacement = FileInput#all("{}")
+val dynamicInput = replaceAll(input, "[0-9]", replacement)
+val staticInput = replaceAll("a1b2", "[0-9]", replacement)
+val methodInput = "c3d4".replaceAll("[0-9]", replacement)
+println(dynamicInput)
+println(staticInput)
+println(methodInput)
+assertResult("aXbX")(dynamicInput)
+assertResult("aXbX")(staticInput)
+assertResult("cXdX")(methodInput)
+"#,
+            input_path.display(),
+            replacement_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime replaceAll replacement build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "a1b2").expect("input source should write after native build");
+    fs::write(&replacement_path, "X").expect("replacement source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&replacement_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime replaceAll replacement run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "aXbX\naXbX\ncXdX\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_builtin_function_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
