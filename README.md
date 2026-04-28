@@ -102,6 +102,9 @@ other.
 Function value aliases and static record fields for such `def`s preserve the
 runtime return metadata, so aliased calls can still participate in string
 concatenation and line-list helpers.
+Immediate calls on conditional function values lower to branch-local calls, so
+runtime string and line-list return values can merge through the existing
+dynamic `if` result buffers.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Inline and top-level lambda calls use the same annotated `String` /

@@ -750,6 +750,98 @@ assertResult("a|b|c/x:y")(join(funcs.keep(lines, 2), "|") + "/" + join(funcs.kee
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_conditional_runtime_return_calls() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-conditional-return-call-{unique}.kl"
+    ));
+    let text_path = std::env::temp_dir().join(format!(
+        "klassic-native-conditional-return-call-{unique}.txt"
+    ));
+    let lines_path = std::env::temp_dir().join(format!(
+        "klassic-native-conditional-return-call-lines-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-conditional-return-call-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"def reverseFrom(s: String, i: Int): String = if(i < 0) "" else s.at(i) + reverseFrom(s, i - 1)
+def markedReverseFrom(s: String, i: Int): String = if(i < 0) "!" else s.at(i) + markedReverseFrom(s, i - 1)
+def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
+def dropHead(lines: List<String>, n: Int): List<String> = tail(lines)
+val usePlain = size(CommandLine#args()) == 0
+val text = FileInput#all("{}")
+val lines = FileInput#lines("{}")
+val pickedText = (if(usePlain) reverseFrom else markedReverseFrom)(text, length(text) - 1)
+val pickedLines = (if(usePlain) keepLines else dropHead)(lines, 1)
+println(pickedText + (if(usePlain) reverseFrom else markedReverseFrom)("xy", 1))
+println(join(pickedLines, "|"))
+"#,
+            text_path.display(),
+            lines_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "conditional return call build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&text_path, "abc").expect("text input should write after native build");
+    fs::write(&lines_path, "a\nb\nc").expect("lines input should write after native build");
+    let true_run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run true branch");
+    let false_run = Command::new(&output_path)
+        .arg("pick-marked")
+        .output()
+        .expect("generated executable should run false branch");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&text_path);
+    let _ = fs::remove_file(&lines_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        true_run.status.success(),
+        "conditional return call true branch failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&true_run.stdout),
+        String::from_utf8_lossy(&true_run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&true_run.stdout), "cbayx\na|b|c\n");
+    assert!(true_run.stderr.is_empty());
+
+    assert!(
+        false_run.status.success(),
+        "conditional return call false branch failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&false_run.stdout),
+        String::from_utf8_lossy(&false_run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&false_run.stdout), "cba!yx!\nb|c\n");
+    assert!(false_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_recursive_function_static_top_level_capture() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

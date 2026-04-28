@@ -169,6 +169,10 @@ Function value aliases and static record fields created from those `def`s retain
 the annotated runtime return metadata, allowing aliased calls to be recognized
 by string concatenation, dynamic string-branch merging, and runtime line-list
 helpers.
+Immediate calls on conditional function values are lowered from
+`(if (cond) f else g)(args...)` to branch-local calls, preserving argument
+evaluation on the selected path while reusing dynamic `if` result buffers for
+runtime string and line-list returns.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

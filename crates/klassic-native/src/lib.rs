@@ -1491,6 +1491,25 @@ impl NativeCodeGenerator {
         arguments: &[Expr],
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
+        if let Expr::If {
+            condition,
+            then_branch,
+            else_branch: Some(else_branch),
+            ..
+        } = callee
+        {
+            let then_call = Expr::Call {
+                callee: Box::new(then_branch.as_ref().clone()),
+                arguments: arguments.to_vec(),
+                span,
+            };
+            let else_call = Expr::Call {
+                callee: Box::new(else_branch.as_ref().clone()),
+                arguments: arguments.to_vec(),
+                span,
+            };
+            return self.compile_if(condition, &then_call, Some(&else_call), span);
+        }
         if let Expr::Call {
             callee: middle_callee,
             arguments: initial_arguments,

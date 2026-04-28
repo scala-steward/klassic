@@ -116,6 +116,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - Function value aliases and static record fields for such `def`s retain the
   runtime return metadata for string concatenation and runtime line-list helper
   dispatch.
+- Immediate calls on conditional function values lower to branch-local calls, so
+  runtime `String` / `List<String>` returns can merge through dynamic `if`
+  result buffers.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
 - Static strings also use the runtime slice path for `substring` / `at` when
