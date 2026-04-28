@@ -209,10 +209,11 @@ whose contents become unknown through runtime writes or dynamic branches
 fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
 `Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.
 Runtime string values can also be
-used as paths for `FileInput#all`, direct file-input printing, simple
-`FileInput#open(path, stream => FileInput#readAll(stream))` callbacks, and
-direct printing or immutable printable bindings of `FileInput#lines` /
-`readLines` including matching simple `open(...readLines...)` callbacks; those
+used as paths for `FileInput#all`, direct file-input printing, and
+`FileInput#open` callbacks whose stream parameter flows through supported
+runtime string and file helpers, including `readAll` / `readLines`, `length`,
+`cleanup`, or returning the path itself. Direct printing or immutable printable
+bindings of `FileInput#lines` / `readLines` are also supported; those
 runtime line lists support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, `map`,
 with inline or aliased lambdas, String/Int/Bool-accumulator `foldLeft` with inline or
 aliased reducers, `split` / `join` with static or runtime string delimiters on

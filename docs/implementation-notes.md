@@ -252,10 +252,11 @@ instead of letting a generated executable continue silently. Dir mkdir/delete/mo
 syscall failures do the same, while `Dir#mkdirs` still tolerates already-existing
 directories and `FileOutput#delete` still tolerates a missing file like the
 evaluator. Runtime string values can be used as syscall paths for
-`FileInput#all`, direct file-input printing, simple
-`FileInput#open(path, stream => FileInput#readAll(stream))` callbacks, direct
-printing or immutable printable bindings of `FileInput#lines` / `readLines`,
-and matching simple `open(...readLines...)` callbacks. Runtime line-list values
+`FileInput#all`, direct file-input printing, and `FileInput#open` callbacks
+whose stream parameter flows through supported runtime string and file helpers,
+including `readAll` / `readLines`, `length`, `cleanup`, or returning the path
+itself. Direct printing or immutable printable bindings of `FileInput#lines` /
+`readLines` are also supported. Runtime line-list values
 also support `size`, `isEmpty`, `head`, `tail`, `cons`, `contains`, inline-lambda `map`
 or aliased-lambda `map`
 that produces string line lists, String/Int/Bool-accumulator `foldLeft` with inline or

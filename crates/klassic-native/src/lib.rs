@@ -5223,37 +5223,28 @@ impl NativeCodeGenerator {
             ));
         };
         if self.expr_may_yield_runtime_string(&arguments[0]) {
-            let Some(read_name) = self.file_input_open_callback_name(body, &params[0]) else {
+            let path_value = self.compile_expr(&arguments[0])?;
+            let Some(path) = self.native_string_ref(path_value) else {
                 return Err(unsupported(
                     span,
-                    "native FileInput#open runtime path callback",
+                    "native FileInput#open for non-string path",
                 ));
             };
-            if !matches!(read_name.as_str(), "FileInput#all" | "FileInput#readAll")
-                && !matches!(
-                    read_name.as_str(),
-                    "FileInput#lines" | "FileInput#readLines"
-                )
-            {
-                return Err(unsupported(
-                    span,
-                    "native FileInput#open runtime path callback",
-                ));
-            }
-            let path_label =
-                self.compile_runtime_path_argument(&arguments[0], span, "FileInput#open")?;
-            let content =
-                self.emit_file_read_to_runtime_string_from_path_label(path_label, span, &read_name);
-            if matches!(
-                read_name.as_str(),
-                "FileInput#lines" | "FileInput#readLines"
-            ) {
-                let NativeValue::RuntimeString { data, len } = content else {
-                    return Err(unsupported(span, "native FileInput#open runtime lines"));
-                };
-                return Ok(NativeValue::RuntimeLinesList { data, len });
-            }
-            return Ok(content);
+            let path_len = match path.len {
+                NativeStringLen::Runtime(len) => len,
+                NativeStringLen::Immediate(len) => self.asm.data_label_with_i64s(&[len as i64]),
+            };
+            self.push_scope();
+            self.bind_constant(
+                params[0].clone(),
+                NativeValue::RuntimeString {
+                    data: path.data,
+                    len: path_len,
+                },
+            );
+            let result = self.compile_expr(body);
+            self.pop_scope();
+            return result;
         }
         let path = self.static_string_from_argument_preserving_effects(
             &arguments[0],

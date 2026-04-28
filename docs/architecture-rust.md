@@ -240,11 +240,13 @@ cargo run -- -e "1 + 2"
   fall back to runtime `FileInput#all`, `FileOutput#exists`, `Dir#exists`,
   `Dir#isFile`, `Dir#isDirectory`, `Dir#list`, and `Dir#listFull` syscalls.
   Runtime string values can also
-  be copied into NUL-terminated syscall path buffers for `FileInput#all`, direct
-  file-input printing, simple `FileInput#open(path, stream =>
-  FileInput#readAll(stream))` callbacks, direct printing or immutable printable
-  bindings of `FileInput#lines` / `readLines` and matching simple
-  `open(...readLines...)` callbacks, with `size`, `isEmpty`, `head`, `tail`,
+  be copied into NUL-terminated syscall path buffers for `FileInput#all` and
+  direct file-input printing. `FileInput#open` callbacks with runtime paths bind
+  the stream parameter as a runtime string, so callback bodies can return it or
+  pass it through supported runtime string and file helpers such as `readAll`,
+  `readLines`, `length`, and `cleanup`. Direct printing or immutable printable
+  bindings of `FileInput#lines` / `readLines` are also supported, with `size`,
+  `isEmpty`, `head`, `tail`,
   `cons`, inline or aliased-lambda `map` producing string line lists,
   String/Int/Bool-accumulator `foldLeft` with inline or aliased reducers, `join`,
   `split` / `join` with static or runtime string delimiters on runtime strings,

@@ -2117,6 +2117,103 @@ fn builds_native_executable_for_runtime_file_input_printing() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_file_input_open_callback_body() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let input_path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-open-callback-holder-{unique}.txt"
+    ));
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-open-callback-{unique}.txt"));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-open-callback-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-open-callback-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val path = FileInput#all("{}")
+mutable hits = 0
+val openedPath = FileInput#open(path, (stream) => {{
+  hits += 1
+  stream
+}})
+val lengthViaOpen = FileInput#open(path, (stream) => {{
+  hits += 1
+  length(FileInput#readAll(stream))
+}})
+val linesViaOpen = FileInput#open(path, (stream) => {{
+  hits += 1
+  FileInput#readLines(stream)
+}})
+val cleanupText = FileInput#open(path, (stream) => {{
+  FileInput#readAll(stream) cleanup {{ hits += 1 }}
+}})
+println(openedPath == path)
+println(lengthViaOpen)
+println(linesViaOpen)
+println(join(linesViaOpen, "|"))
+println(cleanupText)
+println(hits)
+assert(openedPath == path)
+assertResult(11)(lengthViaOpen)
+assertResult(["hello", "world"])(linesViaOpen)
+assertResult("hello\nworld")(cleanupText)
+assertResult(4)(hits)
+"#,
+            input_path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime FileInput#open callback build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("input path holder should write after native build");
+    fs::write(&input_path, "hello\nworld").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&input_path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime FileInput#open callback run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\n11\n[hello, world]\nhello|world\nhello\nworld\n4\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_file_input_binding() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
