@@ -10921,6 +10921,30 @@ impl NativeCodeGenerator {
         {
             match callee.as_ref() {
                 Expr::Identifier { name, .. }
+                    if arguments.len() == 2 && self.builtin_name_for_identifier(name) == "cons" =>
+                {
+                    return self.static_cons_element_for_return_hint(
+                        &arguments[0],
+                        &arguments[1],
+                        index,
+                    );
+                }
+                Expr::Call {
+                    callee: inner_callee,
+                    arguments: head_arguments,
+                    ..
+                } if arguments.len() == 1 && head_arguments.len() == 1 => {
+                    if let Expr::Identifier { name, .. } = inner_callee.as_ref()
+                        && self.builtin_name_for_identifier(name) == "cons"
+                    {
+                        return self.static_cons_element_for_return_hint(
+                            &head_arguments[0],
+                            &arguments[0],
+                            index,
+                        );
+                    }
+                }
+                Expr::Identifier { name, .. }
                     if arguments.len() == 1 && self.builtin_name_for_identifier(name) == "tail" =>
                 {
                     return self.static_list_element_for_return_hint(&arguments[0], index + 1);
@@ -10946,6 +10970,18 @@ impl NativeCodeGenerator {
                 .and_then(|list| list.elements.get(index).cloned()),
             _ => None,
         }
+    }
+
+    fn static_cons_element_for_return_hint(
+        &self,
+        head: &Expr,
+        tail: &Expr,
+        index: usize,
+    ) -> Option<StaticValue> {
+        if index == 0 {
+            return self.static_value_for_return_hint(head);
+        }
+        self.static_list_element_for_return_hint(tail, index - 1)
     }
 
     fn static_map_get_value_for_return_hint(
