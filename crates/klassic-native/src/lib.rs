@@ -5961,6 +5961,9 @@ impl NativeCodeGenerator {
         value: StaticValue,
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
+        if matches!(value, StaticValue::Null) {
+            return Ok(NativeValue::Null);
+        }
         let done = self.asm.create_text_label();
         let branches = candidates
             .into_iter()

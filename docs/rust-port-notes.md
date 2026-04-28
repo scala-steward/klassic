@@ -125,7 +125,8 @@ the module layout is described in `docs/architecture-rust.md`.
   boolean, `null`, or `()` values, or when all compatible entries return the
   same equivalent static value, including callables; runtime misses report a
   native diagnostic until the native path has dynamic tagged `null` values, but
-  key types with no compatible static keys return static `null`.
+  key types with no compatible static keys, and all-`null` compatible values,
+  return static `null`.
 - Static string-list entries in lists, sets, and map values can be matched by
   runtime line-list membership queries.
 - Static collection membership also handles effectful query expressions that

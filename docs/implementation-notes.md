@@ -308,7 +308,8 @@ keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or equivalent static values, including the
 same callable value; runtime misses fail with a source-located native diagnostic
 because the native path still has no dynamic tagged `null` value, but a runtime
-key whose type has no compatible static keys returns static `null`. If the
+key whose type has no compatible static keys returns static `null`; all-`null`
+compatible values also return static `null` for both hits and misses. If the
 compatible entries are all callable values, immediate calls through that lookup
 dispatch to the selected lambda or builtin branch and merge the same supported
 native return shapes. Static

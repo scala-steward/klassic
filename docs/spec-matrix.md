@@ -80,7 +80,7 @@ The repository contains a Rust-native language implementation with:
   runtime-key dispatch through static callable maps, runtime line-list
   membership against static string-list entries, static membership for
   effectful queries that settle back to static values, incompatible-key static
-  `null` runtime map lookups, preserving those runtime
+  `null` and all-null compatible runtime map lookups, preserving those runtime
   return hints plus block, cleanup, and
   same-runtime-return conditional callees preserving them, immediate calls on conditional function values,
   pure conditional callable branches in immutable bindings or static aggregate elements synthesized into branch-local-call lambdas for user callables and supported builtin function values with matching arity while preserving selected-branch builtin display through printing, interpolation, string concatenation, `toString`, and failing `assertResult` messages, including returned callables and aggregate display, effectful callee expressions returning string/list helper builtin values with runtime string or runtime line-list arguments,
