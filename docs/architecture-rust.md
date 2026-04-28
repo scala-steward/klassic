@@ -146,8 +146,9 @@ cargo run -- -e "1 + 2"
   identical on both paths. Identical static aggregate returns, assignments, or
   virtual file contents can survive a runtime branch. Divergent string and
   runtime line-list branch results are materialized into shared fixed runtime
-  buffers so the selected value can flow past the join, and static string-list
-  branches can join with runtime line-list branches through the same buffer.
+  buffers so the selected value can flow past the join, and divergent static
+  string-list branches can join with each other or with runtime line-list
+  branches through the same buffer.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

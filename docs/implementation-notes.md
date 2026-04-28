@@ -247,10 +247,11 @@ merged only when mutable/static variables and virtual File/Dir facts have the
 same representable value on both paths. This keeps identical static aggregate
 returns, assignments, and virtual file contents usable after a runtime branch
 while also allowing divergent native string and runtime line-list branch results
-to flow through shared fixed runtime buffers. Static string-list branches can
-also merge with runtime line-list branches by materializing both sides into the
-same fixed line-list buffer, and structurally equivalent branch-local lambda
-values plus canonical builtin function values can merge. If
+to flow through shared fixed runtime buffers. Divergent static string-list
+branches can also merge with each other or with runtime line-list branches by
+materializing both sides into the same fixed line-list buffer, and structurally
+equivalent branch-local lambda values plus canonical builtin function values
+can merge. If
 equivalent returned closures
 capture branch-local mutable slots, both branches must preserve the same stack
 depth; that preserved depth is carried past the join so later closure calls keep

@@ -145,8 +145,8 @@ the module layout is described in `docs/architecture-rust.md`.
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so
   runtime `String` / `List<String>` returns can merge through dynamic `if`
-  result buffers, including static string-list branches joined with runtime
-  line-list branches.
+  result buffers, including divergent static string-list branches joined with
+  each other or with runtime line-list branches.
 - Pure conditional callable branches in immutable `val` bindings or static
   aggregate elements snapshot the condition once and create a synthesized
   callable that dispatches through the saved condition, including supported

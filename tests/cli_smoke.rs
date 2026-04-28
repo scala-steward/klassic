@@ -7241,7 +7241,7 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
         std::env::temp_dir().join(format!("klassic-native-dynamic-if-runtime-lines-{unique}"));
     fs::write(
         &source_path,
-        "val chooseArgs = head(args()) == \"args\"\nval chooseStatic = head(args()) == \"static\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else if(chooseStatic) {\n  [\"static\", \"branch\"]\n} else {\n  (toString(size(args())) + \"\\nblue\").split(\"\\n\")\n}\nprintln(size(lines))\nprintln(lines.head())\nprintln(lines.join(\"|\"))\nif(chooseArgs) {\n  assertResult(\"first\")(lines.head())\n  assertResult(\"first|second\")(lines.join(\"|\"))\n} else if(chooseStatic) {\n  assertResult(\"static\")(lines.head())\n  assertResult(\"static|branch\")(lines.join(\"|\"))\n} else {\n  assertResult(\"1\")(lines.head())\n  assertResult(\"1|blue\")(lines.join(\"|\"))\n}\n",
+        "val chooseArgs = head(args()) == \"args\"\nval chooseStatic = head(args()) == \"static\"\nval lines = if(chooseArgs) {\n  tail(args())\n} else if(chooseStatic) {\n  [\"static\", \"branch\"]\n} else {\n  (toString(size(args())) + \"\\nblue\").split(\"\\n\")\n}\nval staticLines = if(chooseStatic) [\"static-only\", \"then\"] else [\"static-only\", \"else\"]\nprintln(size(lines))\nprintln(lines.head())\nprintln(lines.join(\"|\"))\nprintln(staticLines.join(\"/\"))\nif(chooseArgs) {\n  assertResult(\"first\")(lines.head())\n  assertResult(\"first|second\")(lines.join(\"|\"))\n  assertResult(\"static-only/else\")(staticLines.join(\"/\"))\n} else if(chooseStatic) {\n  assertResult(\"static\")(lines.head())\n  assertResult(\"static|branch\")(lines.join(\"|\"))\n  assertResult(\"static-only/then\")(staticLines.join(\"/\"))\n} else {\n  assertResult(\"1\")(lines.head())\n  assertResult(\"1|blue\")(lines.join(\"|\"))\n  assertResult(\"static-only/else\")(staticLines.join(\"/\"))\n}\n",
     )
     .expect("source should write");
 
@@ -7290,7 +7290,7 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
     );
     assert_eq!(
         String::from_utf8_lossy(&args_run.stdout),
-        "2\nfirst\nfirst|second\n"
+        "2\nfirst\nfirst|second\nstatic-only/else\n"
     );
     assert!(args_run.stderr.is_empty());
 
@@ -7300,7 +7300,10 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
         String::from_utf8_lossy(&split_run.stdout),
         String::from_utf8_lossy(&split_run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&split_run.stdout), "2\n1\n1|blue\n");
+    assert_eq!(
+        String::from_utf8_lossy(&split_run.stdout),
+        "2\n1\n1|blue\nstatic-only/else\n"
+    );
     assert!(split_run.stderr.is_empty());
 
     assert!(
@@ -7311,7 +7314,7 @@ fn builds_native_executable_for_dynamic_if_runtime_line_branch_results() {
     );
     assert_eq!(
         String::from_utf8_lossy(&static_run.stdout),
-        "2\nstatic\nstatic|branch\n"
+        "2\nstatic\nstatic|branch\nstatic-only/then\n"
     );
     assert!(static_run.stderr.is_empty());
 }
