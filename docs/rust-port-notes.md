@@ -105,6 +105,9 @@ the module layout is described in `docs/architecture-rust.md`.
   static or runtime string.
 - Native `toString` formats dynamic native `Int` / `Boolean` values into
   fixed-buffer runtime strings.
+- Scalar-returning recursive native functions can accept annotated `String`
+  parameters by copying the argument into fixed function-parameter buffers before
+  scalar register/stack arguments are passed.
 - Static strings also use the runtime slice path for `substring` / `at` when
   their indexes are mutable or otherwise dynamic integers.
 - Static string `split` and static string-list `join` accept runtime string
@@ -113,9 +116,9 @@ the module layout is described in `docs/architecture-rust.md`.
   operands through the dynamic replacement emitter.
 - Static `repeat` accepts runtime integer counts through the dynamic repeat
   emitter.
-- Recursive functions that still need call-site inlining are rejected with a
-  compile diagnostic instead of recursively inlining until the compiler stack
-  overflows.
+- Recursive functions that still need unsupported call-site inlining are
+  rejected with a compile diagnostic instead of recursively inlining until the
+  compiler stack overflows.
 - `FileOutput#write` / `FileOutput#append` can write fixed-buffer runtime
   string content. Because the resulting contents are not known at native build
   time, the affected path is treated as unknown for later compile-time file

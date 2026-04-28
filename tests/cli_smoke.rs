@@ -230,26 +230,27 @@ fn builds_native_executable_for_recursive_integer_functions() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-fn native_build_rejects_recursive_flexible_function_without_overflowing() {
+fn builds_native_executable_for_recursive_runtime_string_parameter() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time should be monotonic")
         .as_nanos();
     let source_path =
-        std::env::temp_dir().join(format!("klassic-native-recursive-flexible-{unique}.kl"));
-    let holder_path = std::env::temp_dir().join(format!(
-        "klassic-native-recursive-flexible-holder-{unique}.txt"
+        std::env::temp_dir().join(format!("klassic-native-recursive-string-param-{unique}.kl"));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-string-param-{unique}.txt"
     ));
     let output_path =
-        std::env::temp_dir().join(format!("klassic-native-recursive-flexible-{unique}"));
+        std::env::temp_dir().join(format!("klassic-native-recursive-string-param-{unique}"));
     fs::write(
         &source_path,
         format!(
             r#"def countA(s: String, i: Int): Int = if(i >= length(s)) 0 else if(s.at(i) == "a") 1 + countA(s, i + 1) else countA(s, i + 1)
-val path = FileInput#all("{}")
-println(countA(FileInput#all(path), 0))
+val text = FileInput#all("{}")
+println(countA(text, 0))
+assertResult(3)(countA(text, 0))
 "#,
-            holder_path.display()
+            input_path.display()
         ),
     )
     .expect("source should write");
@@ -264,18 +265,32 @@ println(countA(FileInput#all(path), 0))
         .output()
         .expect("klassic build should run");
 
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&holder_path);
-    let _ = fs::remove_file(&output_path);
-
-    assert!(!build.status.success());
-    assert!(build.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&build.stderr)
-            .contains("native recursive function requiring call-site inlining"),
-        "{}",
+        build.status.success(),
+        "recursive runtime string build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "banana").expect("input source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive runtime string run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "3\n");
+    assert!(run.stderr.is_empty());
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

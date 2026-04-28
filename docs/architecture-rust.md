@@ -71,8 +71,10 @@ cargo run -- -e "1 + 2"
   boolean-returning / boolean-argument functions, queued `thread` bodies from
   literal or lambda-value jobs for the current native sample surface, simple unannotated
   integer/boolean return inference, stack-passed arguments beyond the first six
-  integer/boolean native function parameters, and top-level lambda bindings
-  lowered as static functions or inlined at call sites when they capture mutable locals.
+  integer/boolean native function parameters, annotated runtime `String`
+  parameters for scalar-returning recursive functions, and top-level lambda
+  bindings lowered as static functions or inlined at call sites when they
+  capture mutable locals.
   Temporary stack pushes used while evaluating native call arguments are tracked
   alongside local slots, so nested argument expressions can allocate closure
   captures without overwriting saved argument values.

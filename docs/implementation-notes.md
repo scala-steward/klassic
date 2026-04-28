@@ -150,6 +150,11 @@ Unannotated functions whose return value is a runtime-capturing lambda are
 therefore compiled by inlining at the call site instead of forcing an integer
 return ABI. Returned static aggregates are inspected recursively too, which
 allows a record of closures to share the same block-local mutable slot.
+Annotated `String` parameters on scalar-returning native functions use
+function-local fixed runtime buffers. Call sites copy static or runtime strings
+into those buffers, then pass only scalar `Int` / `Bool` parameters through the
+ordinary register/stack ABI; this lets simple self-recursive string scanners
+such as `countA(s: String, i: Int): Int` compile without call-site inlining.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument
@@ -369,8 +374,8 @@ programs with the native compiler on Linux x86_64 and compares native
 stdout/stderr against the existing golden expectations whenever those fixtures
 define one. Promoted future-feature programs and the checked-in typeclass
 examples are also native-built and executed by the Rust integration tests.
-Recursive functions that would require call-site inlining, such as recursive
-functions with currently flexible native parameter or return representations,
+Recursive functions that still require call-site inlining, such as recursive
+functions with unsupported flexible native parameter or return representations,
 are rejected with a normal compile diagnostic instead of recursively inlining
 until the compiler stack overflows.
 Unsupported constructs fail with compile diagnostics; they do not silently fall

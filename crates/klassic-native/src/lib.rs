@@ -626,14 +626,14 @@ impl NativeCodeGenerator {
                     ..
                 } => {
                     let mut flexible_params = Vec::new();
-                    let param_values = param_annotations
-                        .iter()
-                        .map(|annotation| {
-                            let value = annotation.as_ref().and_then(native_value_from_annotation);
-                            flexible_params.push(value.is_none() && annotation.is_some());
-                            value.unwrap_or(NativeValue::Int)
-                        })
-                        .collect::<Vec<_>>();
+                    let mut param_values = Vec::new();
+                    for annotation in param_annotations {
+                        let value = annotation
+                            .as_ref()
+                            .and_then(|annotation| self.native_function_param_value(annotation));
+                        flexible_params.push(value.is_none() && annotation.is_some());
+                        param_values.push(value.unwrap_or(NativeValue::Int));
+                    }
                     let annotated_return_value = return_annotation
                         .as_ref()
                         .and_then(native_value_from_annotation);
@@ -817,6 +817,21 @@ impl NativeCodeGenerator {
             | Expr::AxiomDeclaration { .. }
             | Expr::PegRuleBlock { .. } => Ok(NativeValue::Unit),
             _ => self.compile_expr(expr),
+        }
+    }
+
+    fn native_function_param_value(&mut self, annotation: &TypeAnnotation) -> Option<NativeValue> {
+        match annotation.text.trim() {
+            "String" => Some(self.runtime_string_scratch_value()),
+            _ => native_value_from_annotation(annotation),
+        }
+    }
+
+    fn runtime_string_scratch_value(&mut self) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        NativeValue::RuntimeString {
+            data: self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+            len: self.asm.data_label_with_i64s(&[0]),
         }
     }
 
@@ -1983,18 +1998,45 @@ impl NativeCodeGenerator {
                 ),
             ));
         }
+        let mut scalar_argument_count = 0usize;
         for (argument, expected_value) in arguments.iter().zip(function.param_values.iter()) {
             let value = self.compile_expr(argument)?;
+            if let NativeValue::RuntimeString { data, len } = expected_value {
+                let Some(input) = self.native_string_ref(value) else {
+                    return Err(unsupported(
+                        span,
+                        "native function string argument for this value type",
+                    ));
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    "function string argument exceeds 65536 bytes",
+                );
+                continue;
+            }
+            if matches!(expected_value, NativeValue::Int | NativeValue::Bool) {
+                if value != *expected_value {
+                    return Err(unsupported(
+                        span,
+                        "native function argument for this value type",
+                    ));
+                }
+                self.push_temp_reg(Reg::Rax);
+                scalar_argument_count += 1;
+                continue;
+            }
             if value != *expected_value {
                 return Err(unsupported(
                     span,
                     "native function argument for this value type",
                 ));
             }
-            self.push_temp_reg(Reg::Rax);
         }
-        let arg_regs = argument_registers(arguments.len());
-        let pass_on_stack = arguments.len() > arg_regs.len();
+        let arg_regs = argument_registers(scalar_argument_count);
+        let pass_on_stack = scalar_argument_count > arg_regs.len();
         if !pass_on_stack {
             for reg in arg_regs.into_iter().rev() {
                 self.pop_temp_reg(reg);
@@ -2003,8 +2045,8 @@ impl NativeCodeGenerator {
         self.asm.call_label(function.label);
         if pass_on_stack {
             self.asm
-                .add_reg_imm32(Reg::Rsp, (arguments.len() * 8) as i32);
-            self.release_temp_stack(arguments.len() * 8);
+                .add_reg_imm32(Reg::Rsp, (scalar_argument_count * 8) as i32);
+            self.release_temp_stack(scalar_argument_count * 8);
         }
         Ok(function.return_value)
     }
@@ -15220,29 +15262,34 @@ impl NativeCodeGenerator {
         self.asm.push_reg(Reg::Rbp);
         self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
 
-        let arg_regs = argument_registers(function.params.len());
-        if function.params.len() <= arg_regs.len() {
-            for ((param, value), reg) in function
-                .params
-                .iter()
-                .zip(function.param_values.iter().copied())
-                .zip(arg_regs)
-            {
-                let slot = self.allocate_slot(param.clone(), value);
+        let scalar_params = function
+            .params
+            .iter()
+            .zip(function.param_values.iter().copied())
+            .filter(|(_, value)| matches!(value, NativeValue::Int | NativeValue::Bool))
+            .collect::<Vec<_>>();
+        let arg_regs = argument_registers(scalar_params.len());
+        if scalar_params.len() <= arg_regs.len() {
+            for ((param, value), reg) in scalar_params.iter().zip(arg_regs) {
+                let slot = self.allocate_slot((*param).clone(), *value);
                 self.asm.store_rbp_slot(slot.offset, reg);
             }
         } else {
-            let param_count = function.params.len();
-            for (index, (param, value)) in function
-                .params
-                .iter()
-                .zip(function.param_values.iter().copied())
-                .enumerate()
-            {
-                let slot = self.allocate_slot(param.clone(), value);
+            let param_count = scalar_params.len();
+            for (index, (param, value)) in scalar_params.iter().enumerate() {
+                let slot = self.allocate_slot((*param).clone(), *value);
                 let offset = 16 + ((param_count - 1 - index) * 8);
                 self.asm.load_rbp_arg(Reg::Rax, offset as i32);
                 self.asm.store_rbp_slot(slot.offset, Reg::Rax);
+            }
+        }
+        for (param, value) in function
+            .params
+            .iter()
+            .zip(function.param_values.iter().copied())
+        {
+            if !matches!(value, NativeValue::Int | NativeValue::Bool) {
+                self.bind_constant(param.clone(), value);
             }
         }
 

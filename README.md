@@ -91,6 +91,9 @@ argument evaluation can allocate local captures safely. Top-level lambda
 bindings are lowered as static functions or inlined at call sites when they
 capture mutable native locals, and direct inline lambda calls can receive
 runtime integer/boolean arguments without folding away impure lambda bodies.
+Recursive scalar-returning native functions can also accept annotated `String`
+parameters by copying runtime strings into fixed function-parameter buffers
+before the scalar call ABI is invoked.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Static record lambda methods follow the same rule, so native method calls keep
