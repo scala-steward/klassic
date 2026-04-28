@@ -866,10 +866,10 @@ val stringFns = [reverseFrom]
 val lineFns = [keepLines]
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
-println(head(stringFns)(text, length(text) - 1) + head(stringFns)("xy", 1))
+println(head(stringFns)(text, length(text) - 1) + stringFns.head()("xy", 1))
 println(join(head(lineFns)(lines, 2), "|"))
-assertResult("cbayx")(head(stringFns)(text, length(text) - 1) + head(stringFns)("xy", 1))
-assertResult(["a", "b", "c"])(head(lineFns)(lines, 2))
+assertResult("cbayx")(head(stringFns)(text, length(text) - 1) + stringFns.head()("xy", 1))
+assertResult(["a", "b", "c"])(lineFns.head()(lines, 2))
 "#,
             text_path.display(),
             lines_path.display()

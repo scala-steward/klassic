@@ -1546,6 +1546,19 @@ impl NativeCodeGenerator {
             );
         }
         if let Expr::Call {
+            callee: method_callee,
+            arguments: method_arguments,
+            ..
+        } = callee
+            && method_arguments.is_empty()
+            && let Expr::FieldAccess { target, field, .. } = method_callee.as_ref()
+            && field == "head"
+        {
+            let callee_value =
+                self.compile_static_method_call(target, field, method_arguments, span)?;
+            return self.compile_native_callable_value_call(callee_value, arguments, span);
+        }
+        if let Expr::Call {
             callee: nested_callee,
             arguments: expected_arguments,
             ..
@@ -1701,35 +1714,7 @@ impl NativeCodeGenerator {
         } = callee
         else {
             let callee_value = self.compile_expr(callee)?;
-            match callee_value {
-                NativeValue::StaticLambda { label } => {
-                    return self.compile_static_lambda_inline_call(label, arguments, span);
-                }
-                NativeValue::BuiltinFunction { label } => {
-                    let name =
-                        self.builtin_aliases.get(label.0).cloned().ok_or_else(|| {
-                            unsupported(span, "native builtin function value call")
-                        })?;
-                    if let Some(value) =
-                        self.compile_builtin_function_value_call(&name, arguments, span)?
-                    {
-                        return Ok(value);
-                    }
-                    let arguments = self.static_values_from_arguments_preserving_effects(
-                        arguments,
-                        span,
-                        "native builtin function value argument",
-                    )?;
-                    if let Some(value) =
-                        self.static_call_value_by_name_with_values(&name, &arguments)
-                    {
-                        return Ok(self.emit_static_value(&value));
-                    }
-                    return Err(unsupported(span, "native builtin function value call"));
-                }
-                _ => {}
-            }
-            return Err(unsupported(span, "native non-identifier call"));
+            return self.compile_native_callable_value_call(callee_value, arguments, span);
         };
         if let Some(StaticValue::StaticLambda { label }) = self.lookup_static_value(callee_name) {
             let lambda_body_is_pure = self.static_lambdas.get(label.0).is_some_and(|lambda| {
@@ -2002,6 +1987,41 @@ impl NativeCodeGenerator {
                     Err(unsupported(span, "native call target"))
                 }
             }
+        }
+    }
+
+    fn compile_native_callable_value_call(
+        &mut self,
+        callee_value: NativeValue,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        match callee_value {
+            NativeValue::StaticLambda { label } => {
+                self.compile_static_lambda_inline_call(label, arguments, span)
+            }
+            NativeValue::BuiltinFunction { label } => {
+                let name = self
+                    .builtin_aliases
+                    .get(label.0)
+                    .cloned()
+                    .ok_or_else(|| unsupported(span, "native builtin function value call"))?;
+                if let Some(value) =
+                    self.compile_builtin_function_value_call(&name, arguments, span)?
+                {
+                    return Ok(value);
+                }
+                let arguments = self.static_values_from_arguments_preserving_effects(
+                    arguments,
+                    span,
+                    "native builtin function value argument",
+                )?;
+                if let Some(value) = self.static_call_value_by_name_with_values(&name, &arguments) {
+                    return Ok(self.emit_static_value(&value));
+                }
+                Err(unsupported(span, "native builtin function value call"))
+            }
+            _ => Err(unsupported(span, "native non-identifier call")),
         }
     }
 
