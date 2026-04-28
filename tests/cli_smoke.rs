@@ -5719,16 +5719,24 @@ fn builds_native_executable_for_annotated_string_lambda_parameters() {
         format!(
             r#"val textLength = (s: String) => length(s)
 val lineCount = (lines: List<String>) => lines.size()
+val prefix = "p:"
+val baseLines = ["root"]
+def prefixedLength(s: String): Int = length(prefix + s)
+def totalLines(lines: List<String>): Int = lineCount(lines) + baseLines.size()
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(textLength(text))
 println(textLength("abc"))
 println(lineCount(lines))
 println(lineCount(["x", "y"]))
+println(prefixedLength(text))
+println(totalLines(lines))
 assertResult(7)(textLength(text))
 assertResult(3)(textLength("abc"))
 assertResult(3)(lineCount(lines))
 assertResult(2)(lineCount(["x", "y"]))
+assertResult(9)(prefixedLength(text))
+assertResult(4)(totalLines(lines))
 "#,
             input_path.display(),
             lines_path.display()
@@ -5772,7 +5780,7 @@ assertResult(2)(lineCount(["x", "y"]))
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "7\n3\n3\n2\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "7\n3\n3\n2\n9\n4\n");
     assert!(run.stderr.is_empty());
 }
 
