@@ -75,7 +75,8 @@ cargo run -- -e "1 + 2"
   `List<String>` parameters for scalar-returning recursive functions whose
   self-calls pass the buffered value through unchanged, fixed-buffer annotated
   `String` / `List<String>` returns copied into call-site buffers, function
-  value aliases and static record fields preserving those runtime return hints,
+  value aliases, static record fields, and direct static-list `head` lookups
+  preserving those runtime return hints,
   immediate calls on conditional function values lowered to branch-local calls,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call

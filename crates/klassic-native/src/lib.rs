@@ -10838,6 +10838,31 @@ impl NativeCodeGenerator {
                 };
                 self.static_record_field(label, field)
             }
+            Expr::Call {
+                callee, arguments, ..
+            } => match callee.as_ref() {
+                Expr::Identifier { name, .. }
+                    if arguments.len() == 1 && self.builtin_name_for_identifier(name) == "head" =>
+                {
+                    self.static_head_value_for_return_hint(&arguments[0])
+                }
+                Expr::FieldAccess { target, field, .. }
+                    if arguments.is_empty() && field == "head" =>
+                {
+                    self.static_head_value_for_return_hint(target)
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn static_head_value_for_return_hint(&self, expr: &Expr) -> Option<StaticValue> {
+        match self.static_value_for_return_hint(expr)? {
+            StaticValue::StaticList { label } => self
+                .static_lists
+                .get(label.0)
+                .and_then(|list| list.elements.first().cloned()),
             _ => None,
         }
     }
