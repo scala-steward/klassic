@@ -463,7 +463,7 @@ struct QueuedThread {
 
 #[derive(Clone, Debug)]
 struct ConditionalBuiltinDisplay {
-    condition_name: String,
+    condition_slot: VarSlot,
     then_label: BuiltinLabel,
     else_label: BuiltinLabel,
 }
@@ -896,10 +896,10 @@ impl NativeCodeGenerator {
             name_hint.unwrap_or("value"),
             self.static_lambdas.len()
         );
-        let builtin_display =
-            self.conditional_builtin_display(condition_name.clone(), then_branch, else_branch);
         let condition_slot = self.allocate_slot(condition_name.clone(), NativeValue::Bool);
         self.asm.store_rbp_slot(condition_slot.offset, Reg::Rax);
+        let builtin_display =
+            self.conditional_builtin_display(condition_slot, then_branch, else_branch);
 
         let params = (0..arity)
             .map(|index| format!("__native_if_arg_{index}"))
@@ -944,12 +944,12 @@ impl NativeCodeGenerator {
 
     fn conditional_builtin_display(
         &mut self,
-        condition_name: String,
+        condition_slot: VarSlot,
         then_branch: &Expr,
         else_branch: &Expr,
     ) -> Option<ConditionalBuiltinDisplay> {
         Some(ConditionalBuiltinDisplay {
-            condition_name,
+            condition_slot,
             then_label: self.builtin_label_for_conditional_branch(then_branch)?,
             else_label: self.builtin_label_for_conditional_branch(else_branch)?,
         })
@@ -5813,16 +5813,14 @@ impl NativeCodeGenerator {
         display: &ConditionalBuiltinDisplay,
         span: Span,
     ) -> NativeValue {
-        let Some(condition_slot) = self.lookup_var(&display.condition_name) else {
-            return self.emit_static_string("<function>".to_string());
-        };
         let output = self.runtime_string_scratch_value();
         let NativeValue::RuntimeString { data, len } = output else {
             unreachable!("runtime string scratch should be a runtime string")
         };
         let else_label = self.asm.create_text_label();
         let end_label = self.asm.create_text_label();
-        self.asm.load_rbp_slot(Reg::Rax, condition_slot.offset);
+        self.asm
+            .load_rbp_slot(Reg::Rax, display.condition_slot.offset);
         self.asm.cmp_reg_imm8(Reg::Rax, 0);
         self.asm.jcc_label(Condition::Equal, else_label);
         self.emit_copy_builtin_display_to_runtime_string(data, len, display.then_label, span);
@@ -12986,13 +12984,10 @@ impl NativeCodeGenerator {
         fd: u64,
         display: &ConditionalBuiltinDisplay,
     ) {
-        let Some(condition_slot) = self.lookup_var(&display.condition_name) else {
-            self.emit_print_function_display(fd);
-            return;
-        };
         let else_label = self.asm.create_text_label();
         let end_label = self.asm.create_text_label();
-        self.asm.load_rbp_slot(Reg::Rax, condition_slot.offset);
+        self.asm
+            .load_rbp_slot(Reg::Rax, display.condition_slot.offset);
         self.asm.cmp_reg_imm8(Reg::Rax, 0);
         self.asm.jcc_label(Condition::Equal, else_label);
         self.emit_print_builtin_function_display(fd, display.then_label);

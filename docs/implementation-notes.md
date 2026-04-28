@@ -185,7 +185,7 @@ for runtime-returning functions and supported builtin function values with
 matching arity without adding a general heap function value representation yet.
 For conditional builtin branches, the synthesized callable also keeps display
 metadata so printing, interpolation, and `toString` emit the selected branch's
-`<builtin:name>`.
+`<builtin:name>`, even after the callable is returned from a function.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument
