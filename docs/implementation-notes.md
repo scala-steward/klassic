@@ -159,8 +159,9 @@ caller current execution flow instead of being stranded during later function
 emission or folded away as a pure static result.
 Top-level `def` bodies that close over top-level bindings are also call-site
 inlined for non-recursive functions. Recursive functions can capture immutable
-static top-level values, including builtin aliases and static lambda values, by
-rebinding those captures inside the emitted function body. Direct calls and value
+static top-level values, including builtin aliases and static lambda values, and
+immutable runtime string / line-list bindings by rebinding those captures inside
+the emitted function body. Direct calls and value
 aliases for user-defined functions now shadow same-named native builtins on the
 native path.
 Static equality and `assertResult` over aggregate values preserve

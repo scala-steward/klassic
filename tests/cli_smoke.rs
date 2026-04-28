@@ -2219,6 +2219,74 @@ fn builds_native_executable_for_runtime_file_input_binding() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_recursive_runtime_top_level_captures() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-runtime-input-{unique}.txt"
+    ));
+    let input_path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-runtime-input-holder-{unique}.txt"
+    ));
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-runtime-capture-{unique}.kl"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-recursive-runtime-capture-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            "val path = FileInput#all(\"{}\")\nval text = FileInput#all(path)\nval lines = FileInput#lines(path)\ndef textLengthAfter(n: Int): Int = if(n == 0) length(text) else textLengthAfter(n - 1)\ndef lineCountAfter(n: Int): Int = if(n == 0) lines.size() else lineCountAfter(n - 1)\ndef firstLineLengthAfter(n: Int): Int = if(n == 0) length(lines.head()) else firstLineLengthAfter(n - 1)\nprintln(textLengthAfter(2))\nprintln(lineCountAfter(3))\nprintln(firstLineLengthAfter(1))\nassertResult(8)(textLengthAfter(2))\nassertResult(3)(lineCountAfter(3))\nassertResult(3)(firstLineLengthAfter(1))\n",
+            input_path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "recursive runtime capture build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "abc\nxy\nz").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&input_path_holder);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive runtime capture run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "8\n3\n3\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_file_output_content() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

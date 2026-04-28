@@ -14694,13 +14694,24 @@ impl NativeCodeGenerator {
             if self.lookup_var(name).is_some() {
                 continue;
             }
-            let Some(value) = lookup_static_value_in_scopes(&saved_static_scopes, name) else {
-                return Err(unsupported(
-                    function.body.span(),
-                    "native recursive function capturing mutable top-level binding",
-                ));
-            };
-            self.bind_static_runtime_value(name.clone(), value);
+            if let Some(value) = lookup_static_value_in_scopes(&saved_static_scopes, name) {
+                self.bind_static_runtime_value(name.clone(), value);
+                continue;
+            }
+            if let Some(slot) = lookup_var_slot_in_scopes(&saved_scopes, name)
+                && slot.offset == 0
+                && matches!(
+                    slot.value,
+                    NativeValue::RuntimeString { .. } | NativeValue::RuntimeLinesList { .. }
+                )
+            {
+                self.bind_constant(name.clone(), slot.value);
+                continue;
+            }
+            return Err(unsupported(
+                function.body.span(),
+                "native recursive function capturing mutable top-level binding",
+            ));
         }
 
         let value = self.compile_expr(&function.body)?;
@@ -15467,6 +15478,13 @@ fn lookup_static_value_in_scopes(
         .iter()
         .rev()
         .find_map(|scope| scope.get(name).cloned())
+}
+
+fn lookup_var_slot_in_scopes(scopes: &[HashMap<String, VarSlot>], name: &str) -> Option<VarSlot> {
+    scopes
+        .iter()
+        .rev()
+        .find_map(|scope| scope.get(name).copied())
 }
 
 fn expr_contains_thread_call(expr: &Expr, thread_aliases: &HashSet<String>) -> bool {
