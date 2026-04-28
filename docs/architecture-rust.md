@@ -190,8 +190,9 @@ cargo run -- -e "1 + 2"
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, `null`, or `()`, or when every compatible entry
   returns an equivalent static value, including the same callable value; a
-  runtime miss reports a native diagnostic because this untagged path cannot
-  materialize a dynamic `null`.
+  runtime key whose type has no compatible static keys returns static `null`.
+  A runtime miss among compatible keys reports a native diagnostic because this
+  untagged path cannot materialize a dynamic `null`.
   Immediate calls through runtime-key lookups of static callable maps, such as
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, dispatch to the selected
   lambda or builtin branch and merge the supported native return shapes.

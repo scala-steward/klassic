@@ -5881,10 +5881,7 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         if candidates.is_empty() {
-            return Err(unsupported(
-                span,
-                "native Map#get for runtime key with no compatible static keys",
-            ));
+            return Ok(NativeValue::Null);
         }
         if let Some(value) = self.uniform_runtime_map_get_static_value(&candidates) {
             return self.compile_static_map_get_runtime_static_value_candidates(
