@@ -638,7 +638,7 @@ impl NativeCodeGenerator {
                     }
                     let annotated_return_value = return_annotation
                         .as_ref()
-                        .and_then(native_value_from_annotation);
+                        .and_then(|annotation| self.native_function_return_value(annotation));
                     let return_hint = native_value_hint_from_expr(body);
                     let inferred_return_requires_inline =
                         return_annotation.is_none() && return_hint.is_none();
@@ -828,6 +828,10 @@ impl NativeCodeGenerator {
             "List<String>" => Some(self.runtime_lines_list_scratch_value()),
             _ => native_value_from_annotation(annotation),
         }
+    }
+
+    fn native_function_return_value(&mut self, annotation: &TypeAnnotation) -> Option<NativeValue> {
+        self.native_function_param_value(annotation)
     }
 
     fn runtime_string_scratch_value(&mut self) -> NativeValue {
@@ -2102,7 +2106,59 @@ impl NativeCodeGenerator {
                 .add_reg_imm32(Reg::Rsp, (scalar_argument_count * 8) as i32);
             self.release_temp_stack(scalar_argument_count * 8);
         }
-        Ok(function.return_value)
+        self.copy_function_return_to_call_site(function.return_value, span)
+    }
+
+    fn copy_function_return_to_call_site(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        match value {
+            NativeValue::RuntimeString { data, len } => {
+                let output = self.runtime_string_scratch_value();
+                let NativeValue::RuntimeString {
+                    data: output_data,
+                    len: output_len,
+                } = output
+                else {
+                    unreachable!("runtime string scratch should be a runtime string")
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    output_data,
+                    output_len,
+                    NativeStringRef {
+                        data,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    span,
+                    "function string return exceeds 65536 bytes",
+                );
+                Ok(output)
+            }
+            NativeValue::RuntimeLinesList { data, len } => {
+                let output = self.runtime_lines_list_scratch_value();
+                let NativeValue::RuntimeLinesList {
+                    data: output_data,
+                    len: output_len,
+                } = output
+                else {
+                    unreachable!("runtime line-list scratch should be a runtime line list")
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    output_data,
+                    output_len,
+                    NativeStringRef {
+                        data,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    span,
+                    "function line-list return exceeds 65536 bytes",
+                );
+                Ok(output)
+            }
+            value => Ok(value),
+        }
     }
 
     fn compile_builtin_function_value_call(
@@ -2464,13 +2520,39 @@ impl NativeCodeGenerator {
         } else {
             self.pop_scope();
         }
-        if !function.flexible_return && value != function.return_value {
+        if !function.flexible_return
+            && !self.inline_return_value_matches(value, function.return_value, span)?
+        {
             return Err(unsupported(
                 span,
                 "native inline function return value with this type",
             ));
         }
         Ok(value)
+    }
+
+    fn inline_return_value_matches(
+        &self,
+        value: NativeValue,
+        expected: NativeValue,
+        span: Span,
+    ) -> Result<bool, Diagnostic> {
+        match expected {
+            NativeValue::RuntimeString { .. } => Ok(self.native_string_ref(value).is_some()),
+            NativeValue::RuntimeLinesList { .. } => {
+                if matches!(value, NativeValue::RuntimeLinesList { .. }) {
+                    return Ok(true);
+                }
+                self.static_write_lines_content_from_native(
+                    value,
+                    span,
+                    "inline function line-list return",
+                )
+                .map(|_| true)
+            }
+            NativeValue::Unit => Ok(matches!(value, NativeValue::Unit)),
+            expected => Ok(value == expected),
+        }
     }
 
     fn compile_inline_lambda_call(
@@ -10520,9 +10602,97 @@ impl NativeCodeGenerator {
         rhs: &Expr,
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
+        if self.can_delay_concat_lhs_until_after_rhs(lhs, rhs) {
+            let rhs_string = self.compile_runtime_string_concat_fragment(rhs, span)?;
+            let lhs_string = self.compile_runtime_string_concat_fragment(lhs, span)?;
+            return Ok(self.emit_runtime_string_concat(lhs_string, rhs_string, span));
+        }
         let lhs_string = self.compile_runtime_string_concat_fragment(lhs, span)?;
         let rhs_string = self.compile_runtime_string_concat_fragment(rhs, span)?;
         Ok(self.emit_runtime_string_concat(lhs_string, rhs_string, span))
+    }
+
+    fn can_delay_concat_lhs_until_after_rhs(&self, lhs: &Expr, rhs: &Expr) -> bool {
+        let Some(function_name) = self.active_function_name.as_deref() else {
+            return false;
+        };
+        let active = HashSet::from([function_name.to_string()]);
+        self.expr_is_delayable_runtime_concat_lhs(lhs)
+            && !expr_references_any_name(lhs, &active)
+            && expr_references_any_name(rhs, &active)
+    }
+
+    fn expr_is_delayable_runtime_concat_lhs(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Int { .. }
+            | Expr::Double { .. }
+            | Expr::Bool { .. }
+            | Expr::String { .. }
+            | Expr::Null { .. }
+            | Expr::Unit { .. }
+            | Expr::Identifier { .. } => true,
+            Expr::Unary { expr, .. } => self.expr_is_delayable_runtime_concat_lhs(expr),
+            Expr::Binary { lhs, rhs, .. } => {
+                self.expr_is_delayable_runtime_concat_lhs(lhs)
+                    && self.expr_is_delayable_runtime_concat_lhs(rhs)
+            }
+            Expr::FieldAccess { target, .. } => self.expr_is_delayable_runtime_concat_lhs(target),
+            Expr::Call {
+                callee, arguments, ..
+            } => {
+                self.delayable_runtime_concat_callee(callee)
+                    && arguments
+                        .iter()
+                        .all(|argument| self.expr_is_delayable_runtime_concat_lhs(argument))
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_is_delayable_runtime_concat_lhs(condition)
+                    && self.expr_is_delayable_runtime_concat_lhs(then_branch)
+                    && else_branch
+                        .as_deref()
+                        .is_none_or(|branch| self.expr_is_delayable_runtime_concat_lhs(branch))
+            }
+            Expr::Block { expressions, .. } => expressions
+                .iter()
+                .all(|expression| self.expr_is_delayable_runtime_concat_lhs(expression)),
+            _ => false,
+        }
+    }
+
+    fn delayable_runtime_concat_callee(&self, callee: &Expr) -> bool {
+        match callee {
+            Expr::Identifier { name, .. } if !self.functions.contains_key(name) => {
+                Self::delayable_runtime_concat_helper_name(&self.builtin_name_for_identifier(name))
+            }
+            Expr::FieldAccess { target, field, .. } => {
+                self.expr_is_delayable_runtime_concat_lhs(target)
+                    && Self::delayable_runtime_concat_helper_name(field)
+            }
+            _ => false,
+        }
+    }
+
+    fn delayable_runtime_concat_helper_name(name: &str) -> bool {
+        matches!(
+            name,
+            "toString"
+                | "substring"
+                | "at"
+                | "trim"
+                | "trimLeft"
+                | "trimRight"
+                | "toLowerCase"
+                | "toUpperCase"
+                | "isEmptyString"
+                | "length"
+                | "repeat"
+                | "reverse"
+        )
     }
 
     fn compile_runtime_string_concat_fragment(
@@ -10636,6 +10806,13 @@ impl NativeCodeGenerator {
                 callee, arguments, ..
             } => match callee.as_ref() {
                 Expr::Identifier { name, .. }
+                    if self.functions.get(name).is_some_and(|function| {
+                        matches!(function.return_value, NativeValue::RuntimeString { .. })
+                    }) =>
+                {
+                    true
+                }
+                Expr::Identifier { name, .. }
                     if self.builtin_name_for_identifier(name) == "StandardInput#all" =>
                 {
                     true
@@ -10737,6 +10914,13 @@ impl NativeCodeGenerator {
                     return self.expr_may_yield_runtime_string(path);
                 }
                 match callee.as_ref() {
+                    Expr::Identifier { name, .. }
+                        if self.functions.get(name).is_some_and(|function| {
+                            matches!(function.return_value, NativeValue::RuntimeLinesList { .. })
+                        }) =>
+                    {
+                        true
+                    }
                     Expr::Identifier { name, .. }
                         if self.builtin_name_for_identifier(name) == "StandardInput#lines" =>
                     {
@@ -15398,17 +15582,11 @@ impl NativeCodeGenerator {
         }
 
         let value = self.compile_expr(&function.body)?;
-        if value != function.return_value
-            && !matches!(
-                (value, function.return_value),
-                (NativeValue::Unit, NativeValue::Unit)
-            )
-        {
-            return Err(unsupported(
-                function.body.span(),
-                "native function return value with this type",
-            ));
-        }
+        self.copy_function_body_value_to_return_buffer(
+            value,
+            function.return_value,
+            function.body.span(),
+        )?;
         self.asm.leave();
         self.asm.ret();
 
@@ -15418,6 +15596,74 @@ impl NativeCodeGenerator {
         self.next_stack_offset = saved_next_stack_offset;
         self.active_function_name = saved_active_function_name;
         Ok(())
+    }
+
+    fn copy_function_body_value_to_return_buffer(
+        &mut self,
+        value: NativeValue,
+        expected: NativeValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match expected {
+            NativeValue::RuntimeString { data, len } => {
+                if value == expected {
+                    return Ok(());
+                }
+                let Some(input) = self.native_string_ref(value) else {
+                    return Err(unsupported(
+                        span,
+                        "native function string return value with this type",
+                    ));
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    data,
+                    len,
+                    input,
+                    span,
+                    "function string return exceeds 65536 bytes",
+                );
+                Ok(())
+            }
+            NativeValue::RuntimeLinesList { data, len } => {
+                if value == expected {
+                    return Ok(());
+                }
+                let input = if let NativeValue::RuntimeLinesList {
+                    data: input_data,
+                    len: input_len,
+                } = value
+                {
+                    NativeStringRef {
+                        data: input_data,
+                        len: NativeStringLen::Runtime(input_len),
+                    }
+                } else {
+                    let content = self.static_write_lines_content_from_native(
+                        value,
+                        span,
+                        "function line-list return",
+                    )?;
+                    NativeStringRef {
+                        data: self.asm.data_label_with_bytes(content.as_bytes()),
+                        len: NativeStringLen::Immediate(content.len()),
+                    }
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    data,
+                    len,
+                    input,
+                    span,
+                    "function line-list return exceeds 65536 bytes",
+                );
+                Ok(())
+            }
+            NativeValue::Unit if matches!(value, NativeValue::Unit) => Ok(()),
+            expected if value == expected => Ok(()),
+            _ => Err(unsupported(
+                span,
+                "native function return value with this type",
+            )),
+        }
     }
 
     fn emit_print_i64_runtime(&mut self) {

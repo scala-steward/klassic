@@ -162,6 +162,9 @@ are rejected instead of overwriting the shared parameter buffer.
 Top-level lambda declarations and inline lambda calls use the same annotated
 `String` / `List<String>` parameter matching, but bind the actual call-site value
 directly because their bodies are emitted at the call site.
+Annotated `String` / `List<String>` returns use function-owned return buffers;
+direct call sites immediately copy those buffers into call-site-local buffers so
+neighboring calls can be composed without clobbering each other.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
 when the queued body is emitted later. `thread` itself can queue zero-argument

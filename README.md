@@ -96,6 +96,9 @@ and `List<String>` parameters by copying runtime strings or static/runtime line
 lists into fixed function-parameter buffers before the scalar call ABI is invoked;
 self-recursive calls must pass those parameters through unchanged until per-call
 string/list frames are available.
+Annotated `String` and `List<String>` function returns use fixed return buffers
+that are copied into call-site buffers so adjacent calls do not overwrite each
+other.
 Static lambda values returned from functions can be bound and called again when
 their captured values and call arguments are statically recoverable.
 Inline and top-level lambda calls use the same annotated `String` /

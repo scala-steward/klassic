@@ -464,6 +464,141 @@ println(consume(lines, 0))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_recursive_runtime_string_return() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-string-return-{unique}.kl"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-string-return-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-recursive-string-return-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"def reverseFrom(s: String, i: Int): String = if(i < 0) "" else s.at(i) + reverseFrom(s, i - 1)
+val text = FileInput#all("{}")
+println(reverseFrom(text, length(text) - 1))
+println(reverseFrom("xy", 1) + reverseFrom("ab", 1))
+assertResult("cba")(reverseFrom(text, length(text) - 1))
+assertResult("yxba")(reverseFrom("xy", 1) + reverseFrom("ab", 1))
+"#,
+            input_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "recursive runtime string return build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "abc").expect("input source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive runtime string return run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "cba\nyxba\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_recursive_runtime_line_list_return() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-recursive-lines-return-{unique}.kl"));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-lines-return-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-recursive-lines-return-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
+val lines = FileInput#lines("{}")
+println(join(keepLines(lines, 2), "|"))
+println(join(keepLines(["x", "y"], 1), ":"))
+assertResult(["a", "b", "c"])(keepLines(lines, 2))
+assertResult(["x", "y"])(keepLines(["x", "y"], 1))
+"#,
+            input_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "recursive runtime line-list return build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "a\nb\nc").expect("input source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive runtime line-list return run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "a|b|c\nx:y\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_recursive_function_static_top_level_capture() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

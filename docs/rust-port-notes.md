@@ -111,6 +111,8 @@ the module layout is described in `docs/architecture-rust.md`.
   `List<String>` accepts both static string lists and runtime line lists.
   Self-recursive calls that rewrite those buffered arguments are rejected until
   per-call string/list frames exist.
+- Annotated `String` / `List<String>` returns use fixed function return buffers
+  that direct call sites copy into call-site-local buffers.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
 - Static strings also use the runtime slice path for `substring` / `at` when
