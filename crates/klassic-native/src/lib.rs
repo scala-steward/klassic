@@ -3535,6 +3535,25 @@ impl NativeCodeGenerator {
                             self.emit_runtime_string_replace_first_dynamic(input, from, to, span)
                         );
                     }
+                    if self.expr_may_yield_runtime_string(&arguments[1]) {
+                        let from = self.compile_expr(&arguments[1])?;
+                        let Some(from) = self.native_string_ref(from) else {
+                            return Err(unsupported(
+                                span,
+                                "native replaceAll for non-string pattern",
+                            ));
+                        };
+                        let to = self.compile_expr(&arguments[2])?;
+                        let Some(to) = self.native_string_ref(to) else {
+                            return Err(unsupported(
+                                span,
+                                "native replaceAll for non-string replacement",
+                            ));
+                        };
+                        return Ok(self.emit_runtime_string_replace_all_dynamic_pattern(
+                            input, from, to, span,
+                        ));
+                    }
                     let from = self.static_string_from_argument_preserving_effects(
                         &arguments[1],
                         span,
@@ -3576,16 +3595,38 @@ impl NativeCodeGenerator {
                         self.emit_runtime_string_replace_first_dynamic(input, from, to, span)
                     );
                 }
-                if name == "replaceAll" && self.expr_may_yield_runtime_string(&arguments[2]) {
+                if name == "replaceAll"
+                    && (self.expr_may_yield_runtime_string(&arguments[1])
+                        || self.expr_may_yield_runtime_string(&arguments[2]))
+                {
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    if self.expr_may_yield_runtime_string(&arguments[1]) {
+                        let from = self.compile_expr(&arguments[1])?;
+                        let Some(from) = self.native_string_ref(from) else {
+                            return Err(unsupported(
+                                span,
+                                "native replaceAll for non-string pattern",
+                            ));
+                        };
+                        let to = self.compile_expr(&arguments[2])?;
+                        let Some(to) = self.native_string_ref(to) else {
+                            return Err(unsupported(
+                                span,
+                                "native replaceAll for non-string replacement",
+                            ));
+                        };
+                        return Ok(self.emit_runtime_string_replace_all_dynamic_pattern(
+                            input, from, to, span,
+                        ));
+                    }
                     let from = self.static_string_from_argument_preserving_effects(
                         &arguments[1],
                         span,
                         name,
                     )?;
-                    let input = self.emit_static_string(input);
-                    let input = self
-                        .native_string_ref(input)
-                        .expect("static string should expose native string ref");
                     let to = self.compile_expr(&arguments[2])?;
                     let Some(to) = self.native_string_ref(to) else {
                         return Err(unsupported(
@@ -14053,25 +14094,103 @@ impl NativeCodeGenerator {
         replacement: NativeStringRef,
         span: Span,
     ) -> NativeValue {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let len = self.asm.data_label_with_i64s(&[0]);
+
         if pattern == "[0-9]" {
-            self.emit_runtime_string_replace_all_ascii_digits(input, replacement, span)
+            self.emit_runtime_string_replace_all_ascii_digits_into(
+                input,
+                replacement,
+                data,
+                len,
+                span,
+            );
         } else if pattern.is_empty() {
-            self.emit_runtime_string_replace_all_empty_pattern(input, replacement, span)
+            self.emit_runtime_string_replace_all_empty_pattern_into(
+                input,
+                replacement,
+                data,
+                len,
+                span,
+            );
         } else {
-            self.emit_runtime_string_replace_all_literal(input, pattern, replacement, span)
+            self.emit_runtime_string_replace_all_literal_into(
+                input,
+                pattern,
+                replacement,
+                data,
+                len,
+                span,
+            );
         }
+        NativeValue::RuntimeString { data, len }
     }
 
-    fn emit_runtime_string_replace_all_ascii_digits(
+    fn emit_runtime_string_replace_all_dynamic_pattern(
         &mut self,
         input: NativeStringRef,
+        pattern: NativeStringRef,
         replacement: NativeStringRef,
         span: Span,
     ) -> NativeValue {
         const RUNTIME_STRING_CAP: usize = 65_536;
         let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
         let len = self.asm.data_label_with_i64s(&[0]);
+        let digit_pattern = NativeStringRef {
+            data: self.asm.data_label_with_bytes(b"[0-9]"),
+            len: NativeStringLen::Immediate(5),
+        };
+        let ascii_digits = self.asm.create_text_label();
+        let empty_pattern = self.asm.create_text_label();
+        let literal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
 
+        self.emit_native_string_equality(pattern, digit_pattern);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::NotEqual, ascii_digits);
+        self.emit_load_native_string_len(Reg::Rax, pattern.len);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, empty_pattern);
+        self.asm.jmp_label(literal);
+
+        self.asm.bind_text_label(ascii_digits);
+        self.emit_runtime_string_replace_all_ascii_digits_into(input, replacement, data, len, span);
+        self.asm.jmp_label(done);
+
+        self.asm.bind_text_label(empty_pattern);
+        self.emit_runtime_string_replace_all_empty_pattern_into(
+            input,
+            replacement,
+            data,
+            len,
+            span,
+        );
+        self.asm.jmp_label(done);
+
+        self.asm.bind_text_label(literal);
+        self.emit_runtime_string_replace_all_dynamic_literal_into(
+            input,
+            pattern,
+            replacement,
+            data,
+            len,
+            span,
+        );
+
+        self.asm.bind_text_label(done);
+        NativeValue::RuntimeString { data, len }
+    }
+
+    fn emit_runtime_string_replace_all_ascii_digits_into(
+        &mut self,
+        input: NativeStringRef,
+        replacement: NativeStringRef,
+        data: DataLabel,
+        len: DataLabel,
+        span: Span,
+    ) {
+        const RUNTIME_STRING_CAP: usize = 65_536;
         self.asm.mov_data_addr(Reg::Rsi, input.data);
         self.emit_load_native_string_len(Reg::Rdx, input.len);
         self.asm.mov_data_addr(Reg::Rbx, data);
@@ -14121,20 +14240,17 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(done);
         self.asm.mov_data_addr(Reg::R10, len);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
-
-        NativeValue::RuntimeString { data, len }
     }
 
-    fn emit_runtime_string_replace_all_empty_pattern(
+    fn emit_runtime_string_replace_all_empty_pattern_into(
         &mut self,
         input: NativeStringRef,
         replacement: NativeStringRef,
+        data: DataLabel,
+        len: DataLabel,
         span: Span,
-    ) -> NativeValue {
+    ) {
         const RUNTIME_STRING_CAP: usize = 65_536;
-        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
-        let len = self.asm.data_label_with_i64s(&[0]);
-
         self.asm.mov_data_addr(Reg::Rsi, input.data);
         self.emit_load_native_string_len(Reg::Rdx, input.len);
         self.asm.mov_data_addr(Reg::Rbx, data);
@@ -14187,20 +14303,18 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(done);
         self.asm.mov_data_addr(Reg::R10, len);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
-
-        NativeValue::RuntimeString { data, len }
     }
 
-    fn emit_runtime_string_replace_all_literal(
+    fn emit_runtime_string_replace_all_literal_into(
         &mut self,
         input: NativeStringRef,
         pattern: String,
         replacement: NativeStringRef,
+        data: DataLabel,
+        len: DataLabel,
         span: Span,
-    ) -> NativeValue {
+    ) {
         const RUNTIME_STRING_CAP: usize = 65_536;
-        let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
-        let len = self.asm.data_label_with_i64s(&[0]);
         let pattern_label = self.asm.data_label_with_bytes(pattern.as_bytes());
         let pattern_len = pattern.len();
 
@@ -14268,8 +14382,86 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(done);
         self.asm.mov_data_addr(Reg::R10, len);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
+    }
 
-        NativeValue::RuntimeString { data, len }
+    fn emit_runtime_string_replace_all_dynamic_literal_into(
+        &mut self,
+        input: NativeStringRef,
+        pattern: NativeStringRef,
+        replacement: NativeStringRef,
+        data: DataLabel,
+        len: DataLabel,
+        span: Span,
+    ) {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+
+        self.asm.mov_data_addr(Reg::Rsi, input.data);
+        self.emit_load_native_string_len(Reg::Rdx, input.len);
+        self.asm.mov_data_addr(Reg::Rdi, pattern.data);
+        self.asm.mov_data_addr(Reg::Rbx, data);
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.mov_imm64(Reg::R9, 0);
+
+        let loop_label = self.asm.create_text_label();
+        let try_match = self.asm.create_text_label();
+        let match_loop = self.asm.create_text_label();
+        let matched = self.asm.create_text_label();
+        let copy_one = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+
+        self.asm.bind_text_label(loop_label);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
+        self.asm.jcc_label(Condition::Equal, done);
+        self.asm.mov_reg_reg(Reg::R10, Reg::R8);
+        self.emit_load_native_string_len(Reg::Rax, pattern.len);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.cmp_reg_reg(Reg::R10, Reg::Rdx);
+        self.asm.jcc_label(Condition::LessEqual, try_match);
+        self.asm.jmp_label(copy_one);
+
+        self.asm.bind_text_label(try_match);
+        self.asm.mov_imm64(Reg::Rcx, 0);
+        self.asm.bind_text_label(match_loop);
+        self.emit_load_native_string_len(Reg::R10, pattern.len);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R10);
+        self.asm.jcc_label(Condition::Equal, matched);
+        self.asm.mov_reg_reg(Reg::R10, Reg::R8);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R10);
+        self.asm.movzx_byte_indexed(Reg::R10, Reg::Rdi, Reg::Rcx);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::R10);
+        self.asm.jcc_label(Condition::NotEqual, copy_one);
+        self.asm.inc_reg(Reg::Rcx);
+        self.asm.jmp_label(match_loop);
+
+        self.asm.bind_text_label(matched);
+        self.emit_append_native_string_to_runtime_buffer_dynamic(
+            Reg::Rbx,
+            Reg::R9,
+            replacement,
+            span,
+            "replaceAll result exceeds 65536 bytes",
+        );
+        self.emit_load_native_string_len(Reg::R10, pattern.len);
+        self.asm.add_reg_reg(Reg::R8, Reg::R10);
+        self.asm.jmp_label(loop_label);
+
+        self.asm.bind_text_label(copy_one);
+        self.emit_runtime_buffer_capacity_check(
+            Reg::R9,
+            RUNTIME_STRING_CAP,
+            span,
+            "replaceAll result exceeds 65536 bytes",
+        );
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+        self.asm.mov_byte_indexed_reg8(Reg::Rbx, Reg::R9, Reg8::Al);
+        self.asm.inc_reg(Reg::R8);
+        self.asm.inc_reg(Reg::R9);
+        self.asm.jmp_label(loop_label);
+
+        self.asm.bind_text_label(done);
+        self.asm.mov_data_addr(Reg::R10, len);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
     }
 
     fn emit_runtime_string_matches_pattern(

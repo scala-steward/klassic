@@ -1562,6 +1562,15 @@ fn builds_native_executable_for_replace_all_runtime_replacement() {
     let replacement_path = std::env::temp_dir().join(format!(
         "klassic-native-replace-all-replacement-{unique}.txt"
     ));
+    let digit_pattern_path = std::env::temp_dir().join(format!(
+        "klassic-native-replace-all-digit-pattern-{unique}.txt"
+    ));
+    let literal_pattern_path = std::env::temp_dir().join(format!(
+        "klassic-native-replace-all-literal-pattern-{unique}.txt"
+    ));
+    let empty_pattern_path = std::env::temp_dir().join(format!(
+        "klassic-native-replace-all-empty-pattern-{unique}.txt"
+    ));
     let source_path =
         std::env::temp_dir().join(format!("klassic-native-replace-all-dynamic-{unique}.kl"));
     let output_path =
@@ -1571,18 +1580,36 @@ fn builds_native_executable_for_replace_all_runtime_replacement() {
         format!(
             r#"val input = FileInput#all("{}")
 val replacement = FileInput#all("{}")
+val digitPattern = FileInput#all("{}")
+val literalPattern = FileInput#all("{}")
+val emptyPattern = FileInput#all("{}")
 val dynamicInput = replaceAll(input, "[0-9]", replacement)
 val staticInput = replaceAll("a1b2", "[0-9]", replacement)
 val methodInput = "c3d4".replaceAll("[0-9]", replacement)
+val runtimePattern = replaceAll(input, digitPattern, replacement)
+val staticRuntimePattern = replaceAll("e5f6", digitPattern, replacement)
+val literalRuntimePattern = replaceAll("ab_ab", literalPattern, replacement)
+val emptyRuntimePattern = replaceAll("hé", emptyPattern, "-")
 println(dynamicInput)
 println(staticInput)
 println(methodInput)
+println(runtimePattern)
+println(staticRuntimePattern)
+println(literalRuntimePattern)
+println(emptyRuntimePattern)
 assertResult("aXbX")(dynamicInput)
 assertResult("aXbX")(staticInput)
 assertResult("cXdX")(methodInput)
+assertResult("aXbX")(runtimePattern)
+assertResult("eXfX")(staticRuntimePattern)
+assertResult("X_X")(literalRuntimePattern)
+assertResult("-h-é-")(emptyRuntimePattern)
 "#,
             input_path.display(),
-            replacement_path.display()
+            replacement_path.display(),
+            digit_pattern_path.display(),
+            literal_pattern_path.display(),
+            empty_pattern_path.display()
         ),
     )
     .expect("source should write");
@@ -1608,12 +1635,19 @@ assertResult("cXdX")(methodInput)
 
     fs::write(&input_path, "a1b2").expect("input source should write after native build");
     fs::write(&replacement_path, "X").expect("replacement source should write after native build");
+    fs::write(&digit_pattern_path, "[0-9]").expect("digit pattern should write after native build");
+    fs::write(&literal_pattern_path, "ab")
+        .expect("literal pattern should write after native build");
+    fs::write(&empty_pattern_path, "").expect("empty pattern should write after native build");
     let run = Command::new(&output_path)
         .output()
         .expect("generated executable should run");
 
     let _ = fs::remove_file(&input_path);
     let _ = fs::remove_file(&replacement_path);
+    let _ = fs::remove_file(&digit_pattern_path);
+    let _ = fs::remove_file(&literal_pattern_path);
+    let _ = fs::remove_file(&empty_pattern_path);
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&output_path);
 
@@ -1623,7 +1657,10 @@ assertResult("cXdX")(methodInput)
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "aXbX\naXbX\ncXdX\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "aXbX\naXbX\ncXdX\naXbX\neXfX\nX_X\n-h-é-\n"
+    );
     assert!(run.stderr.is_empty());
 }
 

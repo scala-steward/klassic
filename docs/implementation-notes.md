@@ -286,8 +286,8 @@ and `at` with static or runtime integer indexes, method-style `toString`,
 ASCII-whitespace `trim` / `trimLeft` / `trimRight`, `repeat` with static or
 runtime integer counts, ASCII
 `toLowerCase` / `toUpperCase`, first-occurrence `replace` with static or
-runtime literal operands, all-occurrence `replaceAll` with static patterns and
-static or runtime replacement strings, simple `matches` with static or runtime
+runtime literal operands, all-occurrence `replaceAll` with static or runtime
+pattern and replacement strings, simple `matches` with static or runtime
 patterns, UTF-8 `reverse`, `startsWith`, `endsWith`, or
 method-style `contains`, plus `indexOf` / `lastIndexOf` byte-offset searches;
 oversized results fail at runtime with a source-located diagnostic instead of
@@ -301,8 +301,9 @@ Static string `split` and static string-list `join` likewise route through
 runtime buffers when their delimiters are runtime strings.
 Static first-occurrence `replace` uses the dynamic replacement emitter when its
 pattern or replacement operand is a runtime string.
-All-occurrence `replaceAll` keeps its pattern static, but its replacement can be
-a runtime string on either static or runtime inputs.
+All-occurrence `replaceAll` can route static or runtime pattern and replacement
+strings through a dynamic emitter that selects the supported `[0-9]`, empty, or
+literal pattern path at runtime.
 Static `repeat` uses the dynamic repeat emitter when its count is a runtime
 integer.
 `Dir#move` likewise treats non-virtual runtime moves as unknown File/Dir state
@@ -351,8 +352,8 @@ support printing, string concatenation, equality/inequality, and
 static or runtime integer indexes / ASCII-whitespace trimming / `repeat` with
 static or runtime integer counts / ASCII case conversion / first-occurrence
 `replace` with static or runtime literal operands / all-occurrence `replaceAll`
-with static patterns and static or runtime replacement strings / simple
-`matches` with static or runtime patterns / UTF-8 `reverse` /
+with static or runtime pattern and replacement strings / simple `matches` with
+static or runtime patterns / UTF-8 `reverse` /
 `startsWith` / `endsWith` / method-style `contains` / `indexOf` /
 `lastIndexOf`, while direct print streaming handles arbitrary-size
 runtime output. `FileInput#open` callback

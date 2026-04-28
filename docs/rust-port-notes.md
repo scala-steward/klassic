@@ -88,8 +88,8 @@ the module layout is described in `docs/architecture-rust.md`.
   ASCII `toLowerCase` /
   `toUpperCase`, simple `matches` with static or runtime patterns,
   first-occurrence `replace` with static or runtime literal operands,
-  all-occurrence `replaceAll` with static patterns and static or runtime
-  replacement strings, UTF-8 `reverse`, `startsWith`, `endsWith`, method-style
+  all-occurrence `replaceAll` with static or runtime pattern and replacement
+  strings, UTF-8 `reverse`, `startsWith`, `endsWith`, method-style
   `contains`, and `indexOf` / `lastIndexOf`; `length`,
   `substring`, and `at`
   count UTF-8 code points for valid UTF-8 data, `reverse` preserves UTF-8 code

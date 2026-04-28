@@ -277,7 +277,7 @@ cargo run -- -e "1 + 2"
   ASCII `toLowerCase` / `toUpperCase`,
   simple `matches` with static or runtime patterns, first-occurrence `replace`
   with static or runtime literal operands, all-occurrence `replaceAll` with
-  static patterns and static or runtime replacement strings, UTF-8 `reverse`,
+  static or runtime pattern and replacement strings, UTF-8 `reverse`,
   `startsWith`, `endsWith`, method-style `contains`, `indexOf`, and
   `lastIndexOf` are also supported. Oversized results fail with
   source-located runtime diagnostics. `FileInput#open`
