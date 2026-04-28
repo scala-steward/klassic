@@ -3197,6 +3197,8 @@ val upperLines = runtimeLines.map((line) => toUpperCase(line))
 val foldedLines = foldLeft(runtimeLines)("")((acc, line) => acc + "[" + line + "]")
 val totalChars = foldLeft(runtimeLines)(0)((acc, line) => acc + length(line))
 val longLines = foldLeft(runtimeLines)(0)((acc, line) => if(length(line) > 5) acc + 1 else acc)
+val hasLineB = foldLeft(runtimeLines)(false)((acc, line) => acc || line.contains("line-b"))
+val allLinePrefixed = foldLeft(runtimeLines)(true)((acc, line) => acc && startsWith(line, "line-"))
 val left = "<"
 val right = ">"
 val decorate = (line) => left + line + right
@@ -3213,6 +3215,8 @@ println(upperLines)
 println(foldedLines)
 println(totalChars)
 println(longLines)
+println(hasLineB)
+println(allLinePrefixed)
 println(decoratedLines)
 println(foldedViaAlias)
 println(runtimeDecoratedLines)
@@ -3223,6 +3227,8 @@ assertResult(["LINE-A", "LINE-B"])(upperLines)
 assertResult("[line-a][line-b]")(foldedLines)
 assertResult(12)(totalChars)
 assertResult(2)(longLines)
+assert(hasLineB)
+assert(allLinePrefixed)
 assertResult(["<line-a>", "<line-b>"])(decoratedLines)
 assertResult("<line-a><line-b>")(foldedViaAlias)
 assertResult(["<line-a>", "<line-b>"])(runtimeDecoratedLines)
@@ -3293,7 +3299,7 @@ FileOutput#delete(rewrittenPath)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\nline-0\nline-a\nline-b\n"
+        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\nline-0\nline-a\nline-b\n"
     );
     assert!(run.stderr.is_empty());
 }

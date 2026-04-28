@@ -2858,8 +2858,14 @@ impl NativeCodeGenerator {
 
         #[derive(Clone, Copy)]
         enum RuntimeLineFoldAccumulator {
-            Int { value: DataLabel },
-            String { data: DataLabel, len: DataLabel },
+            Scalar {
+                value: DataLabel,
+                value_kind: NativeValue,
+            },
+            String {
+                data: DataLabel,
+                len: DataLabel,
+            },
         }
 
         const RUNTIME_STRING_CAP: usize = 65_536;
@@ -2868,16 +2874,19 @@ impl NativeCodeGenerator {
         let cursor = self.asm.data_label_with_i64s(&[0]);
 
         let initial = self.compile_expr(initial)?;
-        let accumulator = if initial == NativeValue::Int {
+        let accumulator = if matches!(initial, NativeValue::Int | NativeValue::Bool) {
             let value = self.asm.data_label_with_i64s(&[0]);
             self.asm.mov_data_addr(Reg::R10, value);
             self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
-            RuntimeLineFoldAccumulator::Int { value }
+            RuntimeLineFoldAccumulator::Scalar {
+                value,
+                value_kind: initial,
+            }
         } else {
             let Some(initial) = self.native_string_ref(initial) else {
                 return Err(unsupported(
                     span,
-                    "native foldLeft over runtime lines for non-string or non-Int initial value",
+                    "native foldLeft over runtime lines for non-string, non-Int, or non-Bool initial value",
                 ));
             };
             let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
@@ -2965,10 +2974,10 @@ impl NativeCodeGenerator {
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&reducer);
             match accumulator {
-                RuntimeLineFoldAccumulator::Int { value } => {
+                RuntimeLineFoldAccumulator::Scalar { value, value_kind } => {
                     self.asm.mov_data_addr(Reg::Rax, value);
                     self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
-                    let slot = self.allocate_slot(acc_param.clone(), NativeValue::Int);
+                    let slot = self.allocate_slot(acc_param.clone(), value_kind);
                     self.asm.store_rbp_slot(slot.offset, Reg::Rax);
                 }
                 RuntimeLineFoldAccumulator::String { data, len } => {
@@ -2987,11 +2996,11 @@ impl NativeCodeGenerator {
             self.dynamic_control_depth -= 1;
             let next_acc = next_acc?;
             match accumulator {
-                RuntimeLineFoldAccumulator::Int { value } => {
-                    if next_acc != NativeValue::Int {
+                RuntimeLineFoldAccumulator::Scalar { value, value_kind } => {
+                    if next_acc != value_kind {
                         return Err(unsupported(
                             span,
-                            "native foldLeft over runtime lines for non-Int reducer result",
+                            "native foldLeft over runtime lines for reducer result with different scalar type",
                         ));
                     }
                     self.asm.mov_data_addr(Reg::R10, value);
@@ -3017,10 +3026,10 @@ impl NativeCodeGenerator {
 
             self.asm.bind_text_label(done);
             match accumulator {
-                RuntimeLineFoldAccumulator::Int { value } => {
+                RuntimeLineFoldAccumulator::Scalar { value, value_kind } => {
                     self.asm.mov_data_addr(Reg::Rax, value);
                     self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
-                    Ok(NativeValue::Int)
+                    Ok(value_kind)
                 }
                 RuntimeLineFoldAccumulator::String { data, len } => {
                     Ok(NativeValue::RuntimeString { data, len })
