@@ -5949,7 +5949,7 @@ impl NativeCodeGenerator {
         let (_, first) = candidates.first()?;
         if candidates
             .iter()
-            .all(|(_, value)| self.static_value_equal_user(first, value))
+            .all(|(_, value)| self.static_value_equal(first, value))
         {
             Some(first.clone())
         } else {

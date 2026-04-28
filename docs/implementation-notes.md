@@ -305,9 +305,9 @@ Effectful query expressions that compile back to static values after preserving
 their effects are also compared through the static collection membership path.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
-all booleans, all `null`, all `()`, or the same static value; runtime misses
-fail with a source-located native diagnostic because the native path still has
-no dynamic tagged `null` value. If the
+all booleans, all `null`, all `()`, or equivalent static values, including the
+same callable value; runtime misses fail with a source-located native diagnostic
+because the native path still has no dynamic tagged `null` value. If the
 compatible entries are all callable values, immediate calls through that lookup
 dispatch to the selected lambda or builtin branch and merge the same supported
 native return shapes. Static
