@@ -391,6 +391,7 @@ enum NativeValue {
     StaticSet { label: SetLabel },
     StaticLambda { label: LambdaLabel },
     BuiltinFunction { label: BuiltinLabel },
+    RuntimeMapCallableDispatch(RuntimeMapCallableDispatchLabel),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -490,6 +491,18 @@ struct ConditionalBuiltinDisplay {
     else_label: BuiltinLabel,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RuntimeMapCallableCandidate {
+    key: NativeStringRef,
+    callable: NativeValue,
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeMapCallableDispatch {
+    key: NativeStringRef,
+    candidates: Vec<RuntimeMapCallableCandidate>,
+}
+
 struct NativeCodeGenerator {
     source: SourceFile,
     asm: Assembler,
@@ -528,6 +541,7 @@ struct NativeCodeGenerator {
     static_sets: Vec<StaticSet>,
     static_lambdas: Vec<StaticLambda>,
     conditional_builtin_displays: HashMap<LambdaLabel, ConditionalBuiltinDisplay>,
+    runtime_map_callable_dispatches: Vec<RuntimeMapCallableDispatch>,
     builtin_aliases: Vec<String>,
     module_aliases: HashMap<String, String>,
     virtual_files: HashMap<String, String>,
@@ -599,6 +613,7 @@ impl NativeCodeGenerator {
             static_sets: Vec::new(),
             static_lambdas: Vec::new(),
             conditional_builtin_displays: HashMap::new(),
+            runtime_map_callable_dispatches: Vec::new(),
             builtin_aliases: Vec::new(),
             module_aliases: HashMap::new(),
             virtual_files: HashMap::new(),
@@ -1417,6 +1432,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
                     | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_)
                         if !mutable =>
                     {
                         self.bind_constant(name.clone(), compiled);
@@ -1439,7 +1455,8 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
-                    | NativeValue::BuiltinFunction { .. } => Err(unsupported(
+                    | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_) => Err(unsupported(
                         *span,
                         "native mutable binding for this value type",
                     )),
@@ -2192,6 +2209,16 @@ impl NativeCodeGenerator {
         if self.functions.contains_key(callee_name) {
             return self.compile_function_call_by_name(callee_name, arguments, span);
         }
+        if let Some(slot) = self.lookup_var(callee_name)
+            && matches!(
+                slot.value,
+                NativeValue::StaticLambda { .. }
+                    | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_)
+            )
+        {
+            return self.compile_native_callable_value_call(slot.value, arguments, span);
+        }
         let name = self.builtin_name_for_identifier(callee_name);
         match name.as_str() {
             "println" | "printlnError" => {
@@ -2459,8 +2486,40 @@ impl NativeCodeGenerator {
                 }
                 Err(unsupported(span, "native builtin function value call"))
             }
+            NativeValue::RuntimeMapCallableDispatch(label) => {
+                self.compile_runtime_map_callable_dispatch_call(label, arguments, span)
+            }
             _ => Err(unsupported(span, "native non-identifier call")),
         }
+    }
+
+    fn compile_runtime_map_callable_dispatch_call(
+        &mut self,
+        label: RuntimeMapCallableDispatchLabel,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let dispatch = self
+            .runtime_map_callable_dispatches
+            .get(label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native runtime map callable dispatch"))?;
+        let key = dispatch.key;
+        let candidates = dispatch
+            .candidates
+            .into_iter()
+            .map(|candidate| (candidate.key, candidate.callable))
+            .collect::<Vec<_>>();
+        self.compile_runtime_map_get_callable_dispatch_candidates(
+            candidates,
+            |compiler, entry_key| {
+                compiler.emit_native_string_equality(key, entry_key);
+                compiler.asm.cmp_reg_imm8(Reg::Rax, 0);
+                Condition::NotEqual
+            },
+            arguments,
+            span,
+        )
     }
 
     fn compile_function_call_by_name(
@@ -2856,6 +2915,7 @@ impl NativeCodeGenerator {
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
+            | NativeValue::RuntimeMapCallableDispatch(_)
             | NativeValue::Null
             | NativeValue::Unit => {
                 let actual = self.compile_expr(&actual_arguments[0])?;
@@ -3044,7 +3104,8 @@ impl NativeCodeGenerator {
                 | NativeValue::StaticMap { .. }
                 | NativeValue::StaticSet { .. }
                 | NativeValue::StaticLambda { .. }
-                | NativeValue::BuiltinFunction { .. } => {
+                | NativeValue::BuiltinFunction { .. }
+                | NativeValue::RuntimeMapCallableDispatch(_) => {
                     self.bind_constant(param.clone(), value);
                 }
             }
@@ -3135,7 +3196,8 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
-                    | NativeValue::BuiltinFunction { .. } => {
+                    | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_) => {
                         self.bind_constant(param.clone(), value);
                     }
                 }
@@ -5119,7 +5181,8 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
-                    | NativeValue::BuiltinFunction { .. } => {
+                    | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_) => {
                         self.bind_constant(param.clone(), value);
                     }
                 }
@@ -5446,6 +5509,11 @@ impl NativeCodeGenerator {
         if key_preview.is_none() {
             let key = self.compile_expr(&key_arguments[0])?;
             if let Some(key) = self.native_string_ref(key) {
+                if let Some(value) =
+                    self.compile_static_map_get_runtime_string_callable_value(&entries, key)
+                {
+                    return Ok(value);
+                }
                 return self.compile_static_map_get_runtime_string_key(entries, key, span);
             }
             if matches!(key, NativeValue::Int | NativeValue::Bool) {
@@ -5464,6 +5532,39 @@ impl NativeCodeGenerator {
             .map(|(_, value)| value.clone())
             .unwrap_or(StaticValue::Null);
         Ok(self.emit_static_value(&value))
+    }
+
+    fn compile_static_map_get_runtime_string_callable_value(
+        &mut self,
+        entries: &[(StaticValue, StaticValue)],
+        key: NativeStringRef,
+    ) -> Option<NativeValue> {
+        let mut candidates = Vec::new();
+        let mut values = Vec::new();
+        for (entry_key, value) in entries {
+            let Some(entry_key) = self.static_value_string_ref(entry_key) else {
+                continue;
+            };
+            let callable = Self::static_callable_native_value(value)?;
+            values.push(value);
+            candidates.push(RuntimeMapCallableCandidate {
+                key: entry_key,
+                callable,
+            });
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        if let Some(first) = values.first()
+            && values
+                .iter()
+                .all(|value| self.static_value_equal(first, value))
+        {
+            return None;
+        }
+        let label = self
+            .intern_runtime_map_callable_dispatch(RuntimeMapCallableDispatch { key, candidates });
+        Some(NativeValue::RuntimeMapCallableDispatch(label))
     }
 
     fn compile_static_map_get_runtime_string_key(
@@ -9185,7 +9286,8 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
-                    | NativeValue::BuiltinFunction { .. } => {
+                    | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_) => {
                         self.bind_constant(param.clone(), value);
                     }
                 }
@@ -10275,7 +10377,8 @@ impl NativeCodeGenerator {
             NativeValue::Int
             | NativeValue::Bool
             | NativeValue::RuntimeString { .. }
-            | NativeValue::RuntimeLinesList { .. } => None,
+            | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeMapCallableDispatch(_) => None,
         }
     }
 
@@ -10966,6 +11069,15 @@ impl NativeCodeGenerator {
         label
     }
 
+    fn intern_runtime_map_callable_dispatch(
+        &mut self,
+        dispatch: RuntimeMapCallableDispatch,
+    ) -> RuntimeMapCallableDispatchLabel {
+        let label = RuntimeMapCallableDispatchLabel(self.runtime_map_callable_dispatches.len());
+        self.runtime_map_callable_dispatches.push(dispatch);
+        label
+    }
+
     fn static_lambda_value_for_function_name(&mut self, name: &str) -> Option<StaticValue> {
         let function = self.functions.get(name)?.clone();
         let label = self.intern_static_lambda(
@@ -11138,6 +11250,14 @@ impl NativeCodeGenerator {
                     .iter()
                     .any(|value| self.static_value_captures_current_scope(value))
             }),
+            NativeValue::RuntimeMapCallableDispatch(label) => self
+                .runtime_map_callable_dispatches
+                .get(label.0)
+                .is_some_and(|dispatch| {
+                    dispatch.candidates.iter().any(|candidate| {
+                        self.native_value_captures_current_scope(candidate.callable)
+                    })
+                }),
             NativeValue::Int
             | NativeValue::Bool
             | NativeValue::Null
@@ -11584,8 +11704,12 @@ impl NativeCodeGenerator {
                 NativeValue::StaticSet { label: actual },
             ) => Some(self.static_sets_equal_user(expected, actual)),
             (
-                NativeValue::StaticLambda { .. } | NativeValue::BuiltinFunction { .. },
-                NativeValue::StaticLambda { .. } | NativeValue::BuiltinFunction { .. },
+                NativeValue::StaticLambda { .. }
+                | NativeValue::BuiltinFunction { .. }
+                | NativeValue::RuntimeMapCallableDispatch(_),
+                NativeValue::StaticLambda { .. }
+                | NativeValue::BuiltinFunction { .. }
+                | NativeValue::RuntimeMapCallableDispatch(_),
             ) => Some(false),
             (
                 NativeValue::StaticFloat { bits: expected },
@@ -13713,7 +13837,8 @@ impl NativeCodeGenerator {
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
-            | NativeValue::BuiltinFunction { .. } => {
+            | NativeValue::BuiltinFunction { .. }
+            | NativeValue::RuntimeMapCallableDispatch(_) => {
                 self.bind_constant(binding.to_string(), value);
             }
         }
@@ -14157,6 +14282,9 @@ impl NativeCodeGenerator {
             }
             NativeValue::BuiltinFunction { label } => {
                 self.emit_print_builtin_function_display(fd, label);
+            }
+            NativeValue::RuntimeMapCallableDispatch(_) => {
+                self.emit_print_function_display(fd);
             }
         }
     }
@@ -17825,7 +17953,8 @@ impl NativeCodeGenerator {
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
-            | NativeValue::BuiltinFunction { .. } => {
+            | NativeValue::BuiltinFunction { .. }
+            | NativeValue::RuntimeMapCallableDispatch(_) => {
                 self.bind_constant(name, native);
             }
         }
@@ -19333,6 +19462,9 @@ struct LambdaLabel(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct BuiltinLabel(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct RuntimeMapCallableDispatchLabel(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RelocKind {

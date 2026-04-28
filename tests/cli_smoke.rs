@@ -1225,6 +1225,8 @@ println(Map#get(stringFns, runtimeStringKey)(text, length(text) - 1))
 println(stringFns.get(runtimeStringKey)("xy", 1))
 println(join(Map#get(lineFns, runtimeLineKey)(lines, 2), "|"))
 println(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
+val pickedBuiltin = Map#get(builtinFns, runtimeBuiltinKey)
+println(pickedBuiltin("AbC"))
 val pickedSameBuiltin = Map#get(sameBuiltinFns, runtimeBuiltinKey)
 println(pickedSameBuiltin)
 println(pickedSameBuiltin("AbC"))
@@ -1239,6 +1241,7 @@ assertResult("cba")(Map#get(stringFns, runtimeStringKey)(text, length(text) - 1)
 assertResult("yx")(stringFns.get(runtimeStringKey)("xy", 1))
 assertResult(["a", "b", "c"])(Map#get(lineFns, runtimeLineKey)(lines, 2))
 assertResult("ABC")(Map#get(builtinFns, runtimeBuiltinKey)("AbC"))
+assertResult("ABC")(pickedBuiltin("AbC"))
 assertResult("ABC")(pickedSameBuiltin("AbC"))
 assertResult(["a", "b", "c"])(Map#get(lineGroups, runtimeLineKey))
 assert(lineGroups.containsValue(Map#get(lineGroups, runtimeLineKey)))
@@ -1291,7 +1294,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\nABC\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }

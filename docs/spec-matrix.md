@@ -77,7 +77,8 @@ The repository contains a Rust-native language implementation with:
   runtime string/int/bool `Map#get` / `.get` keys for static maps with uniform
   string, string-list, int, boolean, `null`, or `()` compatible values and
   equivalent static value compatible entries including callables, immediate
-  runtime-key dispatch through static callable maps, runtime line-list
+  runtime-key dispatch through static callable maps plus immutable runtime
+  string-key callable map lookup bindings, runtime line-list
   membership against static string-list entries, static membership for
   effectful queries that settle back to static values, incompatible-key static
   `null` and all-null compatible runtime map lookups, preserving those runtime
