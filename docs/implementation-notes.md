@@ -153,6 +153,9 @@ block/function-local mutable closure state is shared across later calls.
 Fixed-buffer runtime string and line-list captures are treated as runtime
 captures even when their binding is stored as a constant data label, so closures
 that observe later assignments are inlined instead of being statically folded.
+Native variable slots also carry a binding identity, letting lambda rebinding
+reuse a later value of the same mutable binding without confusing it with an
+inner shadowing declaration of the same name.
 Unannotated functions whose return value is a runtime-capturing lambda are
 therefore compiled by inlining at the call site instead of forcing an integer
 return ABI. Returned static aggregates are inspected recursively too, which

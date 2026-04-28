@@ -493,6 +493,7 @@ struct NativeCodeGenerator {
     static_scopes: Vec<HashMap<String, StaticValue>>,
     scope_base_offsets: Vec<i32>,
     next_stack_offset: i32,
+    next_var_slot_id: usize,
     functions: HashMap<String, NativeFunction>,
     function_order: Vec<String>,
     referenced_functions: HashSet<String>,
@@ -563,6 +564,7 @@ impl NativeCodeGenerator {
             static_scopes: vec![HashMap::new()],
             scope_base_offsets: vec![0],
             next_stack_offset: 0,
+            next_var_slot_id: 0,
             functions: HashMap::new(),
             function_order: Vec::new(),
             referenced_functions: HashSet::new(),
@@ -8186,7 +8188,17 @@ impl NativeCodeGenerator {
         arguments: &[Expr],
     ) -> Option<StaticValue> {
         match callee {
-            Expr::Identifier { name, .. } => self.static_call_value_by_name(name, arguments),
+            Expr::Identifier { name, .. } => {
+                if let Some(StaticValue::StaticLambda { label }) = self.lookup_static_value(name)
+                    && self
+                        .static_lambdas
+                        .get(label.0)
+                        .is_some_and(|lambda| self.lambda_uses_runtime_captures(lambda))
+                {
+                    return None;
+                }
+                self.static_call_value_by_name(name, arguments)
+            }
             Expr::Call {
                 callee,
                 arguments: initial_arguments,
@@ -8534,7 +8546,10 @@ impl NativeCodeGenerator {
             for (param, value) in params.iter().zip(arguments) {
                 self.bind_static_runtime_value(param.clone(), value);
             }
-            self.compile_expr(body)?;
+            let native_result = self.compile_expr(body)?;
+            if let Some(value) = self.static_value_from_native(native_result) {
+                return Ok(value);
+            }
             self.static_result_after_effectful_eval(body, &bindings)
                 .ok_or_else(|| unsupported(span, feature))
         })();
@@ -10313,7 +10328,11 @@ impl NativeCodeGenerator {
 
     fn bind_static_lambda_runtime_captures(&mut self, lambda: &StaticLambda) {
         for (name, slot) in &lambda.runtime_captures {
-            self.bind_existing_slot(name.clone(), *slot);
+            let slot = self
+                .lookup_var(name)
+                .filter(|current| current.id == slot.id)
+                .unwrap_or(*slot);
+            self.bind_existing_slot(name.clone(), slot);
         }
     }
 
@@ -10348,15 +10367,8 @@ impl NativeCodeGenerator {
     fn lambda_uses_runtime_captures(&self, lambda: &StaticLambda) -> bool {
         let mut names = lambda
             .runtime_captures
-            .iter()
-            .filter(|(_, slot)| {
-                slot.offset > 0
-                    || matches!(
-                        slot.value,
-                        NativeValue::RuntimeString { .. } | NativeValue::RuntimeLinesList { .. }
-                    )
-            })
-            .map(|(name, _)| name.clone())
+            .keys()
+            .cloned()
             .collect::<HashSet<_>>();
         for param in &lambda.params {
             names.remove(param);
@@ -10365,10 +10377,7 @@ impl NativeCodeGenerator {
     }
 
     fn static_capture_shadowed_by_runtime(&self, lambda: &StaticLambda, name: &str) -> bool {
-        lambda
-            .runtime_captures
-            .get(name)
-            .is_some_and(|slot| slot.offset > 0)
+        lambda.runtime_captures.contains_key(name)
     }
 
     fn queued_threads_capture_current_scope(&self) -> bool {
@@ -11262,7 +11271,23 @@ impl NativeCodeGenerator {
             .keys()
             .chain(actual.runtime_captures.keys())
             .filter(|name| self.static_lambda_references_name(expected, name))
-            .all(|name| expected.runtime_captures.get(name) == actual.runtime_captures.get(name))
+            .all(|name| {
+                let Some(expected) = expected.runtime_captures.get(name) else {
+                    return false;
+                };
+                let Some(actual) = actual.runtime_captures.get(name) else {
+                    return false;
+                };
+                self.var_slots_equivalent_for_merge(*expected, *actual)
+            })
+    }
+
+    fn var_slots_equivalent_for_merge(&self, lhs: VarSlot, rhs: VarSlot) -> bool {
+        lhs.offset == rhs.offset
+            && (lhs.value == rhs.value
+                || self
+                    .static_values_equal(lhs.value, rhs.value)
+                    .unwrap_or(false))
     }
 
     fn static_lambda_static_captures_equal(
@@ -12688,12 +12713,32 @@ impl NativeCodeGenerator {
 
     fn queued_thread_equal(&self, lhs: &QueuedThread, rhs: &QueuedThread) -> bool {
         expr_shape_equal(&lhs.body, &rhs.body)
-            && lhs.runtime_captures == rhs.runtime_captures
+            && self.queued_thread_runtime_captures_equal(lhs, rhs)
             && lhs.captures.len() == rhs.captures.len()
             && lhs.captures.iter().all(|(name, lhs_value)| {
                 rhs.captures
                     .get(name)
                     .is_some_and(|rhs_value| self.static_value_equal(lhs_value, rhs_value))
+            })
+    }
+
+    fn queued_thread_runtime_captures_equal(&self, lhs: &QueuedThread, rhs: &QueuedThread) -> bool {
+        lhs.runtime_captures
+            .keys()
+            .chain(rhs.runtime_captures.keys())
+            .filter(|name| {
+                let mut names = HashSet::new();
+                names.insert((*name).clone());
+                expr_references_any_name(&lhs.body, &names)
+            })
+            .all(|name| {
+                let Some(lhs) = lhs.runtime_captures.get(name) else {
+                    return false;
+                };
+                let Some(rhs) = rhs.runtime_captures.get(name) else {
+                    return false;
+                };
+                self.var_slots_equivalent_for_merge(*lhs, *rhs)
             })
     }
 
@@ -17018,6 +17063,7 @@ impl NativeCodeGenerator {
         self.next_stack_offset += 8;
         self.asm.sub_reg_imm8(Reg::Rsp, 8);
         let slot = VarSlot {
+            id: self.fresh_var_slot_id(),
             offset: self.next_stack_offset,
             value,
         };
@@ -17029,7 +17075,11 @@ impl NativeCodeGenerator {
     }
 
     fn bind_constant(&mut self, name: String, value: NativeValue) -> VarSlot {
-        let slot = VarSlot { offset: 0, value };
+        let slot = VarSlot {
+            id: self.fresh_var_slot_id(),
+            offset: 0,
+            value,
+        };
         if let Some(value) = self.static_value_from_native(value) {
             self.bind_static_value(name.clone(), value);
         }
@@ -17038,6 +17088,12 @@ impl NativeCodeGenerator {
             .expect("native compiler always has a scope")
             .insert(name, slot);
         slot
+    }
+
+    fn fresh_var_slot_id(&mut self) -> usize {
+        let id = self.next_var_slot_id;
+        self.next_var_slot_id += 1;
+        id
     }
 
     fn bind_existing_slot(&mut self, name: String, slot: VarSlot) {
@@ -17132,6 +17188,7 @@ impl NativeCodeGenerator {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct VarSlot {
+    id: usize,
     offset: i32,
     value: NativeValue,
 }
