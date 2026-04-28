@@ -400,9 +400,11 @@ unqualified, aliased-helper, and generated-function native calls.
 `exit` syscall, giving native CLI tools explicit success/failure statuses.
 `StandardInput#all()` / `stdin()` read stdin into fixed-buffer runtime strings,
 while `StandardInput#lines()` / `stdinLines()` expose stdin through the same
-runtime line-list representation used by file input and argv helpers.
+runtime line-list representation used by file input and argv helpers, including
+immutable helper aliases.
 `Environment#vars()` / `env()` walk the saved process envp table and expose
-`KEY=VALUE` runtime line-list entries to generated native programs.
+`KEY=VALUE` runtime line-list entries to generated native programs through
+direct calls or immutable helper aliases.
 `Environment#get(name)` / `getEnv(name)` and `Environment#exists(name)` /
 `hasEnv(name)` scan that table for direct lookup and existence checks with
 static or runtime string keys.

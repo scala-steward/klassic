@@ -4604,7 +4604,7 @@ fn builds_native_executable_for_command_line_args() {
     let output_path = std::env::temp_dir().join(format!("klassic-native-args-{unique}"));
     fs::write(
         &source_path,
-        "def captured() = CommandLine#args()\nval getArgs = CommandLine#args\nval xs = getArgs()\nval ys = captured()\nval zs = args()\nprintln(xs)\nprintln(ys)\nprintln(zs)\nprintln(size(xs))\nprintln(head(xs))\nprintln(join(xs, \"|\"))\nassertResult([\"alpha\", \"two words\", \"gamma\"])(xs)\nassertResult(xs)(ys)\nassertResult(xs)(zs)\nassertResult(3)(size(ys))\n",
+        "def captured() = CommandLine#args()\nval getArgs = CommandLine#args\nval argsAlias = args\nval xs = getArgs()\nval ys = captured()\nval zs = args()\nval ws = argsAlias()\nprintln(xs)\nprintln(ys)\nprintln(zs)\nprintln(ws)\nprintln(size(xs))\nprintln(head(xs))\nprintln(join(xs, \"|\"))\nassertResult([\"alpha\", \"two words\", \"gamma\"])(xs)\nassertResult(xs)(ys)\nassertResult(xs)(zs)\nassertResult(xs)(ws)\nassertResult(3)(size(ys))\n",
     )
     .expect("source should write");
 
@@ -4643,7 +4643,7 @@ fn builds_native_executable_for_command_line_args() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[alpha, two words, gamma]\n[alpha, two words, gamma]\n[alpha, two words, gamma]\n3\nalpha\nalpha|two words|gamma\n"
+        "[alpha, two words, gamma]\n[alpha, two words, gamma]\n[alpha, two words, gamma]\n[alpha, two words, gamma]\n3\nalpha\nalpha|two words|gamma\n"
     );
     assert!(run.stderr.is_empty());
 }
@@ -4773,7 +4773,7 @@ fn builds_native_executable_for_standard_input_lines() {
     let output_path = std::env::temp_dir().join(format!("klassic-native-stdin-lines-{unique}"));
     fs::write(
         &source_path,
-        "val lines = stdinLines()\nprintln(lines)\nprintln(join(lines, \"|\"))\nassertResult([\"alpha\", \"beta\"])(lines)\n",
+        "val readLines = StandardInput#lines\nval lines = readLines()\nval trimmed = map(lines)(trim)\nprintln(lines)\nprintln(trimmed)\nprintln(join(lines, \"|\"))\nassertResult([\" alpha \", \" beta \"])(lines)\nassertResult([\"alpha\", \"beta\"])(trimmed)\n",
     )
     .expect("source should write");
 
@@ -4806,7 +4806,7 @@ fn builds_native_executable_for_standard_input_lines() {
     {
         let mut stdin = child.stdin.take().expect("stdin should be piped");
         stdin
-            .write_all(b"alpha\nbeta\n")
+            .write_all(b" alpha \n beta \n")
             .expect("stdin should accept input");
     }
 
@@ -4825,7 +4825,7 @@ fn builds_native_executable_for_standard_input_lines() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[alpha, beta]\nalpha|beta\n"
+        "[ alpha ,  beta ]\n[alpha, beta]\n alpha | beta \n"
     );
     assert!(run.stderr.is_empty());
 }
@@ -4841,7 +4841,7 @@ fn builds_native_executable_for_environment_vars() {
     let output_path = std::env::temp_dir().join(format!("klassic-native-env-vars-{unique}"));
     fs::write(
         &source_path,
-        "val vars = Environment#vars()\nmutable found = false\nforeach(entry in vars) {\n  if(entry == \"KLASSIC_NATIVE_ENV_TEST=alpha\") {\n    found = true\n  }\n}\nprintln(found)\nassert(found)\n",
+        "def capturedEnv() = env()\nval getVars = Environment#vars\nval envAlias = env\nval vars = getVars()\nval aliasVars = envAlias()\nval captured = capturedEnv()\nmutable found = false\nforeach(entry in aliasVars) {\n  if(entry == \"KLASSIC_NATIVE_ENV_TEST=alpha\") {\n    found = true\n  }\n}\nprintln(found)\nprintln(vars == aliasVars)\nassert(found)\nassertResult(vars)(aliasVars)\nassertResult(vars)(captured)\n",
     )
     .expect("source should write");
 
@@ -4878,7 +4878,7 @@ fn builds_native_executable_for_environment_vars() {
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n");
     assert!(run.stderr.is_empty());
 }
 

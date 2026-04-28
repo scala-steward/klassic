@@ -292,12 +292,13 @@ direct, unqualified, aliased-helper, and function-local native calls.
 argument, so generated native CLI tools can return explicit status codes.
 `StandardInput#all()` / `stdin()` read stdin into a fixed-buffer runtime string,
 and `StandardInput#lines()` / `stdinLines()` expose stdin as the same runtime
-line-list representation used by native file and argv helpers.
+line-list representation used by native file and argv helpers; both direct
+calls and immutable helper aliases are supported.
 `Environment#vars()` / `env()` return the generated executable's environment as
-`KEY=VALUE` runtime line-list entries. `Environment#get(name)` / `getEnv(name)`
-read a single variable value using static or runtime string keys, while
-`Environment#exists(name)` / `hasEnv(name)` checks for one without failing when
-it is absent.
+`KEY=VALUE` runtime line-list entries through direct calls or immutable helper
+aliases. `Environment#get(name)` / `getEnv(name)` read a single variable value
+using static or runtime string keys, while `Environment#exists(name)` /
+`hasEnv(name)` checks for one without failing when it is absent.
 `println(FileInput#all(path))` / `println(FileInput#readAll(path))` streams
 runtime file content without requiring the file to exist during native build.
 Immutable runtime `FileInput#all(path)` / `readAll(path)` bindings can also be
