@@ -201,7 +201,8 @@ cargo run -- -e "1 + 2"
   Runtime string/int/bool-key lookups over all-callable static maps can also be
   stored in immutable values, called later, and formatted through printing,
   interpolation, string concatenation, or `toString` with the same branch
-  dispatch.
+  dispatch; equality involving these function values keeps the evaluator's
+  always-false function comparison semantics.
   Lambdas also remember the native stack slots for captured runtime bindings;
   when a block, inline lambda, or call-site inlined function returns such a
   lambda, the captured slots are kept alive so block/function-local mutable

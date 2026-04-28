@@ -1785,6 +1785,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
                     | NativeValue::BuiltinFunction { .. }
+                    | NativeValue::RuntimeMapCallableDispatch(_)
             )
         {
             let rhs_value = self.compile_expr(rhs)?;
@@ -11955,6 +11956,10 @@ impl NativeCodeGenerator {
                 NativeValue::StaticLambda { .. }
                 | NativeValue::BuiltinFunction { .. }
                 | NativeValue::RuntimeMapCallableDispatch(_),
+                _,
+            )
+            | (
+                _,
                 NativeValue::StaticLambda { .. }
                 | NativeValue::BuiltinFunction { .. }
                 | NativeValue::RuntimeMapCallableDispatch(_),

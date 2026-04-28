@@ -137,7 +137,8 @@ the module layout is described in `docs/architecture-rust.md`.
   Runtime string/int/bool-key lookup results from all-callable static maps can
   also be bound to immutable values, called later, and formatted with the
   selected callable display through printing, interpolation, string
-  concatenation, and `toString`.
+  concatenation, and `toString`; equality involving those function values keeps
+  the evaluator's always-false function comparison semantics.
 - Block, cleanup, and same-runtime-return conditional callees retain those
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so

@@ -79,7 +79,8 @@ The repository contains a Rust-native language implementation with:
   equivalent static value compatible entries including callables, immediate
   runtime-key dispatch through static callable maps plus immutable runtime
   string/int/bool-key callable map lookup bindings with selected callable
-  display printing/interpolation/string concatenation/`toString`, runtime line-list
+  display printing/interpolation/string concatenation/`toString` and evaluator-style
+  false function equality, runtime line-list
   membership against static string-list entries, static membership for
   effectful queries that settle back to static values, incompatible-key static
   `null` and all-null compatible runtime map lookups, preserving those runtime

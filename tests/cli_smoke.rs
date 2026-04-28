@@ -1256,6 +1256,9 @@ val pickedCapturedFn = Map#get(capturedFns, runtimeCapturedFnKey)
 println("captured=#{{pickedCapturedFn}}")
 println("captured=" + pickedCapturedFn)
 println(toString(pickedCapturedFn))
+println(pickedBuiltin == pickedBuiltin)
+println(pickedBuiltin != pickedCapturedFn)
+println(pickedBuiltin == "not-a-function")
 println(pickedCapturedFn(10))
 val pickedSameBuiltin = Map#get(sameBuiltinFns, runtimeBuiltinKey)
 println(pickedSameBuiltin)
@@ -1281,6 +1284,9 @@ assertResult("ABC")(pickedFlagBuiltin("AbC"))
 assertResult(42)(pickedIntFn(40))
 assertResult("<function>")(toString(pickedCapturedFn))
 assertResult("captured=<function>")("captured=" + pickedCapturedFn)
+assert(!(pickedBuiltin == pickedBuiltin))
+assert(pickedBuiltin != pickedCapturedFn)
+assert(!(pickedBuiltin == "not-a-function"))
 assertResult(17)(pickedCapturedFn(10))
 assertResult("ABC")(pickedSameBuiltin("AbC"))
 assertResult(["a", "b", "c"])(Map#get(lineGroups, runtimeLineKey))
@@ -1336,7 +1342,7 @@ assert(staticLineOptions.contains(Map#get(lineGroups, runtimeLineKey)))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\npicked=<builtin:toUpperCase>\npicked=<builtin:toUpperCase>\n<builtin:toUpperCase>\nmissing=null\nmissing=null\nnull\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n42\ncaptured=<function>\ncaptured=<function>\n<function>\n17\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
+        "cbayx\na|b|c\ncbayx\na|b|c\ncba\nyx\na|b|c\nABC\n<builtin:toUpperCase>\npicked=<builtin:toUpperCase>\npicked=<builtin:toUpperCase>\n<builtin:toUpperCase>\nmissing=null\nmissing=null\nnull\nABC\n<builtin:toUpperCase>\nABC\n<builtin:toUpperCase>\nABC\n42\ncaptured=<function>\ncaptured=<function>\n<function>\nfalse\ntrue\nfalse\n17\n<builtin:toUpperCase>\nABC\na|b|c\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }

@@ -106,7 +106,9 @@ preserve the runtime return metadata, so aliased calls can still participate in
 string concatenation and line-list helpers.
 Runtime string/int/bool-key lookups over static callable maps can be bound to
 immutable values, called later, and formatted with the selected callable display
-through printing, interpolation, string concatenation, or `toString`.
+through printing, interpolation, string concatenation, or `toString`; equality
+involving those function values follows the evaluator's always-false function
+comparison semantics.
 Block, cleanup, and same-runtime-return conditional callees preserve the same
 metadata for immediate calls.
 Immediate calls on conditional function values lower to branch-local calls, so

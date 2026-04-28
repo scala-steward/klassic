@@ -315,7 +315,8 @@ dispatch to the selected lambda or builtin branch and merge the same supported
 native return shapes; runtime string/int/bool-key lookups can also be bound to
 immutable values, called later, and formatted through printing, interpolation,
 string concatenation, or `toString` with the selected callable display through
-the same dispatch path. Static
+the same dispatch path; equality involving those function values follows the
+evaluator's always-false function comparison semantics. Static
 `null` is supported for printing, equality, and `Map#get` misses; `()` is
 supported for printing, static string concatenation, equality, and
 `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
