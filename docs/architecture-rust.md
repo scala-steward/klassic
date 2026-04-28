@@ -295,7 +295,7 @@ cargo run -- -e "1 + 2"
   string `split` plus static string-list `join` accept runtime string
   delimiters through the same runtime string buffer path. Static
   first-occurrence `replace` can also use runtime string pattern and replacement
-  operands.
+  operands, and static `repeat` accepts runtime integer counts.
   `StandardInput#all()` / `stdin()` read stdin into a fixed-buffer runtime
   string, and `StandardInput#lines()` / `stdinLines()` expose stdin through the
   runtime line-list representation shared with file and argv helpers. Static

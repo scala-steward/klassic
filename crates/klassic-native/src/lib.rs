@@ -3661,6 +3661,20 @@ impl NativeCodeGenerator {
                 }
                 let input =
                     self.static_string_from_argument_preserving_effects(&arguments[0], span, name)?;
+                if !matches!(
+                    self.preview_static_value_after_effectful_eval(&arguments[1]),
+                    Some(StaticValue::Int(_))
+                ) {
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    let count = self.compile_expr(&arguments[1])?;
+                    if count != NativeValue::Int {
+                        return Err(unsupported(span, "native repeat for non-integer count"));
+                    }
+                    return Ok(self.emit_runtime_string_repeat_dynamic_count(input, span));
+                }
                 let count = self.static_non_negative_int_argument_preserving_effects(
                     &arguments[1],
                     name,

@@ -154,7 +154,7 @@ can be bound with `val`; static string helper calls such as `substring`, `split`
 come from mutable or otherwise dynamic integer values, and static string
 `split` plus static string-list `join` can use runtime string delimiters.
 Static first-occurrence `replace` can also use runtime string pattern and
-replacement operands.
+replacement operands, and static `repeat` accepts runtime integer counts.
 Static string helper functions can also be bound through immutable aliases such
 as `val sub = substring` and called through that alias in native builds.
 Runtime `FileInput#all` / `FileInput#readAll` bindings support the same fixed

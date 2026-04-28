@@ -1486,6 +1486,72 @@ assertResult("left_right-left")(method)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_repeat_runtime_count() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let count_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-repeat-count-{unique}.txt"));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-repeat-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-runtime-repeat-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val count = length(FileInput#all("{}"))
+val direct = repeat("ha", count)
+val method = "ho".repeat(count)
+println(direct)
+println(method)
+assertResult("hahaha")(direct)
+assertResult("hohoho")(method)
+"#,
+            count_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime repeat count build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&count_path, "xxx").expect("count source should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&count_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime repeat count run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "hahaha\nhohoho\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_builtin_function_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

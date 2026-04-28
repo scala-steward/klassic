@@ -110,6 +110,8 @@ the module layout is described in `docs/architecture-rust.md`.
   delimiters by routing through fixed runtime buffers.
 - Static first-occurrence `replace` accepts runtime string pattern/replacement
   operands through the dynamic replacement emitter.
+- Static `repeat` accepts runtime integer counts through the dynamic repeat
+  emitter.
 - Recursive functions that still need call-site inlining are rejected with a
   compile diagnostic instead of recursively inlining until the compiler stack
   overflows.
