@@ -67,9 +67,9 @@ cargo run -- -e "1 + 2"
   curried `assertResult`, `if`, `while`, mutable integer/boolean locals,
   assignment, static integer-list `foreach` unrolling, top-level recursive
   integer functions, static and runtime integer-millisecond `sleep` via Linux `nanosleep`,
-  zero-argument lambda `stopwatch` via Linux `clock_gettime`, annotated
-  boolean-returning / boolean-argument functions, queued `thread` bodies for the
-  current native sample surface, simple unannotated
+  zero-argument literal or lambda-value `stopwatch` via Linux `clock_gettime`, annotated
+  boolean-returning / boolean-argument functions, queued `thread` bodies from
+  literal or lambda-value jobs for the current native sample surface, simple unannotated
   integer/boolean return inference, stack-passed arguments beyond the first six
   integer/boolean native function parameters, and top-level lambda bindings
   lowered as static functions or inlined at call sites when they capture mutable locals.
@@ -169,7 +169,8 @@ cargo run -- -e "1 + 2"
   multiple closures stored in a returned record can share the same captured
   mutable slot. Queued native `thread` bodies carry the same runtime capture
   metadata, allowing block-local mutable state to survive until queued thread
-  bodies are emitted and run. Functions or static lambdas whose bodies queue
+  bodies are emitted and run. `thread` itself can queue zero-argument lambda
+  values as well as literal lambdas. Functions or static lambdas whose bodies queue
   threads directly or through immutable aliases are compiled on the caller's
   effectful path so queued bodies are attached to the current native execution
   stream rather than to the later function-emission pass or a static fold.

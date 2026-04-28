@@ -3735,19 +3735,16 @@ impl NativeCodeGenerator {
                 format!("thread expects 1 argument but got {}", arguments.len()),
             ));
         }
-        let Expr::Lambda { params, body, .. } = &arguments[0] else {
-            return Err(unsupported(span, "native thread for non-lambda argument"));
-        };
-        if !params.is_empty() {
-            return Err(unsupported(
-                span,
-                "native thread for lambda with parameters",
-            ));
-        }
+        let lambda = self.compile_zero_arg_lambda_argument(
+            &arguments[0],
+            span,
+            "native thread for non-lambda argument",
+            "native thread for lambda with parameters",
+        )?;
         let queued_thread = QueuedThread {
-            body: body.as_ref().clone(),
-            captures: self.current_static_captures(),
-            runtime_captures: self.current_runtime_captures(),
+            body: lambda.body,
+            captures: lambda.captures,
+            runtime_captures: lambda.runtime_captures,
         };
         if self.dynamic_control_depth > 0
             && self.mergeable_dynamic_branch_depth == 0
@@ -3783,24 +3780,19 @@ impl NativeCodeGenerator {
                 format!("stopwatch expects 1 argument but got {}", arguments.len()),
             ));
         }
-        let Expr::Lambda { params, body, .. } = &arguments[0] else {
-            return Err(unsupported(
-                span,
-                "native stopwatch for non-lambda argument",
-            ));
-        };
-        if !params.is_empty() {
-            return Err(unsupported(
-                span,
-                "native stopwatch for lambda with parameters",
-            ));
-        }
+        let lambda = self.compile_zero_arg_lambda_argument(
+            &arguments[0],
+            span,
+            "native stopwatch for non-lambda argument",
+            "native stopwatch for lambda with parameters",
+        )?;
 
         let start = self.asm.data_label_with_i64s(&[0, 0]);
         let end = self.asm.data_label_with_i64s(&[0, 0]);
         self.emit_clock_gettime(start);
         self.push_scope();
-        self.compile_expr(body)?;
+        self.bind_static_lambda_captures(&lambda);
+        self.compile_expr(&lambda.body)?;
         if self.queued_threads_capture_current_scope() {
             self.pop_scope_preserving_allocations();
         } else {
@@ -3809,6 +3801,28 @@ impl NativeCodeGenerator {
         self.emit_clock_gettime(end);
         self.emit_elapsed_millis(start, end);
         Ok(NativeValue::Int)
+    }
+
+    fn compile_zero_arg_lambda_argument(
+        &mut self,
+        argument: &Expr,
+        span: Span,
+        non_lambda_feature: &str,
+        arity_feature: &str,
+    ) -> Result<StaticLambda, Diagnostic> {
+        let value = self.compile_expr(argument)?;
+        let NativeValue::StaticLambda { label } = value else {
+            return Err(unsupported(span, non_lambda_feature));
+        };
+        let lambda = self
+            .static_lambdas
+            .get(label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, non_lambda_feature))?;
+        if !lambda.params.is_empty() {
+            return Err(unsupported(span, arity_feature));
+        }
+        Ok(lambda)
     }
 
     fn emit_clock_gettime(&mut self, output: DataLabel) {

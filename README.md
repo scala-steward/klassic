@@ -80,8 +80,8 @@ integer and boolean expressions, string literal printing, `println`,
 `printlnError`, `assert`, curried `assertResult`, `if`, `while`, mutable
 integer/boolean locals, assignment, static integer-list `foreach` unrolling,
 static and runtime integer-millisecond `sleep` via Linux `nanosleep`,
-zero-argument lambda `stopwatch` via Linux `clock_gettime`,
-queued `thread` bodies for the current native sample surface,
+zero-argument literal or lambda-value `stopwatch` via Linux `clock_gettime`,
+queued `thread` bodies from literal or lambda-value jobs for the current native sample surface,
 top-level recursive integer functions, and annotated boolean-returning /
 boolean-argument functions. Obvious unannotated integer/boolean function and
 top-level lambda return values are inferred for native codegen. Native function

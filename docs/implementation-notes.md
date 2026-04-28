@@ -58,8 +58,8 @@ string concatenation that formats dynamic native `Int` / `Boolean` operands,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
 and method-style `parts.size()`, static-millisecond `sleep` through Linux
 and runtime integer-millisecond `sleep` through Linux `nanosleep`,
-zero-argument lambda `stopwatch` through Linux `clock_gettime`,
-queued `thread` bodies for the current native sample surface,
+zero-argument literal or lambda-value `stopwatch` through Linux `clock_gettime`,
+queued `thread` bodies from literal or lambda-value jobs for the current native sample surface,
 Int `abs` / `int` / `floor` / `ceil`, static Double/Float literal printing and
 static numeric helpers such as `double`,
 `sqrt`, `abs`, `floor`, and `ceil`, with Float literals kept at f32 precision
@@ -152,7 +152,8 @@ return ABI. Returned static aggregates are inspected recursively too, which
 allows a record of closures to share the same block-local mutable slot.
 Queued native `thread` bodies use the same capture metadata, so a thread queued
 inside a block can still mutate and observe that block's captured mutable locals
-when the queued body is emitted later. `def` and static lambda bodies that queue
+when the queued body is emitted later. `thread` itself can queue zero-argument
+lambda values as well as literal lambdas. `def` and static lambda bodies that queue
 threads through direct calls or immutable aliases are compiled by call-site
 inlining / effectful lambda execution so their queued work is emitted with the
 caller current execution flow instead of being stranded during later function

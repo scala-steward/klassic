@@ -4316,6 +4316,94 @@ fn builds_native_executable_for_thread_sample() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_thread_and_stopwatch_lambda_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-thread-lambda-value-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-thread-lambda-value-{unique}"));
+    fs::write(
+        &source_path,
+        r#"mutable hits = 0
+val job = () => {
+  hits += 1
+  println("job " + hits)
+}
+val pickedThread = {
+  println("pick thread")
+  () => {
+    hits += 10
+    println("picked " + hits)
+  }
+}
+thread(job)
+thread(pickedThread)
+val measured = () => {
+  hits += 100
+  hits
+}
+val elapsed = stopwatch(measured)
+val pickedElapsed = stopwatch({
+  println("pick stopwatch")
+  () => {
+    hits += 1000
+    hits
+  }
+})
+println(elapsed >= 0)
+println(pickedElapsed >= 0)
+println(hits)
+assert(elapsed >= 0)
+assert(pickedElapsed >= 0)
+assertResult(1100)(hits)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "thread/stopwatch lambda value build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "thread/stopwatch lambda value run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "pick thread\npick stopwatch\ntrue\ntrue\n1100\njob 1101\npicked 1111\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_thread_block_local_mutable_capture() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
