@@ -461,6 +461,13 @@ struct QueuedThread {
     runtime_captures: HashMap<String, VarSlot>,
 }
 
+#[derive(Clone, Debug)]
+struct ConditionalBuiltinDisplay {
+    condition_name: String,
+    then_label: BuiltinLabel,
+    else_label: BuiltinLabel,
+}
+
 struct NativeCodeGenerator {
     source: SourceFile,
     asm: Assembler,
@@ -497,6 +504,7 @@ struct NativeCodeGenerator {
     static_maps: Vec<StaticMap>,
     static_sets: Vec<StaticSet>,
     static_lambdas: Vec<StaticLambda>,
+    conditional_builtin_displays: HashMap<LambdaLabel, ConditionalBuiltinDisplay>,
     builtin_aliases: Vec<String>,
     module_aliases: HashMap<String, String>,
     virtual_files: HashMap<String, String>,
@@ -566,6 +574,7 @@ impl NativeCodeGenerator {
             static_maps: Vec::new(),
             static_sets: Vec::new(),
             static_lambdas: Vec::new(),
+            conditional_builtin_displays: HashMap::new(),
             builtin_aliases: Vec::new(),
             module_aliases: HashMap::new(),
             virtual_files: HashMap::new(),
@@ -887,6 +896,8 @@ impl NativeCodeGenerator {
             name_hint.unwrap_or("value"),
             self.static_lambdas.len()
         );
+        let builtin_display =
+            self.conditional_builtin_display(condition_name.clone(), then_branch, else_branch);
         let condition_slot = self.allocate_slot(condition_name.clone(), NativeValue::Bool);
         self.asm.store_rbp_slot(condition_slot.offset, Reg::Rax);
 
@@ -925,7 +936,52 @@ impl NativeCodeGenerator {
             return_value,
             contains_thread_call,
         );
+        if let Some(display) = builtin_display {
+            self.conditional_builtin_displays.insert(label, display);
+        }
         Ok(Some(NativeValue::StaticLambda { label }))
+    }
+
+    fn conditional_builtin_display(
+        &mut self,
+        condition_name: String,
+        then_branch: &Expr,
+        else_branch: &Expr,
+    ) -> Option<ConditionalBuiltinDisplay> {
+        Some(ConditionalBuiltinDisplay {
+            condition_name,
+            then_label: self.builtin_label_for_conditional_branch(then_branch)?,
+            else_label: self.builtin_label_for_conditional_branch(else_branch)?,
+        })
+    }
+
+    fn builtin_label_for_conditional_branch(&mut self, expr: &Expr) -> Option<BuiltinLabel> {
+        match expr {
+            Expr::Identifier { name, .. } => {
+                if self.functions.contains_key(name) {
+                    return None;
+                }
+                if let Some(StaticValue::BuiltinFunction { label }) = self.lookup_static_value(name)
+                {
+                    return Some(label);
+                }
+                if let Some(slot) = self.lookup_var(name)
+                    && let NativeValue::BuiltinFunction { label } = slot.value
+                {
+                    return Some(label);
+                }
+                let canonical_name = self.canonical_builtin_name(name);
+                Self::is_supported_builtin_alias_target(&canonical_name)
+                    .then(|| self.intern_builtin_alias(canonical_name))
+            }
+            Expr::Block { expressions, .. } if expressions.len() == 1 => expressions
+                .last()
+                .and_then(|expr| self.builtin_label_for_conditional_branch(expr)),
+            _ => match self.static_value_for_return_hint(expr)? {
+                StaticValue::BuiltinFunction { label } => Some(label),
+                _ => None,
+            },
+        }
     }
 
     fn conditional_callable_arity(&self, then_branch: &Expr, else_branch: &Expr) -> Option<usize> {
@@ -12828,19 +12884,52 @@ impl NativeCodeGenerator {
             NativeValue::StaticSet { label } => {
                 self.emit_print_static_set(fd, label);
             }
-            NativeValue::StaticLambda { .. } => {
-                let label = self.asm.data_label_with_bytes(b"<function>");
-                self.emit_write_data(fd, label, "<function>".len());
+            NativeValue::StaticLambda { label } => {
+                if let Some(display) = self.conditional_builtin_displays.get(&label).cloned() {
+                    self.emit_print_conditional_builtin_display(fd, &display);
+                } else {
+                    self.emit_print_function_display(fd);
+                }
             }
             NativeValue::Unit => {
                 self.emit_write_data(fd, self.unit_text, 2);
             }
             NativeValue::BuiltinFunction { label } => {
-                let text = self.builtin_function_display_string(label);
-                let label = self.asm.data_label_with_bytes(text.as_bytes());
-                self.emit_write_data(fd, label, text.len());
+                self.emit_print_builtin_function_display(fd, label);
             }
         }
+    }
+
+    fn emit_print_function_display(&mut self, fd: u64) {
+        let label = self.asm.data_label_with_bytes(b"<function>");
+        self.emit_write_data(fd, label, "<function>".len());
+    }
+
+    fn emit_print_builtin_function_display(&mut self, fd: u64, label: BuiltinLabel) {
+        let text = self.builtin_function_display_string(label);
+        let label = self.asm.data_label_with_bytes(text.as_bytes());
+        self.emit_write_data(fd, label, text.len());
+    }
+
+    fn emit_print_conditional_builtin_display(
+        &mut self,
+        fd: u64,
+        display: &ConditionalBuiltinDisplay,
+    ) {
+        let Some(condition_slot) = self.lookup_var(&display.condition_name) else {
+            self.emit_print_function_display(fd);
+            return;
+        };
+        let else_label = self.asm.create_text_label();
+        let end_label = self.asm.create_text_label();
+        self.asm.load_rbp_slot(Reg::Rax, condition_slot.offset);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Equal, else_label);
+        self.emit_print_builtin_function_display(fd, display.then_label);
+        self.asm.jmp_label(end_label);
+        self.asm.bind_text_label(else_label);
+        self.emit_print_builtin_function_display(fd, display.else_label);
+        self.asm.bind_text_label(end_label);
     }
 
     fn emit_print_static_int_list(&mut self, fd: u64, label: DataLabel, len: usize) {

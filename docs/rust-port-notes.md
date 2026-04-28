@@ -126,7 +126,8 @@ the module layout is described in `docs/architecture-rust.md`.
 - Pure conditional callable branches in immutable `val` bindings or static
   aggregate elements snapshot the condition once and create a synthesized
   callable that dispatches through the saved condition, including supported
-  builtin function values with matching arity.
+  builtin function values with matching arity. Conditional builtin callables
+  preserve selected-branch `<builtin:name>` display.
 - Top-level lambda declarations and direct inline lambda calls use the same
   annotated `String` / `List<String>` argument matching.
 - Static strings also use the runtime slice path for `substring` / `at` when

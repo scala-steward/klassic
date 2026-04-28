@@ -83,7 +83,8 @@ cargo run -- -e "1 + 2"
   immediate calls on conditional function values lowered to branch-local calls,
   pure conditional callable branches in immutable bindings or static aggregates
   lowered to synthesized branch-local-call lambdas for user callables and
-  supported builtin function values with matching arity,
+  supported builtin function values with matching arity, with conditional
+  builtin display metadata preserving selected-branch `<builtin:name>` output,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call
   sites when they capture mutable locals.
