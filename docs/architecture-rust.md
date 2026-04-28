@@ -77,7 +77,8 @@ cargo run -- -e "1 + 2"
   `String` / `List<String>` returns copied into call-site buffers, function
   value aliases, static record fields, direct or method-style static-list
   `head` lookups including `tail` and `cons` chains, and static `Map#get` /
-  `.get` lookups preserving those runtime return hints,
+  `.get` lookups with literal or folded static keys preserving those runtime
+  return hints,
   immediate calls on conditional function values lowered to branch-local calls,
   top-level and inline lambda calls with the same annotated parameter matching,
   and top-level lambda bindings lowered as static functions or inlined at call

@@ -953,12 +953,18 @@ fn builds_native_executable_for_runtime_return_map_function_values() {
 def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
 val stringFns = %["reverse": reverseFrom]
 val lineFns = %["keep": keepLines]
+val suffix = "verse"
+val keepKey = "ke" + "ep"
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(Map#get(stringFns, "reverse")(text, length(text) - 1) + stringFns.get("reverse")("xy", 1))
 println(join(Map#get(lineFns, "keep")(lines, 2), "|"))
+println(Map#get(stringFns, "re" + suffix)(text, length(text) - 1) + stringFns.get("re" + suffix)("xy", 1))
+println(join(Map#get(lineFns, keepKey)(lines, 2), "|"))
 assertResult("cbayx")(Map#get(stringFns, "reverse")(text, length(text) - 1) + stringFns.get("reverse")("xy", 1))
 assertResult(["a", "b", "c"])(lineFns.get("keep")(lines, 2))
+assertResult("cbayx")(Map#get(stringFns, "re" + suffix)(text, length(text) - 1) + stringFns.get("re" + suffix)("xy", 1))
+assertResult(["a", "b", "c"])(Map#get(lineFns, keepKey)(lines, 2))
 "#,
             text_path.display(),
             lines_path.display()
@@ -1002,7 +1008,10 @@ assertResult(["a", "b", "c"])(lineFns.get("keep")(lines, 2))
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "cbayx\na|b|c\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "cbayx\na|b|c\ncbayx\na|b|c\n"
+    );
     assert!(run.stderr.is_empty());
 }
 

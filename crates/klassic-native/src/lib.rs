@@ -11025,14 +11025,40 @@ impl NativeCodeGenerator {
             (StaticValue::Bool(expected), Expr::Bool { value, .. }) => Some(expected == value),
             (StaticValue::Null, Expr::Null { .. }) => Some(true),
             (StaticValue::Unit, Expr::Unit { .. }) => Some(true),
-            (
-                StaticValue::StaticString {
-                    label: expected,
-                    len,
-                },
-                Expr::String { value, .. },
-            ) if !value.contains("#{") => {
-                Some(self.asm.data_bytes_for_label(*expected, *len) == value.as_bytes())
+            (StaticValue::StaticString { label, len }, _) => self
+                .static_string_text_for_return_hint(key_expr)
+                .map(|value| self.asm.data_bytes_for_label(*label, *len) == value.as_bytes()),
+            _ => None,
+        }
+    }
+
+    fn static_string_text_for_return_hint(&self, expr: &Expr) -> Option<String> {
+        if let Some(value) = self.static_value_for_return_hint(expr) {
+            return self.static_string_from_value(&value);
+        }
+        match expr {
+            Expr::String { value, .. } if !value.contains("#{") => Some(value.clone()),
+            Expr::Binary {
+                lhs,
+                op: BinaryOp::Add,
+                rhs,
+                ..
+            } => Some(format!(
+                "{}{}",
+                self.static_string_text_for_return_hint(lhs)?,
+                self.static_string_text_for_return_hint(rhs)?
+            )),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|expr| self.static_string_text_for_return_hint(expr)),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let then_value = self.static_string_text_for_return_hint(then_branch)?;
+                let else_value = self.static_string_text_for_return_hint(else_branch)?;
+                (then_value == else_value).then_some(then_value)
             }
             _ => None,
         }

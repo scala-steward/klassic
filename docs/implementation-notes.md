@@ -167,9 +167,10 @@ direct call sites immediately copy those buffers into call-site-local buffers so
 neighboring calls can be composed without clobbering each other.
 Function value aliases, static record fields, direct or method-style `head`
 lookups from static lists including `tail` and `cons` chains, and static
-`Map#get` / `.get` lookups created from those `def`s retain the annotated
-runtime return metadata, allowing aliased calls to be recognized by string
-concatenation, dynamic string-branch merging, and runtime line-list helpers.
+`Map#get` / `.get` lookups with literal or folded static keys created from those
+`def`s retain the annotated runtime return metadata, allowing aliased calls to
+be recognized by string concatenation, dynamic string-branch merging, and
+runtime line-list helpers.
 Immediate calls on conditional function values are lowered from
 `(if (cond) f else g)(args...)` to branch-local calls, preserving argument
 evaluation on the selected path while reusing dynamic `if` result buffers for

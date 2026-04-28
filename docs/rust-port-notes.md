@@ -115,8 +115,9 @@ the module layout is described in `docs/architecture-rust.md`.
   that direct call sites copy into call-site-local buffers.
 - Function value aliases, static record fields, direct or method-style `head`
   lookups from static lists including `tail` and `cons` chains, and static
-  `Map#get` / `.get` lookups for such `def`s retain the runtime return metadata
-  for string concatenation and runtime line-list helper dispatch.
+  `Map#get` / `.get` lookups with literal or folded static keys for such `def`s
+  retain the runtime return metadata for string concatenation and runtime
+  line-list helper dispatch.
 - Immediate calls on conditional function values lower to branch-local calls, so
   runtime `String` / `List<String>` returns can merge through dynamic `if`
   result buffers.
