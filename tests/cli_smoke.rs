@@ -5130,6 +5130,8 @@ assertResult(["<line-a>", "<line-b>"])(runtimeDecoratedLines)
 assertResult("<line-a><line-b>")(runtimeFoldedViaAlias)
 assertResult(["line-b", "line-a"])(reversedLines)
 assertResult(["line-b", "line-a", "line-z"])(seededReversedLines)
+val visitResult = foldLeft(runtimeLines)(())((acc, line) => println("visit " + line))
+assertResult(())(visitResult)
 assert(prefixedLines == ["line-0", "line-a", "line-b"])
 FileOutput#writeLines(rewrittenPath, prefixedLines)
 println(FileInput#all(rewrittenPath))
@@ -5196,7 +5198,7 @@ FileOutput#delete(rewrittenPath)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\n[line-b, line-a]\n[line-b, line-a, line-z]\nline-0\nline-a\nline-b\n"
+        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\n[line-b, line-a]\n[line-b, line-a, line-z]\nvisit line-a\nvisit line-b\nline-0\nline-a\nline-b\n"
     );
     assert!(run.stderr.is_empty());
 }
