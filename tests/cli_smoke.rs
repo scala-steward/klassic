@@ -862,14 +862,18 @@ fn builds_native_executable_for_runtime_return_list_function_values() {
         format!(
             r#"def reverseFrom(s: String, i: Int): String = if(i < 0) "" else s.at(i) + reverseFrom(s, i - 1)
 def keepLines(lines: List<String>, n: Int): List<String> = if(n <= 0) lines else keepLines(lines, n - 1)
-val stringFns = [reverseFrom]
-val lineFns = [keepLines]
+val stringFns = [reverseFrom, reverseFrom]
+val lineFns = [keepLines, keepLines]
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(head(stringFns)(text, length(text) - 1) + stringFns.head()("xy", 1))
 println(join(head(lineFns)(lines, 2), "|"))
+println(head(tail(stringFns))(text, length(text) - 1) + stringFns.tail().head()("xy", 1))
+println(join(head(tail(lineFns))(lines, 2), "|"))
 assertResult("cbayx")(head(stringFns)(text, length(text) - 1) + stringFns.head()("xy", 1))
 assertResult(["a", "b", "c"])(lineFns.head()(lines, 2))
+assertResult("cbayx")(head(tail(stringFns))(text, length(text) - 1) + stringFns.tail().head()("xy", 1))
+assertResult(["a", "b", "c"])(lineFns.tail().head()(lines, 2))
 "#,
             text_path.display(),
             lines_path.display()
@@ -913,7 +917,10 @@ assertResult(["a", "b", "c"])(lineFns.head()(lines, 2))
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "cbayx\na|b|c\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "cbayx\na|b|c\ncbayx\na|b|c\n"
+    );
     assert!(run.stderr.is_empty());
 }
 

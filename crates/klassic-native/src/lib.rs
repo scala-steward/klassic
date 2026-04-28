@@ -10907,11 +10907,43 @@ impl NativeCodeGenerator {
     }
 
     fn static_head_value_for_return_hint(&self, expr: &Expr) -> Option<StaticValue> {
+        self.static_list_element_for_return_hint(expr, 0)
+    }
+
+    fn static_list_element_for_return_hint(
+        &self,
+        expr: &Expr,
+        index: usize,
+    ) -> Option<StaticValue> {
+        if let Expr::Call {
+            callee, arguments, ..
+        } = expr
+        {
+            match callee.as_ref() {
+                Expr::Identifier { name, .. }
+                    if arguments.len() == 1 && self.builtin_name_for_identifier(name) == "tail" =>
+                {
+                    return self.static_list_element_for_return_hint(&arguments[0], index + 1);
+                }
+                Expr::FieldAccess { target, field, .. }
+                    if arguments.is_empty() && field == "tail" =>
+                {
+                    return self.static_list_element_for_return_hint(target, index + 1);
+                }
+                _ => {}
+            }
+        }
         match self.static_value_for_return_hint(expr)? {
+            StaticValue::StaticIntList { label, len } => self
+                .asm
+                .i64s_for_label(label, len)
+                .get(index)
+                .copied()
+                .map(StaticValue::Int),
             StaticValue::StaticList { label } => self
                 .static_lists
                 .get(label.0)
-                .and_then(|list| list.elements.first().cloned()),
+                .and_then(|list| list.elements.get(index).cloned()),
             _ => None,
         }
     }
