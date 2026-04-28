@@ -298,6 +298,8 @@ their index expressions are mutable or otherwise dynamic integers, so loops can
 walk known strings without requiring every index to fold at build time.
 Static string `split` and static string-list `join` likewise route through
 runtime buffers when their delimiters are runtime strings.
+Static first-occurrence `replace` uses the dynamic replacement emitter when its
+pattern or replacement operand is a runtime string.
 `Dir#move` likewise treats non-virtual runtime moves as unknown File/Dir state
 after emitting the rename syscall, preventing later native folds from using
 stale build-time filesystem facts.

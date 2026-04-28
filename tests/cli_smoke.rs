@@ -1411,6 +1411,81 @@ assertResult("x,y")(methodJoined)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_replace_runtime_operands() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let from_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-replace-from-{unique}.txt"));
+    let to_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-replace-to-{unique}.txt"));
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-replace-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-runtime-replace-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"val from = FileInput#all("{}")
+val to = FileInput#all("{}")
+val direct = replace("a-b-a", from, to)
+val method = "left-right-left".replace(from, to)
+println(direct)
+println(method)
+assertResult("a_b-a")(direct)
+assertResult("left_right-left")(method)
+"#,
+            from_path.display(),
+            to_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime replace operand build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&from_path, "-").expect("from should write after native build");
+    fs::write(&to_path, "_").expect("to should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&from_path);
+    let _ = fs::remove_file(&to_path);
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime replace operand run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "a_b-a\nleft_right-left\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_builtin_function_aliases() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

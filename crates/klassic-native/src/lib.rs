@@ -3551,6 +3551,29 @@ impl NativeCodeGenerator {
                 }
                 let input =
                     self.static_string_from_argument_preserving_effects(&arguments[0], span, name)?;
+                if name == "replace"
+                    && (self.expr_may_yield_runtime_string(&arguments[1])
+                        || self.expr_may_yield_runtime_string(&arguments[2]))
+                {
+                    let input = self.emit_static_string(input);
+                    let input = self
+                        .native_string_ref(input)
+                        .expect("static string should expose native string ref");
+                    let from = self.compile_expr(&arguments[1])?;
+                    let Some(from) = self.native_string_ref(from) else {
+                        return Err(unsupported(span, "native replace for non-string pattern"));
+                    };
+                    let to = self.compile_expr(&arguments[2])?;
+                    let Some(to) = self.native_string_ref(to) else {
+                        return Err(unsupported(
+                            span,
+                            "native replace for non-string replacement",
+                        ));
+                    };
+                    return Ok(
+                        self.emit_runtime_string_replace_first_dynamic(input, from, to, span)
+                    );
+                }
                 let from =
                     self.static_string_from_argument_preserving_effects(&arguments[1], span, name)?;
                 let to =

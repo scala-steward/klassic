@@ -108,6 +108,8 @@ the module layout is described in `docs/architecture-rust.md`.
   their indexes are mutable or otherwise dynamic integers.
 - Static string `split` and static string-list `join` accept runtime string
   delimiters by routing through fixed runtime buffers.
+- Static first-occurrence `replace` accepts runtime string pattern/replacement
+  operands through the dynamic replacement emitter.
 - Recursive functions that still need call-site inlining are rejected with a
   compile diagnostic instead of recursively inlining until the compiler stack
   overflows.
