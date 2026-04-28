@@ -5217,17 +5217,21 @@ fn builds_native_executable_for_runtime_line_map_builtin_values() {
             r#"val path = FileInput#all("{}")
 val lines = FileInput#lines(path)
 val trimLine = trim
+val mapAlias = map
 val pickedUpper = {{
   println("pick mapper")
   toUpperCase
 }}
 val trimmed = lines.map(trimLine)
+val aliasTrimmed = mapAlias(lines)(trimLine)
 val directUpper = map(lines)(toUpperCase)
 val pickedUpperLines = lines.map(pickedUpper)
 println(trimmed)
+println(aliasTrimmed)
 println(directUpper)
 println(pickedUpperLines)
 assertResult(["alpha", "beta"])(trimmed)
+assertResult(["alpha", "beta"])(aliasTrimmed)
 assertResult(["  ALPHA  ", "BETA"])(directUpper)
 assertResult(["  ALPHA  ", "BETA"])(pickedUpperLines)
 "#,
@@ -5275,7 +5279,7 @@ assertResult(["  ALPHA  ", "BETA"])(pickedUpperLines)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "pick mapper\n[alpha, beta]\n[  ALPHA  , BETA]\n[  ALPHA  , BETA]\n"
+        "pick mapper\n[alpha, beta]\n[alpha, beta]\n[  ALPHA  , BETA]\n[  ALPHA  , BETA]\n"
     );
     assert!(run.stderr.is_empty());
 }
@@ -5300,16 +5304,20 @@ val lines = FileInput#lines(path)
 val staticSum = [1, 2, 3].foldLeft(0, (acc, item) => acc + item)
 val staticText = ["a", "b"].foldLeft("", (acc, item) => acc + item)
 val folded = lines.foldLeft("", (acc, line) => acc + "<" + line + ">")
+val foldAlias = foldLeft
+val aliasFolded = foldAlias(lines)("")((acc, line) => acc + "[" + line + "]")
 val totalChars = lines.foldLeft(0, (acc, line) => acc + length(line))
 val allLinePrefixed = lines.foldLeft(true, (acc, line) => acc && startsWith(line, "line-"))
 println(staticSum)
 println(staticText)
 println(folded)
+println(aliasFolded)
 println(totalChars)
 println(allLinePrefixed)
 assertResult(6)(staticSum)
 assertResult("ab")(staticText)
 assertResult("<line-a><line-b>")(folded)
+assertResult("[line-a][line-b]")(aliasFolded)
 assertResult(12)(totalChars)
 assert(allLinePrefixed)
 "#,
@@ -5357,7 +5365,7 @@ assert(allLinePrefixed)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "6\nab\n<line-a><line-b>\n12\ntrue\n"
+        "6\nab\n<line-a><line-b>\n[line-a][line-b]\n12\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }
