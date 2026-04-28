@@ -124,6 +124,9 @@ the module layout is described in `docs/architecture-rust.md`.
   when the compatible entries return uniformly string, int, or boolean values;
   runtime misses report a native diagnostic until the native path has dynamic
   tagged `null` values.
+- Static maps of callable values support immediate runtime-key dispatch via
+  `Map#get(fns, key)(...)` and `fns.get(key)(...)`, evaluating only the selected
+  branch's call arguments at runtime and merging supported native return shapes.
 - Block, cleanup, and same-runtime-return conditional callees retain those
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so

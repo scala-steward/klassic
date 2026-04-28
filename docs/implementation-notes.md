@@ -58,7 +58,9 @@ string concatenation that formats dynamic native `Int` / `Boolean` operands,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
 and method-style `parts.size()`, runtime-key `Map#get` selection from static maps
 when the key is a runtime string/int/bool and the selected values are strings,
-integers, or booleans, static-millisecond `sleep` through Linux
+integers, or booleans, immediate runtime-key calls through static map callable
+values such as `Map#get(fns, key)(...)` and `fns.get(key)(...)`,
+static-millisecond `sleep` through Linux
 and runtime integer-millisecond `sleep` through Linux `nanosleep`,
 zero-argument literal or lambda-value `stopwatch` through Linux `clock_gettime`,
 queued `thread` bodies from literal or lambda-value jobs for the current native sample surface,
@@ -300,7 +302,10 @@ entries also support runtime string, int, and boolean membership queries for
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all ints, or all booleans;
 runtime misses fail with a source-located native diagnostic because the native
-path still has no dynamic tagged `null` value. Static
+path still has no dynamic tagged `null` value. If the compatible entries are
+all callable values, immediate calls through that lookup dispatch to the selected
+lambda or builtin branch and merge the same supported native return shapes.
+Static
 `null` is supported for printing, equality, and `Map#get` misses; `()` is
 supported for printing, static string concatenation, equality, and
 `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's

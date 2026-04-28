@@ -412,6 +412,18 @@ enum RuntimeMapGetValueKind {
     String,
 }
 
+#[derive(Clone, Debug)]
+struct DynamicBranchState {
+    value: NativeValue,
+    next_stack_offset: i32,
+    scopes: Vec<HashMap<String, VarSlot>>,
+    static_scopes: Vec<HashMap<String, StaticValue>>,
+    virtual_files: HashMap<String, String>,
+    virtual_dirs: HashSet<String>,
+    unknown_virtual_paths: HashSet<String>,
+    queued_threads: Vec<QueuedThread>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum StaticValue {
     Int(i64),
@@ -1941,6 +1953,22 @@ impl NativeCodeGenerator {
             && ((field == "head" && method_arguments.is_empty())
                 || (field == "get" && method_arguments.len() == 1))
         {
+            if field == "get" {
+                let lookup_arguments = vec![
+                    target.as_ref().clone(),
+                    method_arguments
+                        .first()
+                        .expect("method get arity was checked")
+                        .clone(),
+                ];
+                if let Some(value) = self.compile_static_map_get_callable_dispatch(
+                    &lookup_arguments,
+                    arguments,
+                    span,
+                )? {
+                    return Ok(value);
+                }
+            }
             let callee_value =
                 self.compile_static_method_call(target, field, method_arguments, span)?;
             return self.compile_native_callable_value_call(callee_value, arguments, span);
@@ -1957,6 +1985,11 @@ impl NativeCodeGenerator {
             )
             && lookup_arguments.len() == 2
         {
+            if let Some(value) =
+                self.compile_static_map_get_callable_dispatch(lookup_arguments, arguments, span)?
+            {
+                return Ok(value);
+            }
             let callee_value = self.compile_static_map_get_direct(lookup_arguments, span)?;
             return self.compile_native_callable_value_call(callee_value, arguments, span);
         }
@@ -5448,6 +5481,366 @@ impl NativeCodeGenerator {
             },
             span,
         )
+    }
+
+    fn compile_static_map_get_callable_dispatch(
+        &mut self,
+        lookup_arguments: &[Expr],
+        call_arguments: &[Expr],
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        if lookup_arguments.len() != 2 {
+            return Ok(None);
+        }
+        let before_static_scopes = self.static_scopes.clone();
+        let key_preview = self.preview_static_value_after_effectful_eval(&lookup_arguments[1]);
+        self.static_scopes = before_static_scopes;
+        if key_preview.is_some() {
+            return Ok(None);
+        }
+
+        let entries = self.static_map_entries_from_expr(&lookup_arguments[0], span)?;
+        let key = self.compile_expr(&lookup_arguments[1])?;
+        if let Some(key) = self.native_string_ref(key) {
+            let candidates = self.runtime_map_get_callable_string_candidates(entries, span)?;
+            if candidates.is_empty() {
+                return Err(unsupported(
+                    span,
+                    "native Map#get runtime callable key with no compatible static keys",
+                ));
+            }
+            return self
+                .compile_runtime_map_get_callable_dispatch_candidates(
+                    candidates,
+                    |compiler, entry_key| {
+                        compiler.emit_native_string_equality(key, entry_key);
+                        compiler.asm.cmp_reg_imm8(Reg::Rax, 0);
+                        Condition::NotEqual
+                    },
+                    call_arguments,
+                    span,
+                )
+                .map(Some);
+        }
+        if matches!(key, NativeValue::Int | NativeValue::Bool) {
+            let candidates = self.runtime_map_get_callable_scalar_candidates(entries, key, span)?;
+            if candidates.is_empty() {
+                return Err(unsupported(
+                    span,
+                    "native Map#get runtime callable key with no compatible static keys",
+                ));
+            }
+            self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+            return self
+                .compile_runtime_map_get_callable_dispatch_candidates(
+                    candidates,
+                    |compiler, entry_key| {
+                        compiler.asm.mov_imm64(Reg::Rax, entry_key);
+                        compiler.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+                        Condition::Equal
+                    },
+                    call_arguments,
+                    span,
+                )
+                .map(Some);
+        }
+        Err(unsupported(
+            span,
+            "native Map#get runtime callable key for this key type",
+        ))
+    }
+
+    fn runtime_map_get_callable_string_candidates(
+        &self,
+        entries: Vec<(StaticValue, StaticValue)>,
+        span: Span,
+    ) -> Result<Vec<(NativeStringRef, NativeValue)>, Diagnostic> {
+        let mut candidates = Vec::new();
+        for (entry_key, value) in entries {
+            let Some(entry_key) = self.static_value_string_ref(&entry_key) else {
+                continue;
+            };
+            let Some(callable) = Self::static_callable_native_value(&value) else {
+                return Err(unsupported(
+                    span,
+                    "native Map#get runtime callable key for non-callable map value",
+                ));
+            };
+            candidates.push((entry_key, callable));
+        }
+        Ok(candidates)
+    }
+
+    fn runtime_map_get_callable_scalar_candidates(
+        &self,
+        entries: Vec<(StaticValue, StaticValue)>,
+        key: NativeValue,
+        span: Span,
+    ) -> Result<Vec<(u64, NativeValue)>, Diagnostic> {
+        let mut candidates = Vec::new();
+        for (entry_key, value) in entries {
+            let Some(entry_key) = Self::static_value_scalar_bits(&entry_key, key) else {
+                continue;
+            };
+            let Some(callable) = Self::static_callable_native_value(&value) else {
+                return Err(unsupported(
+                    span,
+                    "native Map#get runtime callable key for non-callable map value",
+                ));
+            };
+            candidates.push((entry_key, callable));
+        }
+        Ok(candidates)
+    }
+
+    fn static_callable_native_value(value: &StaticValue) -> Option<NativeValue> {
+        match value {
+            StaticValue::StaticLambda { label } => {
+                Some(NativeValue::StaticLambda { label: *label })
+            }
+            StaticValue::BuiltinFunction { label } => {
+                Some(NativeValue::BuiltinFunction { label: *label })
+            }
+            _ => None,
+        }
+    }
+
+    fn compile_runtime_map_get_callable_dispatch_candidates<K>(
+        &mut self,
+        candidates: Vec<(K, NativeValue)>,
+        mut emit_match_condition: impl FnMut(&mut Self, K) -> Condition,
+        call_arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if candidates.is_empty() {
+            return Err(unsupported(
+                span,
+                "native Map#get runtime callable key with no compatible static keys",
+            ));
+        }
+
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        let branch_string_output = (
+            self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+            self.asm.data_label_with_i64s(&[0]),
+        );
+        let branch_lines_output = (
+            self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+            self.asm.data_label_with_i64s(&[0]),
+        );
+        let done = self.asm.create_text_label();
+        let before_scopes = self.scopes.clone();
+        let before_static_scopes = self.static_scopes.clone();
+        let before_scope_base_offsets = self.scope_base_offsets.clone();
+        let before_next_stack_offset = self.next_stack_offset;
+        let before_virtual_files = self.virtual_files.clone();
+        let before_virtual_dirs = self.virtual_dirs.clone();
+        let before_unknown_virtual_paths = self.unknown_virtual_paths.clone();
+        let before_queued_threads = self.queued_threads.clone();
+
+        let branches = candidates
+            .into_iter()
+            .map(|(entry_key, callable)| {
+                let label = self.asm.create_text_label();
+                let condition = emit_match_condition(self, entry_key);
+                self.asm.jcc_label(condition, label);
+                (label, callable)
+            })
+            .collect::<Vec<_>>();
+        self.emit_runtime_error(span, "Map#get runtime key was not found");
+
+        self.dynamic_control_depth += 1;
+        self.mergeable_dynamic_branch_depth += 1;
+        let result = (|| {
+            let mut states = Vec::with_capacity(branches.len());
+            for (label, callable) in branches {
+                self.scopes = before_scopes.clone();
+                self.static_scopes = before_static_scopes.clone();
+                self.scope_base_offsets = before_scope_base_offsets.clone();
+                self.next_stack_offset = before_next_stack_offset;
+                self.virtual_files = before_virtual_files.clone();
+                self.virtual_dirs = before_virtual_dirs.clone();
+                self.unknown_virtual_paths = before_unknown_virtual_paths.clone();
+                self.queued_threads = before_queued_threads.clone();
+
+                self.asm.bind_text_label(label);
+                self.push_scope();
+                let value =
+                    match self.compile_native_callable_value_call(callable, call_arguments, span) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            self.pop_scope();
+                            return Err(error);
+                        }
+                    };
+                if self.native_value_captures_current_scope(value)
+                    || self.queued_threads_capture_current_scope()
+                {
+                    self.pop_scope_preserving_allocations();
+                } else {
+                    self.pop_scope();
+                }
+                if let Some(input) = self.native_string_ref(value) {
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        branch_string_output.0,
+                        branch_string_output.1,
+                        input,
+                        span,
+                        "Map#get callable string result exceeds 65536 bytes",
+                    );
+                }
+                if let NativeValue::RuntimeLinesList { data, len } = value {
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        branch_lines_output.0,
+                        branch_lines_output.1,
+                        NativeStringRef {
+                            data,
+                            len: NativeStringLen::Runtime(len),
+                        },
+                        span,
+                        "Map#get callable line-list result exceeds 65536 bytes",
+                    );
+                }
+                states.push(DynamicBranchState {
+                    value,
+                    next_stack_offset: self.next_stack_offset,
+                    scopes: self.scopes.clone(),
+                    static_scopes: self.static_scopes.clone(),
+                    virtual_files: self.virtual_files.clone(),
+                    virtual_dirs: self.virtual_dirs.clone(),
+                    unknown_virtual_paths: self.unknown_virtual_paths.clone(),
+                    queued_threads: self.queued_threads.clone(),
+                });
+                self.asm.jmp_label(done);
+            }
+
+            let values = states.iter().map(|state| state.value).collect::<Vec<_>>();
+            self.merge_dynamic_branch_states(
+                &before_scopes,
+                &before_scope_base_offsets,
+                before_next_stack_offset,
+                states,
+                span,
+            )?;
+            self.asm.bind_text_label(done);
+            self.runtime_dispatch_return_value(
+                &values,
+                branch_string_output,
+                branch_lines_output,
+                span,
+            )
+        })();
+        self.dynamic_control_depth -= 1;
+        self.mergeable_dynamic_branch_depth -= 1;
+        result
+    }
+
+    fn merge_dynamic_branch_states(
+        &mut self,
+        before_scopes: &[HashMap<String, VarSlot>],
+        before_scope_base_offsets: &[i32],
+        before_next_stack_offset: i32,
+        states: Vec<DynamicBranchState>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Some(first) = states.first() else {
+            return Err(unsupported(span, "native dynamic branch without branches"));
+        };
+        let preserved_stack = first.next_stack_offset - before_next_stack_offset;
+        let mut merged_scopes = first.scopes.clone();
+        let mut merged_static_scopes = first.static_scopes.clone();
+        let mut merged_virtual_files = first.virtual_files.clone();
+        let mut merged_virtual_dirs = first.virtual_dirs.clone();
+        let mut merged_unknown_virtual_paths = first.unknown_virtual_paths.clone();
+        let mut merged_queued_threads = first.queued_threads.clone();
+
+        for state in states.iter().skip(1) {
+            if state.next_stack_offset - before_next_stack_offset != preserved_stack {
+                return Err(unsupported(
+                    span,
+                    "native dynamic branches with incompatible captured stack state",
+                ));
+            }
+            merged_scopes = self.merge_dynamic_branch_scopes(
+                before_scopes,
+                &merged_scopes,
+                &state.scopes,
+                span,
+            )?;
+            merged_static_scopes = self
+                .merge_dynamic_branch_static_scopes(&merged_static_scopes, &state.static_scopes);
+            self.merge_dynamic_branch_virtual_state(
+                &merged_virtual_files,
+                &state.virtual_files,
+                &merged_virtual_dirs,
+                &state.virtual_dirs,
+                &merged_unknown_virtual_paths,
+                &state.unknown_virtual_paths,
+            );
+            merged_virtual_files = self.virtual_files.clone();
+            merged_virtual_dirs = self.virtual_dirs.clone();
+            merged_unknown_virtual_paths = self.unknown_virtual_paths.clone();
+            merged_queued_threads = self.merge_dynamic_branch_queued_threads(
+                &merged_queued_threads,
+                &state.queued_threads,
+                span,
+            )?;
+        }
+
+        self.scopes = merged_scopes;
+        self.static_scopes = merged_static_scopes;
+        self.virtual_files = merged_virtual_files;
+        self.virtual_dirs = merged_virtual_dirs;
+        self.unknown_virtual_paths = merged_unknown_virtual_paths;
+        self.queued_threads = merged_queued_threads;
+        self.scope_base_offsets = before_scope_base_offsets.to_vec();
+        self.next_stack_offset = before_next_stack_offset + preserved_stack;
+        Ok(())
+    }
+
+    fn runtime_dispatch_return_value(
+        &self,
+        values: &[NativeValue],
+        branch_string_output: (DataLabel, DataLabel),
+        branch_lines_output: (DataLabel, DataLabel),
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let Some(first) = values.first().copied() else {
+            return Err(unsupported(span, "native dynamic branch return value"));
+        };
+        if values.iter().all(|value| {
+            *value == first || self.static_values_equal(*value, first).unwrap_or(false)
+        }) {
+            return Ok(first);
+        }
+        if values
+            .iter()
+            .all(|value| self.native_string_ref(*value).is_some())
+        {
+            return Ok(NativeValue::RuntimeString {
+                data: branch_string_output.0,
+                len: branch_string_output.1,
+            });
+        }
+        if values
+            .iter()
+            .all(|value| matches!(value, NativeValue::RuntimeLinesList { .. }))
+        {
+            return Ok(NativeValue::RuntimeLinesList {
+                data: branch_lines_output.0,
+                len: branch_lines_output.1,
+            });
+        }
+        if values
+            .iter()
+            .any(|value| matches!(value, NativeValue::Unit))
+        {
+            return Ok(NativeValue::Unit);
+        }
+        Err(unsupported(
+            span,
+            "native dynamic branches with different value types",
+        ))
     }
 
     fn compile_static_map_get_runtime_candidates<K>(

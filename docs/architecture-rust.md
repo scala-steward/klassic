@@ -187,6 +187,9 @@ cargo run -- -e "1 + 2"
   with runtime string/int/bool keys to native comparisons when the compatible
   values are uniformly string, int, or boolean; a runtime miss reports a native
   diagnostic because this untagged path cannot materialize a dynamic `null`.
+  Immediate calls through runtime-key lookups of static callable maps, such as
+  `Map#get(fns, key)(...)` and `fns.get(key)(...)`, dispatch to the selected
+  lambda or builtin branch and merge the supported native return shapes.
   Lambdas also remember the native stack slots for captured runtime bindings;
   when a block, inline lambda, or call-site inlined function returns such a
   lambda, the captured slots are kept alive so block/function-local mutable
