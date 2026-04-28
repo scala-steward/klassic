@@ -124,6 +124,8 @@ the module layout is described in `docs/architecture-rust.md`.
   when the compatible entries return uniformly string, string-list, int, or
   boolean values; runtime misses report a native diagnostic until the native
   path has dynamic tagged `null` values.
+- Static string-list entries in lists, sets, and map values can be matched by
+  runtime line-list membership queries.
 - Static maps of callable values support immediate runtime-key dispatch via
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, evaluating only the selected
   branch's call arguments at runtime and merging supported native return shapes.

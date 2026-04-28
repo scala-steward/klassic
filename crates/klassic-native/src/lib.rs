@@ -5231,6 +5231,27 @@ impl NativeCodeGenerator {
                 self.emit_static_scalar_membership(candidates);
                 return Ok(NativeValue::Bool);
             }
+            if let NativeValue::RuntimeLinesList { data, len } = needle {
+                let candidates = elements
+                    .iter()
+                    .filter_map(|element| self.static_string_list_content_from_value(element))
+                    .collect::<Vec<_>>();
+                let candidates = candidates
+                    .into_iter()
+                    .map(|content| NativeStringRef {
+                        data: self.asm.data_label_with_bytes(content.as_bytes()),
+                        len: NativeStringLen::Immediate(content.len()),
+                    })
+                    .collect::<Vec<_>>();
+                self.emit_static_string_membership(
+                    NativeStringRef {
+                        data,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    candidates,
+                );
+                return Ok(NativeValue::Bool);
+            }
             return Err(unsupported(span, unsupported_message));
         }
         let needle =

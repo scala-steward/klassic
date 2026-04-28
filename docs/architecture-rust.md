@@ -183,11 +183,12 @@ cargo run -- -e "1 + 2"
   those callee effects too. Collection and Map/Set helper builtin values such as
   `size`, `head`, `tail`, `isEmpty`, `contains`, `Map#get`, and
   `Set#contains` use the same static helper path when they are called through
-  effectful value expressions. Static maps can also lower `Map#get` / `.get`
-  with runtime string/int/bool keys to native comparisons when the compatible
-  values are uniformly string, string-list, int, or boolean; a runtime miss
-  reports a native diagnostic because this untagged path cannot materialize a
-  dynamic `null`.
+  effectful value expressions. Runtime line-list values can also be compared
+  against static string-list collection entries. Static maps can lower
+  `Map#get` / `.get` with runtime string/int/bool keys to native comparisons
+  when the compatible values are uniformly string, string-list, int, or boolean;
+  a runtime miss reports a native diagnostic because this untagged path cannot
+  materialize a dynamic `null`.
   Immediate calls through runtime-key lookups of static callable maps, such as
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, dispatch to the selected
   lambda or builtin branch and merge the supported native return shapes.

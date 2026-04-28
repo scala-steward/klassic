@@ -299,6 +299,8 @@ and `Set#contains` when both the collection and query value are static. Static
 string-key maps, string-valued maps, string sets, and scalar list/set/map
 entries also support runtime string, int, and boolean membership queries for
 `contains`, `Map#containsKey`, `Map#containsValue`, and `Set#contains`.
+Static string-list entries can be matched against runtime line-list query values
+through the same membership helpers.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 or all booleans; runtime misses fail with a source-located native diagnostic
