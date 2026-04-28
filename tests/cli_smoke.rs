@@ -5928,7 +5928,7 @@ fn builds_native_executable_for_static_string_collection_runtime_membership() {
         std::env::temp_dir().join(format!("klassic-native-runtime-membership-{unique}"));
     fs::write(
         &source_path,
-        "val keyword = head(args())\nval op = head(tail(args()))\nval kind = head(tail(tail(args())))\nval keywords = %(\"if\", \"else\", \"while\")\nval precedence = %[\"+\": 10, \"*\": 20]\nval kinds = %[\"if\": \"keyword\", \"+\": \"operator\"]\nprintln(Set#contains(keywords, keyword))\nprintln(keywords.contains(keyword))\nprintln(keywords.contains(\"return\"))\nprintln(Map#containsKey(precedence, op))\nprintln(precedence.containsKey(\"/\"))\nprintln(Map#containsValue(kinds, kind))\nprintln(kinds.containsValue(kind))\nassert(Set#contains(keywords, keyword))\nassert(keywords.contains(keyword))\nassert(!keywords.contains(\"return\"))\nassert(Map#containsKey(precedence, op))\nassert(!precedence.containsKey(\"/\"))\nassert(Map#containsValue(kinds, kind))\nassert(kinds.containsValue(kind))\n",
+        "val keyword = head(args())\nval op = head(tail(args()))\nval kind = head(tail(tail(args())))\nval keywordLen = length(keyword)\nval keywordKnown = keyword == \"if\"\nval keywords = %(\"if\", \"else\", \"while\")\nval precedence = %[\"+\": 10, \"*\": 20]\nval kinds = %[\"if\": \"keyword\", \"+\": \"operator\"]\nval lengthKeys = %[2: \"short\", 5: \"wide\"]\nval lengthValues = %[\"short\": 2, \"kind\": 7]\nval boolKeys = %[true: \"known\", false: \"unknown\"]\nval boolValues = %[\"known\": true]\nprintln(Set#contains(keywords, keyword))\nprintln(keywords.contains(keyword))\nprintln(keywords.contains(\"return\"))\nprintln(Map#containsKey(precedence, op))\nprintln(precedence.containsKey(\"/\"))\nprintln(Map#containsValue(kinds, kind))\nprintln(kinds.containsValue(kind))\nprintln([1, 2, 3].contains(keywordLen))\nprintln(%(1, 2, 3).contains(keywordLen))\nprintln(Map#containsKey(lengthKeys, keywordLen))\nprintln(Map#containsValue(lengthValues, keywordLen))\nprintln(Map#containsKey(boolKeys, keywordKnown))\nprintln(Map#containsValue(boolValues, keywordKnown))\nassert(Set#contains(keywords, keyword))\nassert(keywords.contains(keyword))\nassert(!keywords.contains(\"return\"))\nassert(Map#containsKey(precedence, op))\nassert(!precedence.containsKey(\"/\"))\nassert(Map#containsValue(kinds, kind))\nassert(kinds.containsValue(kind))\nassert([1, 2, 3].contains(keywordLen))\nassert(%(1, 2, 3).contains(keywordLen))\nassert(Map#containsKey(lengthKeys, keywordLen))\nassert(Map#containsValue(lengthValues, keywordLen))\nassert(Map#containsKey(boolKeys, keywordKnown))\nassert(Map#containsValue(boolValues, keywordKnown))\n",
     )
     .expect("source should write");
 
@@ -5969,7 +5969,7 @@ fn builds_native_executable_for_static_string_collection_runtime_membership() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\n"
+        "true\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }

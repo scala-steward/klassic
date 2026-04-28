@@ -4163,15 +4163,23 @@ impl NativeCodeGenerator {
         self.static_scopes = before_static_scopes;
         if needle_preview.is_none() {
             let needle = self.compile_expr(needle)?;
-            let Some(needle) = self.native_string_ref(needle) else {
-                return Err(unsupported(span, unsupported_message));
-            };
-            let candidates = elements
-                .iter()
-                .filter_map(|element| self.static_value_string_ref(element))
-                .collect::<Vec<_>>();
-            self.emit_static_string_membership(needle, candidates);
-            return Ok(NativeValue::Bool);
+            if let Some(needle) = self.native_string_ref(needle) {
+                let candidates = elements
+                    .iter()
+                    .filter_map(|element| self.static_value_string_ref(element))
+                    .collect::<Vec<_>>();
+                self.emit_static_string_membership(needle, candidates);
+                return Ok(NativeValue::Bool);
+            }
+            if matches!(needle, NativeValue::Int | NativeValue::Bool) {
+                let candidates = elements
+                    .iter()
+                    .filter_map(|element| Self::static_value_scalar_bits(element, needle))
+                    .collect::<Vec<_>>();
+                self.emit_static_scalar_membership(candidates);
+                return Ok(NativeValue::Bool);
+            }
+            return Err(unsupported(span, unsupported_message));
         }
         let needle =
             self.static_value_from_argument_preserving_effects(needle, span, unsupported_message)?;
@@ -4180,6 +4188,30 @@ impl NativeCodeGenerator {
             .any(|element| self.static_value_equal_user(element, &needle));
         self.asm.mov_imm64(Reg::Rax, u64::from(contains));
         Ok(NativeValue::Bool)
+    }
+
+    fn static_value_scalar_bits(value: &StaticValue, kind: NativeValue) -> Option<u64> {
+        match (kind, value) {
+            (NativeValue::Int, StaticValue::Int(value)) => Some(*value as u64),
+            (NativeValue::Bool, StaticValue::Bool(value)) => Some(u64::from(*value)),
+            _ => None,
+        }
+    }
+
+    fn emit_static_scalar_membership(&mut self, candidates: impl IntoIterator<Item = u64>) {
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        for candidate in candidates {
+            self.asm.mov_imm64(Reg::Rax, candidate);
+            self.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+            self.asm.jcc_label(Condition::Equal, found);
+        }
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(found);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
     }
 
     fn compile_static_map_contains_key_direct(
@@ -4216,34 +4248,16 @@ impl NativeCodeGenerator {
             ));
         }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
-        let before_static_scopes = self.static_scopes.clone();
-        let key_preview = self.preview_static_value_after_effectful_eval(&key_arguments[0]);
-        self.static_scopes = before_static_scopes;
-        if key_preview.is_none() {
-            let key_value = self.compile_expr(&key_arguments[0])?;
-            let Some(key) = self.native_string_ref(key_value) else {
-                return Err(unsupported(
-                    span,
-                    "native Map#containsKey for non-static key",
-                ));
-            };
-            let candidates = entries
-                .iter()
-                .filter_map(|(entry_key, _)| self.static_value_string_ref(entry_key))
-                .collect::<Vec<_>>();
-            self.emit_static_string_membership(key, candidates);
-            return Ok(NativeValue::Bool);
-        }
-        let key = self.static_value_from_argument_preserving_effects(
+        let keys = entries
+            .into_iter()
+            .map(|(entry_key, _)| entry_key)
+            .collect();
+        self.compile_static_values_contains(
+            keys,
             &key_arguments[0],
             span,
             "native Map#containsKey for non-static key",
-        )?;
-        let contains = entries
-            .iter()
-            .any(|(entry_key, _)| self.static_value_equal_user(entry_key, &key));
-        self.asm.mov_imm64(Reg::Rax, u64::from(contains));
-        Ok(NativeValue::Bool)
+        )
     }
 
     fn compile_static_map_contains_value_direct(
@@ -4280,34 +4294,16 @@ impl NativeCodeGenerator {
             ));
         }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
-        let before_static_scopes = self.static_scopes.clone();
-        let value_preview = self.preview_static_value_after_effectful_eval(&value_arguments[0]);
-        self.static_scopes = before_static_scopes;
-        if value_preview.is_none() {
-            let value = self.compile_expr(&value_arguments[0])?;
-            let Some(value) = self.native_string_ref(value) else {
-                return Err(unsupported(
-                    span,
-                    "native Map#containsValue for non-static value",
-                ));
-            };
-            let candidates = entries
-                .iter()
-                .filter_map(|(_, entry_value)| self.static_value_string_ref(entry_value))
-                .collect::<Vec<_>>();
-            self.emit_static_string_membership(value, candidates);
-            return Ok(NativeValue::Bool);
-        }
-        let value = self.static_value_from_argument_preserving_effects(
+        let values = entries
+            .into_iter()
+            .map(|(_, entry_value)| entry_value)
+            .collect();
+        self.compile_static_values_contains(
+            values,
             &value_arguments[0],
             span,
             "native Map#containsValue for non-static value",
-        )?;
-        let contains = entries
-            .iter()
-            .any(|(_, entry_value)| self.static_value_equal_user(entry_value, &value));
-        self.asm.mov_imm64(Reg::Rax, u64::from(contains));
-        Ok(NativeValue::Bool)
+        )
     }
 
     fn compile_static_map_get_direct(

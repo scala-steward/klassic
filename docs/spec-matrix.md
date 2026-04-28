@@ -97,8 +97,9 @@ The repository contains a Rust-native language implementation with:
   for aggregate values, plus ordinary static aggregate equality including compact
   Int-list versus generic static Int-list comparison,
   static nominal/structural record construction, field selection, printing, and
-  static map/set/File/Dir helper calls including runtime string membership for
-  static string-key/string-valued maps and string sets plus builtin module aliases/imports and helper value aliases,
+  static map/set/File/Dir helper calls including runtime string/int/boolean
+  membership for static string-key/string-valued maps, string sets, and scalar
+  list/set/map entries plus builtin module aliases/imports and helper value aliases,
   static `null`, and static string/list/record/map/
   set/null/unit `assertResult`, native `ToDo()` runtime failure emission, plus
   native `()` printing and equality, and immutable aliases to directly supported

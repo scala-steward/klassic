@@ -233,9 +233,9 @@ entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,
 `Map#containsKey`, `Map#containsValue`, `Map#get`, `Set#size`, `Set#isEmpty`,
 and `Set#contains` when both the collection and query value are static. Static
-string-key maps, string-valued maps, and string sets also support runtime string
-membership queries for `Map#containsKey`, `Map#containsValue`, and
-`Set#contains`. Static
+string-key maps, string-valued maps, string sets, and scalar list/set/map
+entries also support runtime string, int, and boolean membership queries for
+`contains`, `Map#containsKey`, `Map#containsValue`, and `Set#contains`. Static
 `null` is supported for printing, equality, and `Map#get` misses; `()` is
 supported for printing, static string concatenation, equality, and
 `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's
