@@ -234,6 +234,9 @@ cargo run -- -e "1 + 2"
   threads directly or through immutable aliases are compiled on the caller's
   effectful path so queued bodies are attached to the current native execution
   stream rather than to the later function-emission pass or a static fold.
+  Recursive functions that would otherwise require unsupported call-site
+  inlining are still allowed to fold when called with static arguments, covering
+  pure helpers over static lists without entering the emitted recursive ABI path.
   Non-recursive top-level `def` declarations that close over top-level bindings
   are call-site inlined; recursive `def` declarations can still capture immutable
   static top-level values, builtin aliases, static lambda values, and immutable

@@ -1397,6 +1397,64 @@ fn builds_native_executable_for_recursive_function_static_top_level_capture() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_folded_recursive_list_function() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-recursive-static-list-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-recursive-static-list-{unique}"));
+    fs::write(
+        &source_path,
+        "def sum(xs: List<Int>): Int = if(isEmpty(xs)) 0 else head(xs) + sum(tail(xs))\n\
+def joinLoop(xs: List<String>): String = if(isEmpty(xs)) \"\" else head(xs) + joinLoop(tail(xs))\n\
+println(sum([1, 2, 3, 4]))\n\
+println(joinLoop([\"a\", \"b\", \"c\"]))\n\
+assertResult(10)(sum([1, 2, 3, 4]))\n\
+assertResult(\"abc\")(joinLoop([\"a\", \"b\", \"c\"]))\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "recursive static list function build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "recursive static list function run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "10\nabc\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_recursive_function_builtin_alias_capture() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

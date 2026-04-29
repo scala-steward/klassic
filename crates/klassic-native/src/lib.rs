@@ -2967,16 +2967,16 @@ impl NativeCodeGenerator {
             .get(name)
             .expect("function existence was checked")
             .clone();
+        if !function.contains_thread_call
+            && let Some(value) = self.static_function_call_value(&function, arguments)
+        {
+            return Ok(self.emit_static_value(&value));
+        }
         if function.unsupported_recursive_inline {
             return Err(unsupported(
                 span,
                 "native recursive function requiring call-site inlining",
             ));
-        }
-        if !function.contains_thread_call
-            && let Some(value) = self.static_function_call_value(&function, arguments)
-        {
-            return Ok(self.emit_static_value(&value));
         }
         if function.inline_at_call_site {
             return self.compile_inline_function_call(&function, arguments, span);

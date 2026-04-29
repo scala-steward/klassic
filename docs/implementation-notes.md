@@ -535,6 +535,8 @@ define one. Promoted future-feature programs and the checked-in typeclass
 examples are also native-built and executed by the Rust integration tests.
 Recursive functions that still require call-site inlining, such as recursive
 functions with unsupported flexible native parameter or return representations,
+are first given a chance to fold when all call arguments are static, so pure
+recursive helpers over static lists can still compile. Calls that cannot fold
 are rejected with a normal compile diagnostic instead of recursively inlining
 until the compiler stack overflows.
 Unsupported constructs fail with compile diagnostics; they do not silently fall

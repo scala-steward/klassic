@@ -213,7 +213,9 @@ the module layout is described in `docs/architecture-rust.md`.
   operands through the dynamic replacement emitter.
 - Static `repeat` accepts runtime integer counts through the dynamic repeat
   emitter.
-- Recursive functions that still need unsupported call-site inlining are
+- Recursive functions that still need unsupported call-site inlining are first
+  given a chance to fold when all call arguments are static, so pure recursive
+  helpers over static lists can still compile. Calls that cannot fold are
   rejected with a compile diagnostic instead of recursively inlining until the
   compiler stack overflows.
 - `FileOutput#write` / `FileOutput#append` can write fixed-buffer runtime
