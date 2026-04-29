@@ -87,7 +87,7 @@ The repository contains a Rust-native language implementation with:
   string concatenation over runtime native values into runtime strings,
   list/map/set-literal equality / `assertResult` over runtime native values
   and static collection bindings,
-  immutable runtime list-literal bindings with display, equality, and basic list-helper support,
+  immutable runtime list-literal bindings with display, equality, list-helper, `map`, and `foldLeft` support,
   list-literal `foreach` and scalar/string/line-list/record-accumulator `foldLeft` over runtime native values,
   map-literal `Map#get` / `.get` returning runtime native values from static or runtime keys,
   direct or method-style static-list `head` lookups including `tail` and

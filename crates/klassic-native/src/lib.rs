@@ -3984,6 +3984,10 @@ impl NativeCodeGenerator {
                 mapper,
                 span,
             ),
+            NativeValue::RuntimeList { label } => {
+                let elements = self.runtime_list_elements(label).unwrap_or_default();
+                self.compile_compiled_literal_values_map(elements, mapper, span, "runtime list")
+            }
             _ => Err(unsupported(span, "native map for non-static list")),
         }
     }
@@ -4002,23 +4006,38 @@ impl NativeCodeGenerator {
         }
 
         let elements = self.compile_literal_values(elements)?;
+        Ok(Some(self.compile_compiled_literal_values_map(
+            elements,
+            mapper,
+            span,
+            "list literal runtime values",
+        )?))
+    }
+
+    fn compile_compiled_literal_values_map(
+        &mut self,
+        elements: Vec<CompiledLiteralValue>,
+        mapper: &Expr,
+        span: Span,
+        context: &str,
+    ) -> Result<NativeValue, Diagnostic> {
         let mapper = self.compile_runtime_line_lambda(
             mapper,
             1,
             span,
-            "native map over list literal runtime values for non-lambda mapper",
-            "native map over list literal runtime values for this mapper arity",
+            &format!("native map over {context} for non-lambda mapper"),
+            &format!("native map over {context} for this mapper arity"),
         )?;
         if mapper.contains_thread_call {
             return Err(unsupported(
                 span,
-                "native map over list literal runtime values with thread mapper",
+                &format!("native map over {context} with thread mapper"),
             ));
         }
         let [param] = mapper.params.as_slice() else {
             return Err(unsupported(
                 span,
-                "native map over list literal runtime values for this mapper arity",
+                &format!("native map over {context} for this mapper arity"),
             ));
         };
 
@@ -4035,28 +4054,28 @@ impl NativeCodeGenerator {
             let Some(mapped) = self.native_string_ref(mapped) else {
                 return Err(unsupported(
                     span,
-                    "native map over list literal runtime values for non-string mapper result",
+                    &format!("native map over {context} for non-string mapper result"),
                 ));
             };
             self.emit_append_newline_separator_to_runtime_buffer_offset_label(
                 output,
                 output_offset,
                 span,
-                "map list-literal result exceeds 65536 bytes",
+                "map result exceeds 65536 bytes",
             );
             self.emit_append_native_string_to_runtime_buffer_offset_label(
                 output,
                 output_offset,
                 mapped,
                 span,
-                "map list-literal result exceeds 65536 bytes",
+                "map result exceeds 65536 bytes",
             );
         }
         self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
-        Ok(Some(NativeValue::RuntimeLinesList {
+        Ok(NativeValue::RuntimeLinesList {
             data: output,
             len: output_len,
-        }))
+        })
     }
 
     fn compile_runtime_lines_map(
@@ -4393,6 +4412,16 @@ impl NativeCodeGenerator {
                 reducer,
                 span,
             ),
+            NativeValue::RuntimeList { label } => {
+                let elements = self.runtime_list_elements(label).unwrap_or_default();
+                self.compile_compiled_literal_values_fold_left(
+                    elements,
+                    &initial_arguments[0],
+                    reducer,
+                    span,
+                    "runtime list",
+                )
+            }
             _ => Err(unsupported(span, "native foldLeft for non-static list")),
         }
     }
@@ -4411,6 +4440,24 @@ impl NativeCodeGenerator {
             return Ok(None);
         }
 
+        let elements = self.compile_literal_values(elements)?;
+        Ok(Some(self.compile_compiled_literal_values_fold_left(
+            elements,
+            initial,
+            reducer,
+            span,
+            "list literal runtime values",
+        )?))
+    }
+
+    fn compile_compiled_literal_values_fold_left(
+        &mut self,
+        elements: Vec<CompiledLiteralValue>,
+        initial: &Expr,
+        reducer: &Expr,
+        span: Span,
+        context: &str,
+    ) -> Result<NativeValue, Diagnostic> {
         enum LiteralFoldAccumulator {
             Scalar {
                 storage: DataLabel,
@@ -4429,14 +4476,13 @@ impl NativeCodeGenerator {
             },
         }
 
-        let elements = self.compile_literal_values(elements)?;
         let initial = self.compile_expr(initial)?;
         let accumulator = if let Some(output) = self.prepare_record_branch_output(initial, span)? {
             self.emit_copy_record_value_to_branch_output(
                 initial,
                 &output,
                 span,
-                "foldLeft list-literal record accumulator exceeds 65536 bytes",
+                "foldLeft record accumulator exceeds 65536 bytes",
             )?;
             LiteralFoldAccumulator::Record { output }
         } else if matches!(initial, NativeValue::Int | NativeValue::Bool) {
@@ -4453,28 +4499,27 @@ impl NativeCodeGenerator {
                 len,
                 initial,
                 span,
-                "foldLeft list-literal string accumulator exceeds 65536 bytes",
+                "foldLeft string accumulator exceeds 65536 bytes",
             );
             LiteralFoldAccumulator::String { data, len }
         } else if self.native_value_is_lines_list_compatible(initial) {
-            let initial = self.native_lines_ref_from_value(
-                initial,
-                span,
-                "foldLeft list-literal line-list accumulator",
-            )?;
+            let initial =
+                self.native_lines_ref_from_value(initial, span, "foldLeft line-list accumulator")?;
             let (data, len) = self.runtime_record_branch_string_buffer();
             self.emit_copy_native_string_to_runtime_string_buffer(
                 data,
                 len,
                 initial,
                 span,
-                "foldLeft list-literal line-list accumulator exceeds 65536 bytes",
+                "foldLeft line-list accumulator exceeds 65536 bytes",
             );
             LiteralFoldAccumulator::Lines { data, len }
         } else {
             return Err(unsupported(
                 span,
-                "native foldLeft over list literal runtime values for non-Int, non-Bool, non-String, non-List<String>, or non-record initial value",
+                &format!(
+                    "native foldLeft over {context} for non-Int, non-Bool, non-String, non-List<String>, or non-record initial value"
+                ),
             ));
         };
 
@@ -4482,19 +4527,19 @@ impl NativeCodeGenerator {
             reducer,
             2,
             span,
-            "native foldLeft over list literal runtime values for non-lambda reducer",
-            "native foldLeft over list literal runtime values for this reducer arity",
+            &format!("native foldLeft over {context} for non-lambda reducer"),
+            &format!("native foldLeft over {context} for this reducer arity"),
         )?;
         if reducer.contains_thread_call {
             return Err(unsupported(
                 span,
-                "native foldLeft over list literal runtime values with thread reducer",
+                &format!("native foldLeft over {context} with thread reducer"),
             ));
         }
         let [acc_param, element_param] = reducer.params.as_slice() else {
             return Err(unsupported(
                 span,
-                "native foldLeft over list literal runtime values for this reducer arity",
+                &format!("native foldLeft over {context} for this reducer arity"),
             ));
         };
 
@@ -4550,7 +4595,9 @@ impl NativeCodeGenerator {
                     if next_acc != *value_kind {
                         return Err(unsupported(
                             span,
-                            "native foldLeft over list literal runtime values for reducer result with different scalar type",
+                            &format!(
+                                "native foldLeft over {context} for reducer result with different scalar type"
+                            ),
                         ));
                     }
                     self.emit_store_rax_to_data_slot(*storage);
@@ -4560,14 +4607,16 @@ impl NativeCodeGenerator {
                         next_acc,
                         output,
                         span,
-                        "foldLeft list-literal record accumulator exceeds 65536 bytes",
+                        "foldLeft record accumulator exceeds 65536 bytes",
                     )?;
                 }
                 LiteralFoldAccumulator::String { data, len } => {
                     let Some(next_acc) = self.native_string_ref(next_acc) else {
                         return Err(unsupported(
                             span,
-                            "native foldLeft over list literal runtime values for non-string reducer result",
+                            &format!(
+                                "native foldLeft over {context} for non-string reducer result"
+                            ),
                         ));
                     };
                     self.emit_copy_native_string_to_runtime_string_buffer(
@@ -4575,27 +4624,27 @@ impl NativeCodeGenerator {
                         *len,
                         next_acc,
                         span,
-                        "foldLeft list-literal string accumulator exceeds 65536 bytes",
+                        "foldLeft string accumulator exceeds 65536 bytes",
                     );
                 }
                 LiteralFoldAccumulator::Lines { data, len } => {
                     let next_acc = self.native_lines_ref_from_value(
                         next_acc,
                         span,
-                        "foldLeft list-literal line-list accumulator",
+                        "foldLeft line-list accumulator",
                     )?;
                     self.emit_copy_native_string_to_runtime_string_buffer(
                         *data,
                         *len,
                         next_acc,
                         span,
-                        "foldLeft list-literal line-list accumulator exceeds 65536 bytes",
+                        "foldLeft line-list accumulator exceeds 65536 bytes",
                     );
                 }
             }
         }
 
-        Ok(Some(match accumulator {
+        Ok(match accumulator {
             LiteralFoldAccumulator::Scalar {
                 storage,
                 value_kind,
@@ -4613,7 +4662,7 @@ impl NativeCodeGenerator {
             LiteralFoldAccumulator::Lines { data, len } => {
                 NativeValue::RuntimeLinesList { data, len }
             }
-        }))
+        })
     }
 
     fn list_literal_has_runtime_values(&mut self, elements: &[Expr]) -> bool {
