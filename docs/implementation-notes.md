@@ -256,9 +256,11 @@ returns, assignments, and virtual file contents usable after a runtime branch
 while also allowing divergent native string and runtime line-list branch results
 to flow through shared fixed runtime buffers. Divergent static string-list
 branches can also merge with each other or with runtime line-list branches by
-materializing both sides into the same fixed line-list buffer, and structurally
-equivalent branch-local lambda values plus canonical builtin function values
-can merge. If
+materializing both sides into the same fixed line-list buffer. Fixed-shape
+runtime-list branches can also merge by copying compatible runtime-list or
+static-list values into shared per-element storage, including supported record
+fields that carry runtime-list values. Structurally equivalent branch-local
+lambda values plus canonical builtin function values can merge. If
 equivalent returned closures
 capture branch-local mutable slots, both branches must preserve the same stack
 depth; that preserved depth is carried past the join so later closure calls keep
@@ -362,6 +364,8 @@ through `head`, `tail`, `size`, `isEmpty`, `contains`, `cons`, `foreach`,
 `map`, `foldLeft`, `join`, and `FileOutput#writeLines`.
 Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
+Dynamic `if` joins can merge fixed-shape runtime-list values and record fields
+that carry them by copying each branch into shared runtime-list element storage.
 Mutable bindings can rebind runtime-list values in straight-line native code,
 including `cons` and `tail` chains.
 List literal `foldLeft` uses the same evaluated native values to reduce into

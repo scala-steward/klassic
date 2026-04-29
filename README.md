@@ -290,6 +290,9 @@ string concatenation, equality, `assertResult`, `head`, `tail`, `size`,
 `FileOutput#writeLines` support.
 Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
+Dynamic `if` branches can merge fixed-shape runtime-list results, including
+compatible static-list branches and record fields that carry runtime-list
+values.
 Mutable bindings can also rebind runtime-list values in straight-line native
 code.
 List literal `foldLeft` can reduce runtime native values into native scalar,

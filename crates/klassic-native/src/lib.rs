@@ -501,6 +501,7 @@ enum RuntimeRecordFieldBranchOutput {
     Static(StaticValue),
     RuntimeString { data: DataLabel, len: DataLabel },
     RuntimeLinesList { data: DataLabel, len: DataLabel },
+    RuntimeList { label: RuntimeListLabel },
     Scalar { value: NativeValue, slot: DataLabel },
     RuntimeRecord(RuntimeRecordBranchOutput),
 }
@@ -7421,6 +7422,307 @@ impl NativeCodeGenerator {
         )
     }
 
+    fn native_value_can_copy_to_runtime_list(value: NativeValue) -> bool {
+        matches!(value, NativeValue::RuntimeList { .. })
+            || Self::native_value_is_static_list_like(value)
+    }
+
+    fn prepare_native_list_branch_output(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+    ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
+        if !Self::native_value_can_copy_to_runtime_list(value) {
+            return Ok(None);
+        }
+        let elements = self.compiled_literal_values_from_list_native(
+            value,
+            span,
+            "native if runtime-list branch value",
+        )?;
+        self.prepare_runtime_list_branch_output_from_elements(&elements, span)
+            .map(Some)
+    }
+
+    fn prepare_runtime_list_branch_output(
+        &mut self,
+        label: RuntimeListLabel,
+        span: Span,
+    ) -> Result<RuntimeListLabel, Diagnostic> {
+        let elements = self
+            .runtime_list_elements(label)
+            .ok_or_else(|| unsupported(span, "native if runtime-list branch value"))?;
+        self.prepare_runtime_list_branch_output_from_elements(&elements, span)
+    }
+
+    fn prepare_runtime_list_branch_output_from_elements(
+        &mut self,
+        elements: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<RuntimeListLabel, Diagnostic> {
+        let output = elements
+            .iter()
+            .copied()
+            .map(|value| self.prepare_compiled_literal_branch_output(value, span))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self.intern_runtime_list(output))
+    }
+
+    fn prepare_compiled_literal_branch_output(
+        &mut self,
+        value: CompiledLiteralValue,
+        span: Span,
+    ) -> Result<CompiledLiteralValue, Diagnostic> {
+        match value {
+            CompiledLiteralValue::Scalar { value, .. } if matches!(value, NativeValue::Int) => {
+                Ok(CompiledLiteralValue::Scalar {
+                    value,
+                    slot: self.asm.data_label_with_i64s(&[0]),
+                })
+            }
+            CompiledLiteralValue::Scalar { value, .. } if matches!(value, NativeValue::Bool) => {
+                Ok(CompiledLiteralValue::Scalar {
+                    value,
+                    slot: self.asm.data_label_with_i64s(&[0]),
+                })
+            }
+            CompiledLiteralValue::Scalar { .. } => Err(unsupported(
+                span,
+                "native if runtime-list scalar branch value",
+            )),
+            CompiledLiteralValue::Native(value) => match value {
+                value if self.native_string_ref(value).is_some() => Ok(
+                    CompiledLiteralValue::Native(self.runtime_string_scratch_value()),
+                ),
+                NativeValue::RuntimeLinesList { .. } => Ok(CompiledLiteralValue::Native(
+                    self.runtime_lines_list_scratch_value(),
+                )),
+                NativeValue::RuntimeRecord { label } => {
+                    let output = self.prepare_runtime_record_branch_output(label, span)?;
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeRecord {
+                        label: output.label,
+                    }))
+                }
+                NativeValue::RuntimeList { label } => {
+                    let label = self.prepare_runtime_list_branch_output(label, span)?;
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeList {
+                        label,
+                    }))
+                }
+                value => Ok(CompiledLiteralValue::Native(value)),
+            },
+        }
+    }
+
+    fn compiled_literal_values_from_list_native(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+        context: &str,
+    ) -> Result<Vec<CompiledLiteralValue>, Diagnostic> {
+        match value {
+            NativeValue::RuntimeList { label } => self
+                .runtime_list_elements(label)
+                .ok_or_else(|| unsupported(span, context)),
+            value if Self::native_value_is_static_list_like(value) => {
+                let value = self
+                    .static_value_from_native(value)
+                    .ok_or_else(|| unsupported(span, context))?;
+                let values = self
+                    .static_list_values_from_value(&value)
+                    .ok_or_else(|| unsupported(span, context))?;
+                Ok(self.compile_static_literal_values(&values))
+            }
+            _ => Err(unsupported(span, context)),
+        }
+    }
+
+    fn emit_copy_native_list_to_runtime_list_output(
+        &mut self,
+        value: NativeValue,
+        output_label: RuntimeListLabel,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        let source = self.compiled_literal_values_from_list_native(
+            value,
+            span,
+            "native if runtime-list branch value",
+        )?;
+        let output = self
+            .runtime_list_elements(output_label)
+            .ok_or_else(|| unsupported(span, "native if runtime-list branch output"))?;
+        if source.len() != output.len() {
+            return Err(unsupported(
+                span,
+                "native if runtime-list branches with incompatible list lengths",
+            ));
+        }
+        for (source, output) in source.into_iter().zip(output.into_iter()) {
+            self.emit_copy_compiled_literal_value_to_branch_output(
+                source,
+                output,
+                span,
+                overflow_message,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn emit_copy_compiled_literal_value_to_branch_output(
+        &mut self,
+        source: CompiledLiteralValue,
+        output: CompiledLiteralValue,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        match output {
+            CompiledLiteralValue::Scalar {
+                value: output_value,
+                slot,
+            } => {
+                let source_value = self.emit_compiled_literal_scalar_to_rax(source, output_value);
+                if source_value == Some(output_value) {
+                    self.emit_store_rax_to_data_slot(slot);
+                    Ok(())
+                } else {
+                    Err(unsupported(
+                        span,
+                        "native if runtime-list branches with incompatible scalar elements",
+                    ))
+                }
+            }
+            CompiledLiteralValue::Native(output_value) => {
+                if self.native_string_ref(output_value).is_some() {
+                    let source_ref = self
+                        .compiled_literal_native_value(source)
+                        .and_then(|value| self.native_string_ref(value))
+                        .ok_or_else(|| {
+                            unsupported(
+                                span,
+                                "native if runtime-list branches with incompatible string elements",
+                            )
+                        })?;
+                    let NativeValue::RuntimeString { data, len } = output_value else {
+                        return self.emit_copy_static_compiled_literal_branch_value(
+                            source,
+                            output_value,
+                            span,
+                        );
+                    };
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        data,
+                        len,
+                        source_ref,
+                        span,
+                        overflow_message,
+                    );
+                    return Ok(());
+                }
+                match output_value {
+                    NativeValue::RuntimeLinesList { data, len } => {
+                        let source = self.compiled_literal_native_value(source).ok_or_else(|| {
+                            unsupported(
+                                span,
+                                "native if runtime-list branches with incompatible line-list elements",
+                            )
+                        })?;
+                        let input = self.native_lines_ref_from_value(
+                            source,
+                            span,
+                            "if runtime-list element",
+                        )?;
+                        self.emit_copy_native_string_to_runtime_string_buffer(
+                            data,
+                            len,
+                            input,
+                            span,
+                            overflow_message,
+                        );
+                        Ok(())
+                    }
+                    NativeValue::RuntimeRecord { label } => {
+                        let source = self.compiled_literal_native_value(source).ok_or_else(|| {
+                            unsupported(
+                                span,
+                                "native if runtime-list branches with incompatible record elements",
+                            )
+                        })?;
+                        let output =
+                            self.runtime_record_branch_output_from_existing(label, span)?;
+                        self.emit_copy_record_value_to_branch_output(
+                            source,
+                            &output,
+                            span,
+                            overflow_message,
+                        )
+                    }
+                    NativeValue::RuntimeList { label } => {
+                        let source = self.compiled_literal_native_value(source).ok_or_else(|| {
+                            unsupported(
+                                span,
+                                "native if runtime-list branches with incompatible list elements",
+                            )
+                        })?;
+                        self.emit_copy_native_list_to_runtime_list_output(
+                            source,
+                            label,
+                            span,
+                            overflow_message,
+                        )
+                    }
+                    expected => {
+                        self.emit_copy_static_compiled_literal_branch_value(source, expected, span)
+                    }
+                }
+            }
+        }
+    }
+
+    fn emit_compiled_literal_scalar_to_rax(
+        &mut self,
+        source: CompiledLiteralValue,
+        output_value: NativeValue,
+    ) -> Option<NativeValue> {
+        match source {
+            CompiledLiteralValue::Scalar { value, slot } if value == output_value => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                Some(value)
+            }
+            CompiledLiteralValue::Native(value) => self
+                .static_value_from_native(value)
+                .and_then(|value| Self::static_value_scalar_bits(&value, output_value))
+                .map(|bits| {
+                    self.asm.mov_imm64(Reg::Rax, bits);
+                    output_value
+                }),
+            _ => None,
+        }
+    }
+
+    fn emit_copy_static_compiled_literal_branch_value(
+        &mut self,
+        source: CompiledLiteralValue,
+        expected: NativeValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let source = self
+            .compiled_literal_static_value(source)
+            .ok_or_else(|| unsupported(span, "native if runtime-list branch static element"))?;
+        let expected = self
+            .static_value_from_native(expected)
+            .ok_or_else(|| unsupported(span, "native if runtime-list branch static element"))?;
+        if self.static_value_equal(&source, &expected) {
+            Ok(())
+        } else {
+            Err(unsupported(
+                span,
+                "native if runtime-list branches with incompatible static elements",
+            ))
+        }
+    }
+
     fn emit_runtime_list_equal_static_native(
         &mut self,
         runtime_label: RuntimeListLabel,
@@ -11814,6 +12116,9 @@ impl NativeCodeGenerator {
                     len: *len,
                 })
             }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeList { label }) => {
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeList { label: *label })
+            }
             RuntimeRecordField::Runtime(NativeValue::RuntimeRecord { label }) => {
                 Ok(RuntimeRecordFieldBranchOutput::RuntimeRecord(
                     self.runtime_record_branch_output_from_existing(*label, span)?,
@@ -11897,6 +12202,11 @@ impl NativeCodeGenerator {
                 NativeValue::RuntimeLinesList { .. } => {
                     let (data, len) = self.runtime_record_branch_string_buffer();
                     Ok(RuntimeRecordFieldBranchOutput::RuntimeLinesList { data, len })
+                }
+                NativeValue::RuntimeList { label } => {
+                    Ok(RuntimeRecordFieldBranchOutput::RuntimeList {
+                        label: self.prepare_runtime_list_branch_output(*label, span)?,
+                    })
                 }
                 NativeValue::RuntimeRecord { label } => {
                     Ok(RuntimeRecordFieldBranchOutput::RuntimeRecord(
@@ -11982,6 +12292,9 @@ impl NativeCodeGenerator {
                     data: *data,
                     len: *len,
                 })
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeList { label } => {
+                RuntimeRecordField::Runtime(NativeValue::RuntimeList { label: *label })
             }
             RuntimeRecordFieldBranchOutput::Scalar { value, slot } => RuntimeRecordField::Scalar {
                 value: *value,
@@ -12176,6 +12489,15 @@ impl NativeCodeGenerator {
                 );
                 Ok(())
             }
+            RuntimeRecordFieldBranchOutput::RuntimeList { label } => {
+                let value = self.emit_static_value(value);
+                self.emit_copy_native_list_to_runtime_list_output(
+                    value,
+                    *label,
+                    span,
+                    overflow_message,
+                )
+            }
             RuntimeRecordFieldBranchOutput::Scalar {
                 value: NativeValue::Int,
                 slot,
@@ -12248,6 +12570,13 @@ impl NativeCodeGenerator {
                 );
                 Ok(())
             }
+            RuntimeRecordFieldBranchOutput::RuntimeList { label } => self
+                .emit_copy_native_list_to_runtime_list_output(
+                    value,
+                    *label,
+                    span,
+                    overflow_message,
+                ),
             RuntimeRecordFieldBranchOutput::RuntimeRecord(record) => {
                 let NativeValue::RuntimeRecord { label } = value else {
                     return Err(unsupported(span, "native if record nested branch field"));
@@ -18180,12 +18509,28 @@ impl NativeCodeGenerator {
         } else {
             None
         };
+        let branch_runtime_list_output = if let Some(else_branch) = else_branch
+            && (self.expr_may_yield_runtime_list(then_branch)
+                || self.expr_may_yield_runtime_list(else_branch))
+        {
+            self.prepare_native_list_branch_output(then_value, span)?
+        } else {
+            None
+        };
         if let Some(output) = &branch_record_output {
             self.emit_copy_record_value_to_branch_output(
                 then_value,
                 output,
                 span,
                 "if record result exceeds 65536 bytes",
+            )?;
+        }
+        if let Some(output) = branch_runtime_list_output {
+            self.emit_copy_native_list_to_runtime_list_output(
+                then_value,
+                output,
+                span,
+                "if runtime-list result exceeds 65536 bytes",
             )?;
         }
         if let Some((data, len)) = branch_string_output
@@ -18248,6 +18593,16 @@ impl NativeCodeGenerator {
                 output,
                 span,
                 "if record result exceeds 65536 bytes",
+            )?;
+        }
+        if let Some(output) = branch_runtime_list_output
+            && !matches!(else_value, NativeValue::Unit)
+        {
+            self.emit_copy_native_list_to_runtime_list_output(
+                else_value,
+                output,
+                span,
+                "if runtime-list result exceeds 65536 bytes",
             )?;
         }
         if let Some((data, len)) = branch_string_output
@@ -18328,6 +18683,8 @@ impl NativeCodeGenerator {
         } else if matches!(then_value, NativeValue::Unit) || matches!(else_value, NativeValue::Unit)
         {
             Ok(NativeValue::Unit)
+        } else if let Some(output) = branch_runtime_list_output {
+            Ok(NativeValue::RuntimeList { label: output })
         } else if let Some(output) = branch_record_output {
             Ok(NativeValue::RuntimeRecord {
                 label: output.label,
