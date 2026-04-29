@@ -8635,6 +8635,111 @@ assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_literal_display_fragments() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-literal-display-{unique}.kl"
+    ));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-literal-display-path-{unique}.txt"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-literal-display-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-literal-display-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r##"val path = FileInput#all("{}")
+val runtime = FileInput#all(path)
+mutable hits = 0
+val listText = toString([{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}])
+val listInterpolated = "list=#{{[{{ hits += 1; runtime }}, {{ hits += 1; \"tail\" }}]}}"
+val listConcat = "list=" + [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val mapText = toString(%[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}])
+val mapInterpolated = "map=#{{%[{{ hits += 1; runtime }}: {{ hits += 1; \"value\" }}]}}"
+val mapConcat = "map=" + %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}]
+val setText = toString(%({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}))
+val setInterpolated = "set=#{{%({{ hits += 1; runtime }}, {{ hits += 1; \"tail\" }}, {{ hits += 1; runtime }})}}"
+val setConcat = "set=" + %({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }})
+println(listText)
+println(listInterpolated)
+println(listConcat)
+println(mapText)
+println(mapInterpolated)
+println(mapConcat)
+println(setText)
+println(setInterpolated)
+println(setConcat)
+println(%[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}])
+println(%({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}))
+println(hits)
+assertResult("[a\nb, tail]")(listText)
+assertResult("list=[a\nb, tail]")(listInterpolated)
+assertResult("list=[a\nb, tail]")(listConcat)
+assertResult("%[a\nb: value]")(mapText)
+assertResult("map=%[a\nb: value]")(mapInterpolated)
+assertResult("map=%[a\nb: value]")(mapConcat)
+assertResult("%(a\nb, tail)")(setText)
+assertResult("set=%(a\nb, tail)")(setInterpolated)
+assertResult("set=%(a\nb, tail)")(setConcat)
+assertResult(26)(hits)
+"##,
+            path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime literal display build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "a\nb").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime literal display run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[a\nb, tail]\nlist=[a\nb, tail]\nlist=[a\nb, tail]\n%[a\nb: value]\nmap=%[a\nb: value]\nmap=%[a\nb: value]\n%(a\nb, tail)\nset=%(a\nb, tail)\nset=%(a\nb, tail)\n%[a\nb: value]\n%(a\nb, tail)\n26\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

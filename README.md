@@ -276,8 +276,10 @@ List literal `map` can unroll runtime native values into runtime line-list
 results when the mapper returns strings.
 List literal `join` can likewise join runtime string elements into a runtime
 string without materializing a first-class runtime list.
-List literal display / `toString` can render evaluated runtime native values
-into a runtime string for supported element types.
+List/map/set literal display / `toString` can render evaluated runtime native
+values into runtime strings for supported element, key, and value types, and
+the same path is available through printing, interpolation, and string
+concatenation.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime

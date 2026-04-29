@@ -4499,6 +4499,19 @@ impl NativeCodeGenerator {
         has_runtime
     }
 
+    fn map_literal_has_runtime_values(&mut self, entries: &[(Expr, Expr)]) -> bool {
+        let before_static_scopes = self.static_scopes.clone();
+        let has_runtime = entries.iter().any(|(key, value)| {
+            self.preview_static_value_after_effectful_eval(key)
+                .is_none()
+                || self
+                    .preview_static_value_after_effectful_eval(value)
+                    .is_none()
+        });
+        self.static_scopes = before_static_scopes;
+        has_runtime
+    }
+
     fn compile_runtime_lines_fold_left(
         &mut self,
         input: NativeStringRef,
@@ -4975,7 +4988,7 @@ impl NativeCodeGenerator {
         match name {
             "toString" => {
                 self.expect_static_arity(name, arguments, 1, span)?;
-                if let Some(value) = self.compile_list_literal_display_runtime_string(
+                if let Some(value) = self.compile_collection_literal_display_runtime_string(
                     &arguments[0],
                     span,
                     "toString result exceeds 65536 bytes",
@@ -5703,6 +5716,26 @@ impl NativeCodeGenerator {
         }))
     }
 
+    fn compile_collection_literal_display_runtime_string(
+        &mut self,
+        collection: &Expr,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        match collection {
+            Expr::ListLiteral { .. } => {
+                self.compile_list_literal_display_runtime_string(collection, span, overflow_message)
+            }
+            Expr::MapLiteral { .. } => {
+                self.compile_map_literal_display_runtime_string(collection, span, overflow_message)
+            }
+            Expr::SetLiteral { .. } => {
+                self.compile_set_literal_display_runtime_string(collection, span, overflow_message)
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn compile_list_literal_display_runtime_string(
         &mut self,
         list: &Expr,
@@ -5740,6 +5773,155 @@ impl NativeCodeGenerator {
             );
         }
         self.emit_append_text_to_runtime_buffer(output, output_offset, "]", span, overflow_message);
+        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
+        Ok(Some(NativeValue::RuntimeString {
+            data: output,
+            len: output_len,
+        }))
+    }
+
+    fn compile_map_literal_display_runtime_string(
+        &mut self,
+        map: &Expr,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return Ok(None);
+        };
+        if !self.map_literal_has_runtime_values(entries) {
+            return Ok(None);
+        }
+
+        let entries = entries
+            .iter()
+            .map(|(key, value)| {
+                Ok((
+                    self.compile_literal_value(key)?,
+                    self.compile_literal_value(value)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let (output, output_len) = self.runtime_record_branch_string_buffer();
+        let output_offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(output_offset);
+        self.emit_append_text_to_runtime_buffer(
+            output,
+            output_offset,
+            "%[",
+            span,
+            overflow_message,
+        );
+        for (index, (key, value)) in entries.into_iter().enumerate() {
+            if index > 0 {
+                self.emit_append_text_to_runtime_buffer(
+                    output,
+                    output_offset,
+                    ", ",
+                    span,
+                    overflow_message,
+                );
+            }
+            self.emit_append_compiled_literal_display_to_runtime_buffer(
+                output,
+                output_offset,
+                key,
+                span,
+                overflow_message,
+            );
+            self.emit_append_text_to_runtime_buffer(
+                output,
+                output_offset,
+                ": ",
+                span,
+                overflow_message,
+            );
+            self.emit_append_compiled_literal_display_to_runtime_buffer(
+                output,
+                output_offset,
+                value,
+                span,
+                overflow_message,
+            );
+        }
+        self.emit_append_text_to_runtime_buffer(output, output_offset, "]", span, overflow_message);
+        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
+        Ok(Some(NativeValue::RuntimeString {
+            data: output,
+            len: output_len,
+        }))
+    }
+
+    fn compile_set_literal_display_runtime_string(
+        &mut self,
+        set: &Expr,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::SetLiteral { elements, .. } = set else {
+            return Ok(None);
+        };
+        if !self.list_literal_has_runtime_values(elements) {
+            return Ok(None);
+        }
+
+        let elements = self.compile_literal_values(elements)?;
+        let (output, output_len) = self.runtime_record_branch_string_buffer();
+        let output_offset = self.asm.data_label_with_i64s(&[0]);
+        let printed_count = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(output_offset);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.emit_store_rax_to_data_slot(printed_count);
+        self.emit_append_text_to_runtime_buffer(
+            output,
+            output_offset,
+            "%(",
+            span,
+            overflow_message,
+        );
+
+        for (index, element) in elements.iter().copied().enumerate() {
+            let duplicate = self.asm.create_text_label();
+            let append_value = self.asm.create_text_label();
+            let after_comma = self.asm.create_text_label();
+            let done = self.asm.create_text_label();
+            for previous in elements.iter().take(index).copied() {
+                self.emit_compiled_literal_values_equal(element, previous, span)?;
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, duplicate);
+            }
+
+            self.asm.mov_data_addr(Reg::R10, printed_count);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, append_value);
+            self.emit_append_text_to_runtime_buffer(
+                output,
+                output_offset,
+                ", ",
+                span,
+                overflow_message,
+            );
+            self.asm.jmp_label(after_comma);
+            self.asm.bind_text_label(append_value);
+            self.asm.bind_text_label(after_comma);
+            self.emit_append_compiled_literal_display_to_runtime_buffer(
+                output,
+                output_offset,
+                element,
+                span,
+                overflow_message,
+            );
+            self.asm.mov_data_addr(Reg::R10, printed_count);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+            self.asm.inc_reg(Reg::Rax);
+            self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+            self.asm.jmp_label(done);
+            self.asm.bind_text_label(duplicate);
+            self.asm.bind_text_label(done);
+        }
+
+        self.emit_append_text_to_runtime_buffer(output, output_offset, ")", span, overflow_message);
         self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
         Ok(Some(NativeValue::RuntimeString {
             data: output,
@@ -15843,6 +16025,15 @@ impl NativeCodeGenerator {
         expr: &Expr,
         span: Span,
     ) -> Result<NativeStringRef, Diagnostic> {
+        if let Some(value) = self.compile_collection_literal_display_runtime_string(
+            expr,
+            span,
+            "string concatenation result exceeds 65536 bytes",
+        )? {
+            return self
+                .native_string_ref(value)
+                .ok_or_else(|| unsupported(span, "native string concatenation"));
+        }
         let value = self.compile_expr(expr)?;
         if let Some(value) = self.native_string_ref(value) {
             return Ok(value);
@@ -16530,7 +16721,7 @@ impl NativeCodeGenerator {
     }
 
     fn static_interpolated_string_value(&mut self, value: &str) -> Option<String> {
-        self.static_interpolated_string_value_inner(value, &[], None)
+        self.static_interpolated_string_value_inner(value, &[], None, false)
     }
 
     fn static_interpolated_string_value_preserving_effects(
@@ -16538,7 +16729,8 @@ impl NativeCodeGenerator {
         value: &str,
         span: Span,
     ) -> Option<String> {
-        self.static_interpolated_string_value_inner(value, &[], Some(span))
+        self.static_interpolated_string_value_inner(value, &[], None, true)?;
+        self.static_interpolated_string_value_inner(value, &[], Some(span), false)
     }
 
     fn static_interpolated_string_value_with_bindings(
@@ -16546,7 +16738,7 @@ impl NativeCodeGenerator {
         value: &str,
         bindings: &[(&str, StaticValue)],
     ) -> Option<String> {
-        self.static_interpolated_string_value_inner(value, bindings, None)
+        self.static_interpolated_string_value_inner(value, bindings, None, false)
     }
 
     fn static_interpolated_string_value_inner(
@@ -16554,6 +16746,7 @@ impl NativeCodeGenerator {
         value: &str,
         bindings: &[(&str, StaticValue)],
         preserve_effects_span: Option<Span>,
+        preview_effects: bool,
     ) -> Option<String> {
         let mut result = String::new();
         let chars = value.chars().collect::<Vec<_>>();
@@ -16606,7 +16799,9 @@ impl NativeCodeGenerator {
                 let normalized = strip_dynamic_cast(expr.trim());
                 let parsed = parse_inline_expression("<interpolation>", &normalized).ok()?;
                 let parsed = rewrite_expression(parsed);
-                let value = if let Some(span) = preserve_effects_span
+                let value = if preview_effects && bindings.is_empty() {
+                    self.preview_static_value_after_effectful_eval(&parsed)?
+                } else if let Some(span) = preserve_effects_span
                     && bindings.is_empty()
                 {
                     self.static_value_from_argument_preserving_effects(
@@ -17498,10 +17693,10 @@ impl NativeCodeGenerator {
             return Ok(());
         }
 
-        if let Some(value) = self.compile_list_literal_display_runtime_string(
+        if let Some(value) = self.compile_collection_literal_display_runtime_string(
             expr,
             span,
-            "list-literal print result exceeds 65536 bytes",
+            "collection-literal print result exceeds 65536 bytes",
         )? {
             self.emit_print_value_fragment(fd, value);
             return Ok(());
@@ -17775,6 +17970,23 @@ impl NativeCodeGenerator {
                         Diagnostic::compile(span, "failed to parse interpolation expression")
                     })?;
                 let parsed = rewrite_expression(parsed);
+                if let Some(fragment) = self.compile_collection_literal_display_runtime_string(
+                    &parsed,
+                    span,
+                    "string interpolation result exceeds 65536 bytes",
+                )? {
+                    let Some(fragment) = self.native_string_ref(fragment) else {
+                        return Err(unsupported(span, "native string interpolation"));
+                    };
+                    self.emit_append_native_string_to_runtime_buffer_offset_label(
+                        data,
+                        offset,
+                        fragment,
+                        span,
+                        "string interpolation result exceeds 65536 bytes",
+                    );
+                    continue;
+                }
                 let fragment = self.compile_expr(&parsed)?;
                 if let Some(fragment) = self.native_string_ref(fragment) {
                     self.emit_append_native_string_to_runtime_buffer_offset_label(
