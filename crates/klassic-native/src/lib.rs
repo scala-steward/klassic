@@ -387,6 +387,7 @@ enum NativeValue {
     StaticIntList { label: DataLabel, len: usize },
     StaticList { label: ListLabel },
     StaticRecord { label: RecordLabel },
+    RuntimeRecord { label: RuntimeRecordLabel },
     StaticMap { label: MapLabel },
     StaticSet { label: SetLabel },
     StaticLambda { label: LambdaLabel },
@@ -450,6 +451,18 @@ enum StaticValue {
 struct StaticRecord {
     name: String,
     fields: Vec<(String, StaticValue)>,
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeRecord {
+    name: String,
+    fields: Vec<(String, RuntimeRecordField)>,
+}
+
+#[derive(Clone, Debug)]
+enum RuntimeRecordField {
+    Static(StaticValue),
+    Runtime(NativeValue),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -549,6 +562,7 @@ struct NativeCodeGenerator {
     record_schemas: HashMap<String, Vec<String>>,
     static_lists: Vec<StaticList>,
     static_records: Vec<StaticRecord>,
+    runtime_records: Vec<RuntimeRecord>,
     static_maps: Vec<StaticMap>,
     static_sets: Vec<StaticSet>,
     static_lambdas: Vec<StaticLambda>,
@@ -621,6 +635,7 @@ impl NativeCodeGenerator {
             record_schemas,
             static_lists: Vec::new(),
             static_records: Vec::new(),
+            runtime_records: Vec::new(),
             static_maps: Vec::new(),
             static_sets: Vec::new(),
             static_lambdas: Vec::new(),
@@ -1449,6 +1464,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
+                    | NativeValue::RuntimeRecord { .. }
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
@@ -1473,6 +1489,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
+                    | NativeValue::RuntimeRecord { .. }
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
@@ -3009,6 +3026,7 @@ impl NativeCodeGenerator {
             | NativeValue::StaticDouble { .. }
             | NativeValue::StaticIntList { .. }
             | NativeValue::StaticRecord { .. }
+            | NativeValue::RuntimeRecord { .. }
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
@@ -3210,6 +3228,7 @@ impl NativeCodeGenerator {
                 | NativeValue::StaticIntList { .. }
                 | NativeValue::StaticList { .. }
                 | NativeValue::StaticRecord { .. }
+                | NativeValue::RuntimeRecord { .. }
                 | NativeValue::StaticMap { .. }
                 | NativeValue::StaticSet { .. }
                 | NativeValue::StaticLambda { .. }
@@ -3316,6 +3335,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
+                    | NativeValue::RuntimeRecord { .. }
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
@@ -5360,6 +5380,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
+                    | NativeValue::RuntimeRecord { .. }
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
@@ -8772,17 +8793,26 @@ impl NativeCodeGenerator {
         fields: &[(String, Expr)],
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
-        let mut fields_out = Vec::with_capacity(fields.len());
+        let mut static_fields = Vec::with_capacity(fields.len());
+        let mut runtime_fields = Vec::with_capacity(fields.len());
+        let mut has_runtime_field = false;
         for (field, value) in fields {
-            let value = self.static_value_from_argument_preserving_effects(
-                value,
-                span,
-                "native record field with non-static value",
-            )?;
-            fields_out.push((field.clone(), value));
+            let value = self.compile_record_field_value(value, span)?;
+            if matches!(value, RuntimeRecordField::Runtime(_)) {
+                has_runtime_field = true;
+            }
+            if let RuntimeRecordField::Static(value) = &value {
+                static_fields.push((field.clone(), value.clone()));
+            }
+            runtime_fields.push((field.clone(), value));
         }
-        let label = self.intern_static_record(name.to_string(), fields_out);
-        Ok(NativeValue::StaticRecord { label })
+        if has_runtime_field {
+            let label = self.intern_runtime_record(name.to_string(), runtime_fields);
+            Ok(NativeValue::RuntimeRecord { label })
+        } else {
+            let label = self.intern_static_record(name.to_string(), static_fields);
+            Ok(NativeValue::StaticRecord { label })
+        }
     }
 
     fn compile_record_constructor(
@@ -8805,17 +8835,55 @@ impl NativeCodeGenerator {
                 ),
             ));
         }
-        let mut fields_out = Vec::with_capacity(fields.len());
+        let mut static_fields = Vec::with_capacity(fields.len());
+        let mut runtime_fields = Vec::with_capacity(fields.len());
+        let mut has_runtime_field = false;
         for (field, value) in fields.into_iter().zip(arguments.iter()) {
-            let value = self.static_value_from_argument_preserving_effects(
-                value,
-                span,
-                "native record field with non-static value",
-            )?;
-            fields_out.push((field, value));
+            let value = self.compile_record_field_value(value, span)?;
+            if matches!(value, RuntimeRecordField::Runtime(_)) {
+                has_runtime_field = true;
+            }
+            if let RuntimeRecordField::Static(value) = &value {
+                static_fields.push((field.clone(), value.clone()));
+            }
+            runtime_fields.push((field, value));
         }
-        let label = self.intern_static_record(name.to_string(), fields_out);
-        Ok(NativeValue::StaticRecord { label })
+        if has_runtime_field {
+            let label = self.intern_runtime_record(name.to_string(), runtime_fields);
+            Ok(NativeValue::RuntimeRecord { label })
+        } else {
+            let label = self.intern_static_record(name.to_string(), static_fields);
+            Ok(NativeValue::StaticRecord { label })
+        }
+    }
+
+    fn compile_record_field_value(
+        &mut self,
+        expr: &Expr,
+        span: Span,
+    ) -> Result<RuntimeRecordField, Diagnostic> {
+        if let Some(value) = self.static_value_from_pure_expr(expr) {
+            return Ok(RuntimeRecordField::Static(value));
+        }
+
+        let before_static_scopes = self.static_scopes.clone();
+        let compiled = self.compile_expr(expr)?;
+        let after_static_scopes = self.static_scopes.clone();
+        if let Some(value) = self.static_value_from_native(compiled) {
+            return Ok(RuntimeRecordField::Static(value));
+        }
+        if runtime_record_field_value_is_supported(compiled) {
+            return Ok(RuntimeRecordField::Runtime(compiled));
+        }
+
+        self.static_scopes = before_static_scopes;
+        let value = self
+            .static_result_after_effectful_eval(expr, &[])
+            .or_else(|| self.static_value_from_expr(expr));
+        self.static_scopes = after_static_scopes;
+        value
+            .map(RuntimeRecordField::Static)
+            .ok_or_else(|| unsupported(span, "native record field with this value type"))
     }
 
     fn compile_field_access(
@@ -8825,16 +8893,19 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         let target = self.compile_expr(target)?;
-        let NativeValue::StaticRecord { label } = target else {
-            return Err(unsupported(
-                span,
-                "native field access for non-static record",
-            ));
+        let value = match target {
+            NativeValue::StaticRecord { label } => self
+                .static_record_field(label, field)
+                .map(RuntimeRecordField::Static),
+            NativeValue::RuntimeRecord { label } => self.runtime_record_field(label, field),
+            _ => None,
         };
-        let value = self
-            .static_record_field(label, field)
-            .ok_or_else(|| Diagnostic::compile(span, format!("record has no field `{field}`")))?;
-        Ok(self.emit_static_value(&value))
+        match value
+            .ok_or_else(|| Diagnostic::compile(span, format!("record has no field `{field}`")))?
+        {
+            RuntimeRecordField::Static(value) => Ok(self.emit_static_value(&value)),
+            RuntimeRecordField::Runtime(value) => Ok(value),
+        }
     }
 
     fn static_value_from_expr(&mut self, expr: &Expr) -> Option<StaticValue> {
@@ -9474,6 +9545,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
+                    | NativeValue::RuntimeRecord { .. }
                     | NativeValue::StaticMap { .. }
                     | NativeValue::StaticSet { .. }
                     | NativeValue::StaticLambda { .. }
@@ -10569,6 +10641,7 @@ impl NativeCodeGenerator {
             | NativeValue::Bool
             | NativeValue::RuntimeString { .. }
             | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeRecord { .. }
             | NativeValue::RuntimeMapCallableDispatch(_) => None,
         }
     }
@@ -11360,6 +11433,16 @@ impl NativeCodeGenerator {
         label
     }
 
+    fn intern_runtime_record(
+        &mut self,
+        name: String,
+        fields: Vec<(String, RuntimeRecordField)>,
+    ) -> RuntimeRecordLabel {
+        let label = RuntimeRecordLabel(self.runtime_records.len());
+        self.runtime_records.push(RuntimeRecord { name, fields });
+        label
+    }
+
     fn intern_static_list(&mut self, elements: Vec<StaticValue>) -> ListLabel {
         let label = ListLabel(self.static_lists.len());
         self.static_lists.push(StaticList { elements });
@@ -11567,6 +11650,18 @@ impl NativeCodeGenerator {
                         .fields
                         .iter()
                         .any(|(_, value)| self.static_value_captures_current_scope(value))
+                })
+            }
+            NativeValue::RuntimeRecord { label } => {
+                self.runtime_records.get(label.0).is_some_and(|record| {
+                    record.fields.iter().any(|(_, value)| match value {
+                        RuntimeRecordField::Static(value) => {
+                            self.static_value_captures_current_scope(value)
+                        }
+                        RuntimeRecordField::Runtime(value) => {
+                            self.native_value_captures_current_scope(*value)
+                        }
+                    })
                 })
             }
             NativeValue::StaticMap { label } => self.static_maps.get(label.0).is_some_and(|map| {
@@ -11871,6 +11966,19 @@ impl NativeCodeGenerator {
 
     fn static_record_field(&self, label: RecordLabel, field: &str) -> Option<StaticValue> {
         self.static_records
+            .get(label.0)?
+            .fields
+            .iter()
+            .find(|(name, _)| name == field)
+            .map(|(_, value)| value.clone())
+    }
+
+    fn runtime_record_field(
+        &self,
+        label: RuntimeRecordLabel,
+        field: &str,
+    ) -> Option<RuntimeRecordField> {
+        self.runtime_records
             .get(label.0)?
             .fields
             .iter()
@@ -14187,6 +14295,7 @@ impl NativeCodeGenerator {
             | NativeValue::StaticIntList { .. }
             | NativeValue::StaticList { .. }
             | NativeValue::StaticRecord { .. }
+            | NativeValue::RuntimeRecord { .. }
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
@@ -14624,6 +14733,9 @@ impl NativeCodeGenerator {
             }
             NativeValue::StaticRecord { label } => {
                 self.emit_print_static_record(fd, label);
+            }
+            NativeValue::RuntimeRecord { label } => {
+                self.emit_print_runtime_record(fd, label);
             }
             NativeValue::StaticMap { label } => {
                 self.emit_print_static_map(fd, label);
@@ -16065,6 +16177,33 @@ impl NativeCodeGenerator {
             }
             let value = self.emit_static_value(value);
             self.emit_print_value_fragment(fd, value);
+        }
+        self.emit_write_data(fd, self.paren_close, 1);
+    }
+
+    fn emit_print_runtime_record(&mut self, fd: u64, label: RuntimeRecordLabel) {
+        let Some(record) = self.runtime_records.get(label.0).cloned() else {
+            return;
+        };
+        self.emit_write_data(fd, self.hash, 1);
+        if !record.name.is_empty() {
+            let name = self.asm.data_label_with_bytes(record.name.as_bytes());
+            self.emit_write_data(fd, name, record.name.len());
+        }
+        self.emit_write_data(fd, self.paren_open, 1);
+        for (index, (_, value)) in record.fields.iter().enumerate() {
+            if index > 0 {
+                self.emit_write_data(fd, self.comma_space, 2);
+            }
+            match value {
+                RuntimeRecordField::Static(value) => {
+                    let value = self.emit_static_value(value);
+                    self.emit_print_value_fragment(fd, value);
+                }
+                RuntimeRecordField::Runtime(value) => {
+                    self.emit_print_value_fragment(fd, *value);
+                }
+            }
         }
         self.emit_write_data(fd, self.paren_close, 1);
     }
@@ -18402,6 +18541,7 @@ impl NativeCodeGenerator {
             | NativeValue::StaticIntList { .. }
             | NativeValue::StaticList { .. }
             | NativeValue::StaticRecord { .. }
+            | NativeValue::RuntimeRecord { .. }
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
@@ -18595,6 +18735,16 @@ fn native_value_can_be_static_mutable(value: NativeValue) -> bool {
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
             | NativeValue::BuiltinFunction { .. }
+    )
+}
+
+fn runtime_record_field_value_is_supported(value: NativeValue) -> bool {
+    matches!(
+        value,
+        NativeValue::RuntimeString { .. }
+            | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeRecord { .. }
+            | NativeValue::RuntimeMapCallableDispatch(_)
     )
 }
 
@@ -19931,6 +20081,9 @@ struct ListLabel(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct RecordLabel(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct RuntimeRecordLabel(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct MapLabel(usize);

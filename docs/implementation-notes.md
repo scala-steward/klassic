@@ -56,8 +56,9 @@ fragments with mutable block prefixes when their final values remain recoverable
 fixed-buffer `RuntimeString` interpolation when fragments include native runtime
 strings or dynamic native `Int` / `Boolean` values,
 compile-time folded static string helpers including `split` / `join`, static
-string concatenation for immutable values and static record fields, runtime
-string concatenation that formats dynamic native `Int` / `Boolean` operands,
+string concatenation for immutable values, static record fields, and runtime
+`String` / `List<String>` record fields, runtime string concatenation that
+formats dynamic native `Int` / `Boolean` operands,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
 and method-style `parts.size()`, runtime-key `Map#get` selection from static maps
 when the key is a runtime string/int/bool and the selected values are strings,
@@ -298,7 +299,9 @@ static integer lists, and Int-list `foldLeft` can now fall back to the generic
 static reducer path for list-building reducers such as `e #cons acc`. Static nominal and
 structural records whose fields are static native values now support native
 construction, field selection, printing, static lambda method fields, and
-`assertResult` equality. Static map
+`assertResult` equality. Record literals and constructors can also carry
+fixed-buffer runtime `String` / `List<String>` fields for field selection and
+printing. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,

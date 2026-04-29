@@ -8255,6 +8255,92 @@ fn builds_native_executable_for_static_records_and_field_access() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_record_fields() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-record-{unique}.kl"));
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-record-{unique}.txt"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-runtime-record-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r#"record Box {{
+  text: String
+  lines: List<String>
+}}
+val literal = record {{
+  text: FileInput#all("{}"),
+  lines: FileInput#lines("{}"),
+  label: "ok"
+}}
+val constructed = #Box(FileInput#all("{}"), FileInput#lines("{}"))
+println(literal.text)
+println(join(literal.lines, "|"))
+println(literal.label)
+println(constructed.text)
+println(join(constructed.lines, ":"))
+println(constructed)
+assertResult("a\nb")(literal.text)
+assertResult(["a", "b"])(literal.lines)
+assertResult("ok")(literal.label)
+assertResult("a\nb")(constructed.text)
+assertResult(["a", "b"])(constructed.lines)
+"#,
+            input_path.display(),
+            input_path.display(),
+            input_path.display(),
+            input_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime record build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&input_path, "a\nb").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime record run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "a\nb\na|b\nok\na\nb\na:b\n#Box(a\nb, [a, b])\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
