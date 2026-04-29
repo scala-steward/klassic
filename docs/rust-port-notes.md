@@ -141,6 +141,8 @@ the module layout is described in `docs/architecture-rust.md`.
   runtime line-list results when the mapper returns strings.
 - List literal `join` can unroll over compiled runtime string values into a
   runtime string result.
+- List literal display / `toString` can render compiled runtime native values
+  into a runtime string for supported element types.
 - List literal `foldLeft` can reduce compiled runtime native values into
   supported scalar, string, line-list, or record accumulators.
 - Function value aliases, static record fields, runtime `String` /

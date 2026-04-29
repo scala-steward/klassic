@@ -83,6 +83,7 @@ The repository contains a Rust-native language implementation with:
   literal list/map/set `size` and list/map/set `isEmpty` selectors preserving effects,
   list-literal `map` over runtime native values into runtime line-list results,
   list-literal `join` over runtime string values into runtime string results,
+  list-literal display / `toString` over runtime native values into runtime strings,
   list-literal `foreach` and scalar/string/line-list/record-accumulator `foldLeft` over runtime native values,
   map-literal `Map#get` / `.get` returning runtime native values from static or runtime keys,
   direct or method-style static-list `head` lookups including `tail` and

@@ -8530,6 +8530,7 @@ val foldedLines = foldLeft([{{ hits += 1; substring(runtimeBox.text, 0, 1) }}, {
 val literalTail = tail([{{ hits += 1; runtimeBox.text }}, {{ hits += 1; "tail" }}])
 val mappedTexts = map([{{ hits += 1; substring(runtimeBox.text, 0, 1) }}, {{ hits += 1; "tail" }}])((text) => text + "!")
 val joinedLiteral = join([{{ hits += 1; substring(runtimeBox.text, 0, 1) }}, {{ hits += 1; "tail" }}], "|")
+val literalDisplay = toString([{{ hits += 1; runtimeBox.text }}, {{ hits += 1; "tail" }}])
 println(listHit)
 println(listMiss)
 println(setHit)
@@ -8553,6 +8554,8 @@ println(join(foldedLines, "|"))
 println(join(literalTail, "|"))
 println(join(mappedTexts, "|"))
 println(joinedLiteral)
+println(literalDisplay)
+println([{{ hits += 1; substring(runtimeBox.text, 0, 1) }}, {{ hits += 1; "tail" }}])
 println(pickedRuntimeBox.count)
 println(pickedRuntimeBox.ok)
 println(pickedRuntimeBox.text)
@@ -8567,7 +8570,7 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(46)(hits)
+assertResult(50)(hits)
 assertResult(2)(foreachHits)
 assertResult(2)(setRuntimeSize)
 assertResult(35)(foreachScore)
@@ -8578,6 +8581,7 @@ assertResult(["z", "a"])(foldedLines)
 assertResult(["tail"])(literalTail)
 assertResult(["a!", "tail!"])(mappedTexts)
 assertResult("a|tail")(joinedLiteral)
+assertResult("[a\nb, tail]")(literalDisplay)
 assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
 "##,
             path_holder.display()
@@ -8624,7 +8628,7 @@ assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n2\ntrue\nfalse\n46\n35\n8\n8\nfalse\na\nbother\na\nb!\nz|a\ntail\na!|tail!\na|tail\n3\ntrue\na\nb\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n2\ntrue\nfalse\n48\n35\n8\n8\nfalse\na\nbother\na\nb!\nz|a\ntail\na!|tail!\na|tail\n[a\nb, tail]\n[a, tail]\n3\ntrue\na\nb\n"
     );
     assert!(run.stderr.is_empty());
 }

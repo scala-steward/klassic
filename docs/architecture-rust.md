@@ -315,6 +315,8 @@ cargo run -- -e "1 + 2"
   line-list results when the mapper returns strings.
   List literal `join` can join runtime string values into a runtime string on
   the same evaluated-elements path.
+  List literal display / `toString` can render supported runtime native values
+  into a runtime string.
   List literal `foldLeft` can reduce those values into native scalar, string,
   line-list, or record accumulators.
   Map literal `Map#get` / `.get` can select runtime native values from static or

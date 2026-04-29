@@ -4975,6 +4975,13 @@ impl NativeCodeGenerator {
         match name {
             "toString" => {
                 self.expect_static_arity(name, arguments, 1, span)?;
+                if let Some(value) = self.compile_list_literal_display_runtime_string(
+                    &arguments[0],
+                    span,
+                    "toString result exceeds 65536 bytes",
+                )? {
+                    return Ok(value);
+                }
                 if self.expr_may_yield_runtime_string(&arguments[0]) {
                     let input = self.compile_expr(&arguments[0])?;
                     if self.native_string_ref(input).is_some() {
@@ -5694,6 +5701,96 @@ impl NativeCodeGenerator {
             data: output,
             len: output_len,
         }))
+    }
+
+    fn compile_list_literal_display_runtime_string(
+        &mut self,
+        list: &Expr,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = list else {
+            return Ok(None);
+        };
+        if !self.list_literal_has_runtime_values(elements) {
+            return Ok(None);
+        }
+
+        let elements = self.compile_literal_values(elements)?;
+        let (output, output_len) = self.runtime_record_branch_string_buffer();
+        let output_offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(output_offset);
+        self.emit_append_text_to_runtime_buffer(output, output_offset, "[", span, overflow_message);
+        for (index, element) in elements.into_iter().enumerate() {
+            if index > 0 {
+                self.emit_append_text_to_runtime_buffer(
+                    output,
+                    output_offset,
+                    ", ",
+                    span,
+                    overflow_message,
+                );
+            }
+            self.emit_append_compiled_literal_display_to_runtime_buffer(
+                output,
+                output_offset,
+                element,
+                span,
+                overflow_message,
+            );
+        }
+        self.emit_append_text_to_runtime_buffer(output, output_offset, "]", span, overflow_message);
+        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
+        Ok(Some(NativeValue::RuntimeString {
+            data: output,
+            len: output_len,
+        }))
+    }
+
+    fn emit_append_compiled_literal_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        value: CompiledLiteralValue,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        match value {
+            CompiledLiteralValue::Native(value) => {
+                self.emit_append_native_value_display_to_runtime_buffer(
+                    data,
+                    offset,
+                    value,
+                    span,
+                    overflow_message,
+                );
+            }
+            CompiledLiteralValue::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                match value {
+                    NativeValue::Int => self.emit_append_i64_rax_to_runtime_buffer_offset_label(
+                        data,
+                        offset,
+                        span,
+                        overflow_message,
+                    ),
+                    NativeValue::Bool => self.emit_append_bool_rax_to_runtime_buffer_offset_label(
+                        data,
+                        offset,
+                        span,
+                        overflow_message,
+                    ),
+                    _ => self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        "null",
+                        span,
+                        overflow_message,
+                    ),
+                }
+            }
+        }
     }
 
     fn emit_static_string_list_join_runtime_delimiter(
@@ -17398,6 +17495,15 @@ impl NativeCodeGenerator {
         {
             self.emit_print_expr_fragment(fd, lhs, span)?;
             self.emit_print_expr_fragment(fd, rhs, span)?;
+            return Ok(());
+        }
+
+        if let Some(value) = self.compile_list_literal_display_runtime_string(
+            expr,
+            span,
+            "list-literal print result exceeds 65536 bytes",
+        )? {
+            self.emit_print_value_fragment(fd, value);
             return Ok(());
         }
 
