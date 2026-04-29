@@ -384,6 +384,7 @@ enum NativeValue {
     StaticString { label: DataLabel, len: usize },
     RuntimeString { data: DataLabel, len: DataLabel },
     RuntimeLinesList { data: DataLabel, len: DataLabel },
+    RuntimeList { label: RuntimeListLabel },
     StaticIntList { label: DataLabel, len: usize },
     StaticList { label: ListLabel },
     StaticRecord { label: RecordLabel },
@@ -475,6 +476,11 @@ struct NativeRecordFieldSchema {
 struct RuntimeRecord {
     name: String,
     fields: Vec<(String, RuntimeRecordField)>,
+}
+
+#[derive(Clone, Debug)]
+struct RuntimeList {
+    elements: Vec<CompiledLiteralValue>,
 }
 
 #[derive(Clone, Debug)]
@@ -604,6 +610,7 @@ struct NativeCodeGenerator {
     instance_methods: Vec<NativeInstanceMethod>,
     record_schemas: HashMap<String, Vec<NativeRecordFieldSchema>>,
     static_lists: Vec<StaticList>,
+    runtime_lists: Vec<RuntimeList>,
     static_records: Vec<StaticRecord>,
     runtime_records: Vec<RuntimeRecord>,
     static_maps: Vec<StaticMap>,
@@ -689,6 +696,7 @@ impl NativeCodeGenerator {
             instance_methods: Vec::new(),
             record_schemas,
             static_lists: Vec::new(),
+            runtime_lists: Vec::new(),
             static_records: Vec::new(),
             runtime_records: Vec::new(),
             static_maps: Vec::new(),
@@ -1422,6 +1430,8 @@ impl NativeCodeGenerator {
                         label,
                         len: values.len(),
                     })
+                } else if self.list_literal_needs_runtime_binding(elements) {
+                    self.compile_runtime_list_literal(elements, *span)
                 } else {
                     let elements = self.static_values_from_arguments_preserving_effects(
                         elements,
@@ -1655,6 +1665,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticString { .. }
                     | NativeValue::RuntimeString { .. }
                     | NativeValue::RuntimeLinesList { .. }
+                    | NativeValue::RuntimeList { .. }
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
@@ -1680,6 +1691,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticString { .. }
                     | NativeValue::RuntimeString { .. }
                     | NativeValue::RuntimeLinesList { .. }
+                    | NativeValue::RuntimeList { .. }
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
@@ -1975,6 +1987,33 @@ impl NativeCodeGenerator {
                 self.asm.movzx_rax_al();
             }
             return Ok(NativeValue::Bool);
+        }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && let NativeValue::RuntimeList { label } = lhs_value
+        {
+            let rhs_value = self.compile_expr(rhs)?;
+            self.emit_runtime_list_equal_native(label, rhs_value, span)?;
+            if op == BinaryOp::NotEqual {
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.setcc_al(Condition::Equal);
+                self.asm.movzx_rax_al();
+            }
+            return Ok(NativeValue::Bool);
+        }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && Self::native_value_is_static_list_like(lhs_value)
+            && self.expr_may_yield_runtime_list(rhs)
+        {
+            let rhs_value = self.compile_expr(rhs)?;
+            if let NativeValue::RuntimeList { label } = rhs_value {
+                self.emit_runtime_list_equal_static_native(label, lhs_value, span)?;
+                if op == BinaryOp::NotEqual {
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.setcc_al(Condition::Equal);
+                    self.asm.movzx_rax_al();
+                }
+                return Ok(NativeValue::Bool);
+            }
         }
         if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
             && let NativeValue::StaticList { label } = lhs_value
@@ -3355,7 +3394,6 @@ impl NativeCodeGenerator {
             }
             NativeValue::StaticFloat { .. }
             | NativeValue::StaticDouble { .. }
-            | NativeValue::StaticIntList { .. }
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
@@ -3363,6 +3401,28 @@ impl NativeCodeGenerator {
             | NativeValue::Null
             | NativeValue::Unit => {
                 let actual = self.compile_expr(&actual_arguments[0])?;
+                let Some(equal) = self.static_values_equal_user(expected, actual) else {
+                    return Err(unsupported(
+                        span,
+                        "native assertResult for values with different types",
+                    ));
+                };
+                if !equal {
+                    self.emit_assert_result_failed_static_native(span, expected, actual);
+                }
+                Ok(NativeValue::Unit)
+            }
+            expected @ NativeValue::StaticIntList { .. } => {
+                let actual = self.compile_expr(&actual_arguments[0])?;
+                if let NativeValue::RuntimeList { label } = actual {
+                    self.emit_runtime_list_equal_static_native(label, expected, span)?;
+                    let ok = self.asm.create_text_label();
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.jcc_label(Condition::NotEqual, ok);
+                    self.emit_runtime_error(span, "assertResult failed");
+                    self.asm.bind_text_label(ok);
+                    return Ok(NativeValue::Unit);
+                }
                 let Some(equal) = self.static_values_equal_user(expected, actual) else {
                     return Err(unsupported(
                         span,
@@ -3430,6 +3490,22 @@ impl NativeCodeGenerator {
             }
             NativeValue::StaticList { label } => {
                 let actual = self.compile_expr(&actual_arguments[0])?;
+                if let NativeValue::RuntimeList {
+                    label: actual_label,
+                } = actual
+                {
+                    self.emit_runtime_list_equal_static_native(
+                        actual_label,
+                        NativeValue::StaticList { label },
+                        span,
+                    )?;
+                    let ok = self.asm.create_text_label();
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.jcc_label(Condition::NotEqual, ok);
+                    self.emit_runtime_error(span, "assertResult failed");
+                    self.asm.bind_text_label(ok);
+                    return Ok(NativeValue::Unit);
+                }
                 if let NativeValue::RuntimeLinesList { data, len } = actual {
                     self.emit_runtime_lines_equal_static_list(
                         NativeStringRef {
@@ -3461,6 +3537,16 @@ impl NativeCodeGenerator {
                         actual,
                     );
                 }
+                Ok(NativeValue::Unit)
+            }
+            NativeValue::RuntimeList { label } => {
+                let actual = self.compile_expr(&actual_arguments[0])?;
+                self.emit_runtime_list_equal_native(label, actual, span)?;
+                let ok = self.asm.create_text_label();
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, ok);
+                self.emit_runtime_error(span, "assertResult failed");
+                self.asm.bind_text_label(ok);
                 Ok(NativeValue::Unit)
             }
             function @ NativeValue::BuiltinFunction { .. } => {
@@ -3608,6 +3694,7 @@ impl NativeCodeGenerator {
                 | NativeValue::StaticString { .. }
                 | NativeValue::RuntimeString { .. }
                 | NativeValue::RuntimeLinesList { .. }
+                | NativeValue::RuntimeList { .. }
                 | NativeValue::StaticIntList { .. }
                 | NativeValue::StaticList { .. }
                 | NativeValue::StaticRecord { .. }
@@ -3721,6 +3808,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticString { .. }
                     | NativeValue::RuntimeString { .. }
                     | NativeValue::RuntimeLinesList { .. }
+                    | NativeValue::RuntimeList { .. }
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
@@ -4524,6 +4612,23 @@ impl NativeCodeGenerator {
         });
         self.static_scopes = before_static_scopes;
         has_runtime
+    }
+
+    fn list_literal_needs_runtime_binding(&mut self, elements: &[Expr]) -> bool {
+        let before_static_scopes = self.static_scopes.clone();
+        let mut needs_runtime = false;
+        for element in elements {
+            if self
+                .preview_static_value_after_effectful_eval(element)
+                .is_none()
+                && self.expr_may_yield_runtime_list_element(element)
+            {
+                needs_runtime = true;
+                break;
+            }
+        }
+        self.static_scopes = before_static_scopes;
+        needs_runtime
     }
 
     fn map_literal_has_runtime_values(&mut self, entries: &[(Expr, Expr)]) -> bool {
@@ -6002,6 +6107,57 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn emit_runtime_list_display_runtime_string(
+        &mut self,
+        label: RuntimeListLabel,
+        span: Span,
+        overflow_message: &str,
+    ) -> NativeValue {
+        let output = self.runtime_string_scratch_value();
+        let NativeValue::RuntimeString { data, len } = output else {
+            unreachable!("runtime string scratch should be a runtime string")
+        };
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(offset);
+        self.emit_append_runtime_list_display_to_runtime_buffer(
+            data,
+            offset,
+            label,
+            span,
+            overflow_message,
+        );
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        output
+    }
+
+    fn emit_append_runtime_list_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        label: RuntimeListLabel,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let Some(elements) = self.runtime_list_elements(label) else {
+            self.emit_append_text_to_runtime_buffer(data, offset, "[]", span, overflow_message);
+            return;
+        };
+        self.emit_append_text_to_runtime_buffer(data, offset, "[", span, overflow_message);
+        for (index, element) in elements.into_iter().enumerate() {
+            if index > 0 {
+                self.emit_append_text_to_runtime_buffer(data, offset, ", ", span, overflow_message);
+            }
+            self.emit_append_compiled_literal_display_to_runtime_buffer(
+                data,
+                offset,
+                element,
+                span,
+                overflow_message,
+            );
+        }
+        self.emit_append_text_to_runtime_buffer(data, offset, "]", span, overflow_message);
+    }
+
     fn emit_static_string_list_join_runtime_delimiter(
         &mut self,
         elements: Vec<StaticValue>,
@@ -6545,6 +6701,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticString { .. }
                     | NativeValue::RuntimeString { .. }
                     | NativeValue::RuntimeLinesList { .. }
+                    | NativeValue::RuntimeList { .. }
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
@@ -6739,6 +6896,86 @@ impl NativeCodeGenerator {
             .iter()
             .map(|element| self.compile_literal_value(element))
             .collect()
+    }
+
+    fn compile_runtime_list_literal(
+        &mut self,
+        elements: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let elements = self
+            .compile_literal_values(elements)?
+            .into_iter()
+            .map(|value| {
+                self.stabilize_runtime_list_literal_value(
+                    value,
+                    span,
+                    "runtime list binding exceeds 65536 bytes",
+                )
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let label = self.intern_runtime_list(elements);
+        Ok(NativeValue::RuntimeList { label })
+    }
+
+    fn stabilize_runtime_list_literal_value(
+        &mut self,
+        value: CompiledLiteralValue,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<CompiledLiteralValue, Diagnostic> {
+        let CompiledLiteralValue::Native(value) = value else {
+            return Ok(value);
+        };
+        match value {
+            NativeValue::RuntimeString { .. } => {
+                let input = self
+                    .native_string_ref(value)
+                    .expect("runtime string should expose string ref");
+                let (data, len) = self.runtime_record_branch_string_buffer();
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    data,
+                    len,
+                    input,
+                    span,
+                    overflow_message,
+                );
+                Ok(CompiledLiteralValue::Native(NativeValue::RuntimeString {
+                    data,
+                    len,
+                }))
+            }
+            NativeValue::RuntimeLinesList { .. } => {
+                let input = self.native_lines_ref_from_value(value, span, "runtime list value")?;
+                let (data, len) = self.runtime_record_branch_string_buffer();
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    data,
+                    len,
+                    input,
+                    span,
+                    overflow_message,
+                );
+                Ok(CompiledLiteralValue::Native(
+                    NativeValue::RuntimeLinesList { data, len },
+                ))
+            }
+            NativeValue::RuntimeRecord { label } => {
+                let value = NativeValue::RuntimeRecord { label };
+                let output = self
+                    .prepare_record_branch_output(value, span)?
+                    .expect("runtime record should prepare record output");
+                self.emit_copy_record_value_to_branch_output(
+                    value,
+                    &output,
+                    span,
+                    overflow_message,
+                )?;
+                Ok(CompiledLiteralValue::Native(NativeValue::RuntimeRecord {
+                    label: output.label,
+                }))
+            }
+            _ => Ok(CompiledLiteralValue::Native(value)),
+        }
     }
 
     fn compile_map_literal_entry_values(
@@ -7000,6 +7237,65 @@ impl NativeCodeGenerator {
             CompiledLiteralValue::Scalar { value, slot }
         } else {
             CompiledLiteralValue::Native(value)
+        }
+    }
+
+    fn runtime_list_elements(&self, label: RuntimeListLabel) -> Option<Vec<CompiledLiteralValue>> {
+        self.runtime_lists
+            .get(label.0)
+            .map(|list| list.elements.clone())
+    }
+
+    fn native_value_is_static_list_like(value: NativeValue) -> bool {
+        matches!(
+            value,
+            NativeValue::StaticIntList { .. } | NativeValue::StaticList { .. }
+        )
+    }
+
+    fn emit_runtime_list_equal_static_native(
+        &mut self,
+        runtime_label: RuntimeListLabel,
+        static_value: NativeValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Some(static_value) = self.static_value_from_native(static_value) else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        };
+        let Some(expected) = self.compile_static_list_literal_values(&static_value) else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        };
+        let actual = self
+            .runtime_list_elements(runtime_label)
+            .unwrap_or_default();
+        self.emit_compiled_literal_sequence_equality(&actual, &expected, span)
+    }
+
+    fn emit_runtime_list_equal_native(
+        &mut self,
+        runtime_label: RuntimeListLabel,
+        actual: NativeValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match actual {
+            NativeValue::RuntimeList {
+                label: actual_label,
+            } => {
+                let expected = self
+                    .runtime_list_elements(runtime_label)
+                    .unwrap_or_default();
+                let actual = self.runtime_list_elements(actual_label).unwrap_or_default();
+                self.emit_compiled_literal_sequence_equality(&expected, &actual, span)
+            }
+            value if Self::native_value_is_static_list_like(value) => {
+                self.emit_runtime_list_equal_static_native(runtime_label, value, span)
+            }
+            _ => Err(unsupported(
+                span,
+                "native equality for runtime list and this value type",
+            )),
         }
     }
 
@@ -9281,6 +9577,13 @@ impl NativeCodeGenerator {
         }
         if let NativeValue::RuntimeRecord { label } = value {
             return Ok(self.emit_runtime_record_display_runtime_string(
+                label,
+                span,
+                "toString result exceeds 65536 bytes",
+            ));
+        }
+        if let NativeValue::RuntimeList { label } = value {
+            return Ok(self.emit_runtime_list_display_runtime_string(
                 label,
                 span,
                 "toString result exceeds 65536 bytes",
@@ -12614,6 +12917,7 @@ impl NativeCodeGenerator {
                     | NativeValue::StaticString { .. }
                     | NativeValue::RuntimeString { .. }
                     | NativeValue::RuntimeLinesList { .. }
+                    | NativeValue::RuntimeList { .. }
                     | NativeValue::StaticIntList { .. }
                     | NativeValue::StaticList { .. }
                     | NativeValue::StaticRecord { .. }
@@ -13713,6 +14017,7 @@ impl NativeCodeGenerator {
             | NativeValue::Bool
             | NativeValue::RuntimeString { .. }
             | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeList { .. }
             | NativeValue::RuntimeRecord { .. }
             | NativeValue::RuntimeMapCallableDispatch(_) => None,
         }
@@ -14287,6 +14592,15 @@ impl NativeCodeGenerator {
                     overflow_message,
                 );
             }
+            NativeValue::RuntimeList { label } => {
+                self.emit_append_runtime_list_display_to_runtime_buffer(
+                    data,
+                    offset,
+                    label,
+                    span,
+                    overflow_message,
+                );
+            }
             NativeValue::RuntimeMapCallableDispatch(label) => {
                 self.emit_append_runtime_map_callable_dispatch_display_to_runtime_buffer(
                     data,
@@ -14719,6 +15033,12 @@ impl NativeCodeGenerator {
         label
     }
 
+    fn intern_runtime_list(&mut self, elements: Vec<CompiledLiteralValue>) -> RuntimeListLabel {
+        let label = RuntimeListLabel(self.runtime_lists.len());
+        self.runtime_lists.push(RuntimeList { elements });
+        label
+    }
+
     fn intern_static_map(&mut self, entries: Vec<(StaticValue, StaticValue)>) -> MapLabel {
         let label = MapLabel(self.static_maps.len());
         self.static_maps.push(StaticMap { entries });
@@ -14932,6 +15252,16 @@ impl NativeCodeGenerator {
                             self.native_value_captures_current_scope(*value)
                         }
                         RuntimeRecordField::Scalar { .. } => false,
+                    })
+                })
+            }
+            NativeValue::RuntimeList { label } => {
+                self.runtime_lists.get(label.0).is_some_and(|list| {
+                    list.elements.iter().any(|value| match value {
+                        CompiledLiteralValue::Native(value) => {
+                            self.native_value_captures_current_scope(*value)
+                        }
+                        CompiledLiteralValue::Scalar { .. } => false,
                     })
                 })
             }
@@ -16515,6 +16845,16 @@ impl NativeCodeGenerator {
                 .native_string_ref(rendered)
                 .ok_or_else(|| unsupported(span, "native string concatenation"));
         }
+        if let NativeValue::RuntimeList { label } = value {
+            let rendered = self.emit_runtime_list_display_runtime_string(
+                label,
+                span,
+                "string concatenation result exceeds 65536 bytes",
+            );
+            return self
+                .native_string_ref(rendered)
+                .ok_or_else(|| unsupported(span, "native string concatenation"));
+        }
         if let Some(static_value) = self.static_value_from_native(value) {
             if self.static_value_has_conditional_builtin_display(&static_value) {
                 let rendered = self.emit_static_value_display_runtime_string(&static_value, span);
@@ -16538,6 +16878,155 @@ impl NativeCodeGenerator {
 
     fn expr_may_yield_native_lines_list(&mut self, expr: &Expr) -> bool {
         self.expr_may_yield_runtime_lines_list(expr) || self.expr_may_yield_static_string_list(expr)
+    }
+
+    fn expr_may_yield_runtime_list(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Identifier { name, .. } => self
+                .lookup_var(name)
+                .is_some_and(|slot| matches!(slot.value, NativeValue::RuntimeList { .. })),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .is_some_and(|expr| self.expr_may_yield_runtime_list(expr)),
+            Expr::Cleanup { body, .. } => self.expr_may_yield_runtime_list(body),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_may_yield_runtime_list(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|branch| self.expr_may_yield_runtime_list(branch))
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_may_yield_runtime_list_element(&self, expr: &Expr) -> bool {
+        self.expr_may_yield_runtime_string(expr)
+            || self.expr_may_yield_runtime_lines_list(expr)
+            || self.expr_may_yield_runtime_list(expr)
+            || self.expr_may_yield_runtime_record(expr)
+            || self.expr_may_yield_runtime_scalar(expr)
+    }
+
+    fn expr_may_yield_runtime_record(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr),
+            Some(NativeValue::RuntimeRecord { .. })
+        ) {
+            return true;
+        }
+        match expr {
+            Expr::Identifier { name, .. } => matches!(
+                self.lookup_var(name).map(|slot| slot.value),
+                Some(NativeValue::RuntimeRecord { .. })
+            ),
+            Expr::RecordLiteral { .. } | Expr::RecordConstructor { .. } => true,
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .is_some_and(|expr| self.expr_may_yield_runtime_record(expr)),
+            Expr::Cleanup { body, .. } => self.expr_may_yield_runtime_record(body),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_may_yield_runtime_record(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|branch| self.expr_may_yield_runtime_record(branch))
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_may_yield_runtime_scalar(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr)
+                .or_else(|| native_value_hint_from_expr(expr)),
+            Some(NativeValue::Int | NativeValue::Bool | NativeValue::Null | NativeValue::Unit)
+        ) {
+            return true;
+        }
+        match expr {
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .is_some_and(|expr| self.expr_may_yield_runtime_scalar(expr)),
+            Expr::Cleanup { body, .. } => self.expr_may_yield_runtime_scalar(body),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_may_yield_runtime_scalar(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|branch| self.expr_may_yield_runtime_scalar(branch))
+            }
+            Expr::Call { callee, .. } => self.scalar_call_return_hint(callee).is_some(),
+            _ => false,
+        }
+    }
+
+    fn scalar_call_return_hint(&self, callee: &Expr) -> Option<NativeValue> {
+        match callee {
+            Expr::Identifier { name, .. } => {
+                Self::builtin_scalar_return_hint(&self.builtin_name_for_identifier(name))
+            }
+            Expr::FieldAccess { field, .. } => Self::builtin_scalar_return_hint(field),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|expr| self.scalar_call_return_hint(expr)),
+            Expr::Cleanup { body, .. } => self.scalar_call_return_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let then_value = self.scalar_call_return_hint(then_branch)?;
+                let else_value = self.scalar_call_return_hint(else_branch)?;
+                (then_value == else_value).then_some(then_value)
+            }
+            callee => self.callee_return_value_hint(callee).and_then(|value| {
+                matches!(
+                    value,
+                    NativeValue::Int | NativeValue::Bool | NativeValue::Null | NativeValue::Unit
+                )
+                .then_some(value)
+            }),
+        }
+    }
+
+    fn builtin_scalar_return_hint(name: &str) -> Option<NativeValue> {
+        match name {
+            "length" | "indexOf" | "lastIndexOf" | "size" | "Map#size" | "Set#size" => {
+                Some(NativeValue::Int)
+            }
+            "isEmptyString" | "startsWith" | "endsWith" | "contains" | "Set#contains"
+            | "Map#containsKey" | "containsKey" | "Map#containsValue" | "containsValue"
+            | "matches" | "isEmpty" | "Map#isEmpty" | "Set#isEmpty" | "FileOutput#exists"
+            | "Environment#exists" | "Dir#exists" | "Dir#isDirectory" | "Dir#isFile" => {
+                Some(NativeValue::Bool)
+            }
+            "println"
+            | "printlnError"
+            | "assert"
+            | "sleep"
+            | "thread"
+            | "FileOutput#write"
+            | "FileOutput#append"
+            | "FileOutput#writeLines"
+            | "FileOutput#delete"
+            | "Dir#mkdir"
+            | "Dir#mkdirs"
+            | "Dir#delete"
+            | "Dir#copy"
+            | "Dir#move"
+            | "Process#exit" => Some(NativeValue::Unit),
+            _ => None,
+        }
     }
 
     fn expr_may_yield_static_string(&mut self, expr: &Expr) -> bool {
@@ -18078,6 +18567,7 @@ impl NativeCodeGenerator {
             | NativeValue::StaticString { .. }
             | NativeValue::RuntimeString { .. }
             | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeList { .. }
             | NativeValue::StaticIntList { .. }
             | NativeValue::StaticList { .. }
             | NativeValue::StaticRecord { .. }
@@ -18459,6 +18949,14 @@ impl NativeCodeGenerator {
                         span,
                         "string interpolation result exceeds 65536 bytes",
                     );
+                } else if let NativeValue::RuntimeList { label } = fragment {
+                    self.emit_append_runtime_list_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        label,
+                        span,
+                        "string interpolation result exceeds 65536 bytes",
+                    );
                 } else if let Some(static_value) = self.static_value_from_native(fragment) {
                     if self.static_value_has_conditional_builtin_display(&static_value) {
                         self.emit_append_static_value_display_to_runtime_buffer(
@@ -18545,6 +19043,9 @@ impl NativeCodeGenerator {
                     },
                 );
             }
+            NativeValue::RuntimeList { label } => {
+                self.emit_print_runtime_list(fd, label);
+            }
             NativeValue::StaticIntList { label, len } => {
                 self.emit_print_static_int_list(fd, label, len);
             }
@@ -18574,6 +19075,29 @@ impl NativeCodeGenerator {
             }
             NativeValue::RuntimeMapCallableDispatch(label) => {
                 self.emit_print_runtime_map_callable_dispatch(fd, label);
+            }
+        }
+    }
+
+    fn emit_print_runtime_list(&mut self, fd: u64, label: RuntimeListLabel) {
+        let elements = self.runtime_list_elements(label).unwrap_or_default();
+        self.emit_write_data(fd, self.list_open, 1);
+        for (index, element) in elements.into_iter().enumerate() {
+            if index > 0 {
+                self.emit_write_data(fd, self.comma_space, 2);
+            }
+            self.emit_print_compiled_literal_value_fragment(fd, element);
+        }
+        self.emit_write_data(fd, self.list_close, 1);
+    }
+
+    fn emit_print_compiled_literal_value_fragment(&mut self, fd: u64, value: CompiledLiteralValue) {
+        match value {
+            CompiledLiteralValue::Native(value) => self.emit_print_value_fragment(fd, value),
+            CompiledLiteralValue::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                self.emit_print_value_fragment(fd, value);
             }
         }
     }
@@ -22375,6 +22899,7 @@ impl NativeCodeGenerator {
             | NativeValue::StaticString { .. }
             | NativeValue::RuntimeString { .. }
             | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeList { .. }
             | NativeValue::StaticIntList { .. }
             | NativeValue::StaticList { .. }
             | NativeValue::StaticRecord { .. }
@@ -23915,6 +24440,9 @@ struct DataLabel(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct ListLabel(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct RuntimeListLabel(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct RecordLabel(usize);

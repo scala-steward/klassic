@@ -354,6 +354,10 @@ the same formatter feeds printing, interpolation, and string concatenation.
 List/map/set literal equality and `assertResult` reuse the evaluated literal
 slots to compare runtime native elements, keys, and values against compatible
 literal expectations or static collection bindings.
+Immutable runtime list literal bindings store the same evaluated slots behind a
+runtime-list label after copying runtime string, line-list, and record elements
+into list-owned buffers. The native path can then print or render those runtime
+lists and compare them with compatible static or runtime lists.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
