@@ -115,8 +115,8 @@ lists can compile, including helpers that build static lists with `cons` and
 helpers that take static callable arguments, without entering the emitted
 recursive ABI path.
 Recursive functions can also capture immutable top-level runtime strings,
-line lists, fixed-shape runtime lists, and runtime records by rebinding their
-existing fixed storage inside the emitted function frame.
+line lists, selected-length runtime lists, and runtime records by rebinding
+their existing fixed storage inside the emitted function frame.
 Function value aliases, static record fields, runtime `String` / `List<String>`,
 dynamic `Int` / `Boolean`, and nested runtime record fields, direct or method-style `head`
 lookups from static lists including `tail` and `cons` chains, and static

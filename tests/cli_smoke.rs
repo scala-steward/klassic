@@ -4207,7 +4207,7 @@ fn builds_native_executable_for_recursive_runtime_top_level_captures() {
     fs::write(
         &source_path,
         format!(
-            "val path = FileInput#all(\"{}\")\nval text = FileInput#all(path)\nval lines = FileInput#lines(path)\nval sizes = [length(text), lines.size()]\nval bag = record {{ sizes: sizes, first: lines.head() }}\ndef textLengthAfter(n: Int): Int = if(n == 0) length(text) else textLengthAfter(n - 1)\ndef lineCountAfter(n: Int): Int = if(n == 0) lines.size() else lineCountAfter(n - 1)\ndef firstLineLengthAfter(n: Int): Int = if(n == 0) length(lines.head()) else firstLineLengthAfter(n - 1)\ndef sizeSumAfter(n: Int): Int = if(n == 0) sizes.foldLeft(0, (acc, value) => acc + value) else sizeSumAfter(n - 1)\ndef bagFirstAfter(n: Int): String = if(n == 0) bag.first else bagFirstAfter(n - 1)\ndef bagHeadAfter(n: Int): Int = if(n == 0) head(bag.sizes) else bagHeadAfter(n - 1)\nprintln(textLengthAfter(2))\nprintln(lineCountAfter(3))\nprintln(firstLineLengthAfter(1))\nprintln(sizeSumAfter(1))\nprintln(bagFirstAfter(1))\nprintln(bagHeadAfter(1))\nassertResult(8)(textLengthAfter(2))\nassertResult(3)(lineCountAfter(3))\nassertResult(3)(firstLineLengthAfter(1))\nassertResult(11)(sizeSumAfter(1))\nassertResult(\"abc\")(bagFirstAfter(1))\nassertResult(8)(bagHeadAfter(1))\n",
+            "val path = FileInput#all(\"{}\")\nval text = FileInput#all(path)\nval lines = FileInput#lines(path)\nval sizes = [length(text), lines.size()]\nval variedKey = if(length(text) == 8) \"short\" else \"long\"\nval varied = Map#get(%[\n  \"short\": [length(text)],\n  \"long\": [length(text), lines.size()]\n], variedKey)\nval bag = record {{ sizes: sizes, first: lines.head() }}\ndef textLengthAfter(n: Int): Int = if(n == 0) length(text) else textLengthAfter(n - 1)\ndef lineCountAfter(n: Int): Int = if(n == 0) lines.size() else lineCountAfter(n - 1)\ndef firstLineLengthAfter(n: Int): Int = if(n == 0) length(lines.head()) else firstLineLengthAfter(n - 1)\ndef sizeSumAfter(n: Int): Int = if(n == 0) sizes.foldLeft(0, (acc, value) => acc + value) else sizeSumAfter(n - 1)\ndef variedSizeAfter(n: Int): Int = if(n == 0) varied.size() else variedSizeAfter(n - 1)\ndef variedSumAfter(n: Int): Int = if(n == 0) varied.foldLeft(0, (acc, value) => acc + value) else variedSumAfter(n - 1)\ndef bagFirstAfter(n: Int): String = if(n == 0) bag.first else bagFirstAfter(n - 1)\ndef bagHeadAfter(n: Int): Int = if(n == 0) head(bag.sizes) else bagHeadAfter(n - 1)\nprintln(textLengthAfter(2))\nprintln(lineCountAfter(3))\nprintln(firstLineLengthAfter(1))\nprintln(sizeSumAfter(1))\nprintln(variedSizeAfter(1))\nprintln(variedSumAfter(1))\nprintln(bagFirstAfter(1))\nprintln(bagHeadAfter(1))\nassertResult(8)(textLengthAfter(2))\nassertResult(3)(lineCountAfter(3))\nassertResult(3)(firstLineLengthAfter(1))\nassertResult(11)(sizeSumAfter(1))\nassertResult(1)(variedSizeAfter(1))\nassertResult(8)(variedSumAfter(1))\nassertResult(\"abc\")(bagFirstAfter(1))\nassertResult(8)(bagHeadAfter(1))\n",
             input_path_holder.display()
         ),
     )
@@ -4252,7 +4252,7 @@ fn builds_native_executable_for_recursive_runtime_top_level_captures() {
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "8\n3\n3\n11\nabc\n8\n"
+        "8\n3\n3\n11\n1\n8\nabc\n8\n"
     );
     assert!(run.stderr.is_empty());
 }
