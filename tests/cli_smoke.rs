@@ -8946,6 +8946,118 @@ assertResult(4)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_list_literal_binding_helpers() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-helpers-{unique}.kl"
+    ));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-helpers-path-{unique}.txt"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-helpers-{unique}.txt"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-helpers-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        format!(
+            r##"val path = FileInput#all("{}")
+val runtime = FileInput#all(path)
+mutable hits = 0
+val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val sizes = [{{ hits += 1; length(runtime) }}, 4]
+val flags = [{{ hits += 1; runtime == "a\nb" }}, false]
+println(head(xs))
+println(xs.head())
+println(head(tail(xs)))
+println(tail(xs))
+println(size(xs))
+println(xs.size())
+println(isEmpty(xs))
+println(tail(tail(xs)).isEmpty())
+println(xs.contains("tail"))
+println(contains(xs)(runtime))
+println(sizes.contains(4))
+println(contains(flags)(true))
+foreach(x in xs) {{
+  println("item=" + x)
+}}
+mutable total = 0
+foreach(n in sizes) {{
+  total += n
+}}
+println(total)
+println(hits)
+assertResult("a\nb")(head(xs))
+assertResult("tail")(head(tail(xs)))
+assertResult(["tail"])(tail(xs))
+assertResult(2)(size(xs))
+assertResult(2)(xs.size())
+assert(!isEmpty(xs))
+assert(tail(tail(xs)).isEmpty())
+assert(xs.contains("tail"))
+assert(contains(xs)(runtime))
+assert(sizes.contains(4))
+assert(contains(flags)(true))
+assertResult(7)(total)
+assertResult(4)(hits)
+"##,
+            path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime list binding helpers build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "a\nb").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime list binding helpers run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "a\nb\na\nb\ntail\n[tail]\n2\n2\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nitem=a\nb\nitem=tail\n7\n4\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

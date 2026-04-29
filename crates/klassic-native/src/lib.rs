@@ -2637,6 +2637,9 @@ impl NativeCodeGenerator {
                     return Ok(NativeValue::Int);
                 }
                 let len = match (name.as_str(), value) {
+                    ("size", NativeValue::RuntimeList { label }) => {
+                        self.runtime_list_len(label).unwrap_or_default()
+                    }
                     ("size", NativeValue::StaticIntList { len, .. }) => len,
                     ("size", NativeValue::StaticList { label }) => {
                         self.static_lists[label.0].elements.len()
@@ -2690,6 +2693,9 @@ impl NativeCodeGenerator {
                     return Ok(NativeValue::Bool);
                 }
                 let is_empty = match (name.as_str(), value) {
+                    ("isEmpty", NativeValue::RuntimeList { label }) => {
+                        self.runtime_list_len(label).unwrap_or_default() == 0
+                    }
                     ("isEmpty", NativeValue::StaticIntList { len, .. }) => len == 0,
                     ("isEmpty", NativeValue::StaticList { label }) => {
                         self.static_lists[label.0].elements.is_empty()
@@ -2749,6 +2755,12 @@ impl NativeCodeGenerator {
                             data,
                             len: NativeStringLen::Runtime(len),
                         })),
+                    NativeValue::RuntimeList { label } => {
+                        let elements = self.runtime_list_elements(label).unwrap_or_default();
+                        let label =
+                            self.intern_runtime_list(elements.into_iter().skip(1).collect());
+                        Ok(NativeValue::RuntimeList { label })
+                    }
                     _ => Err(unsupported(span, "native tail for non-static list")),
                 }
             }
@@ -5001,6 +5013,16 @@ impl NativeCodeGenerator {
                 };
                 Ok(self.emit_runtime_lines_head(input, span))
             }
+            NativeValue::RuntimeList { label } => {
+                let Some(value) = self
+                    .runtime_list_elements(label)
+                    .and_then(|elements| elements.first().copied())
+                else {
+                    self.emit_head_empty(span);
+                    return Ok(NativeValue::Unit);
+                };
+                Ok(self.emit_compiled_literal_value(value))
+            }
             _ => Err(unsupported(span, "native head for non-static list")),
         }
     }
@@ -6794,6 +6816,9 @@ impl NativeCodeGenerator {
             NativeValue::RuntimeLinesList { data, len } => {
                 self.compile_runtime_lines_contains_value(data, len, &arguments[1])
             }
+            NativeValue::RuntimeList { label } => {
+                self.compile_runtime_list_contains_value(label, &arguments[1], span)
+            }
             _ => Err(unsupported(
                 span,
                 "native contains for non-static string, list, or set",
@@ -6869,6 +6894,18 @@ impl NativeCodeGenerator {
             .iter()
             .any(|element| self.static_value_equal_user(element, &needle));
         self.asm.mov_imm64(Reg::Rax, u64::from(contains));
+        Ok(NativeValue::Bool)
+    }
+
+    fn compile_runtime_list_contains_value(
+        &mut self,
+        label: RuntimeListLabel,
+        needle: &Expr,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let elements = self.runtime_list_elements(label).unwrap_or_default();
+        let needle = self.compile_literal_value(needle)?;
+        self.emit_compiled_literal_membership(&elements, needle, span)?;
         Ok(NativeValue::Bool)
     }
 
@@ -7244,6 +7281,12 @@ impl NativeCodeGenerator {
         self.runtime_lists
             .get(label.0)
             .map(|list| list.elements.clone())
+    }
+
+    fn runtime_list_len(&self, label: RuntimeListLabel) -> Option<usize> {
+        self.runtime_lists
+            .get(label.0)
+            .map(|list| list.elements.len())
     }
 
     fn native_value_is_static_list_like(value: NativeValue) -> bool {
@@ -9092,6 +9135,9 @@ impl NativeCodeGenerator {
         match collection {
             NativeValue::RuntimeLinesList { data, len } => {
                 return self.compile_runtime_lines_contains_value(data, len, &value_arguments[0]);
+            }
+            NativeValue::RuntimeList { label } => {
+                return self.compile_runtime_list_contains_value(label, &value_arguments[0], span);
             }
             NativeValue::StaticString { .. } | NativeValue::RuntimeString { .. } => {
                 let input = self
@@ -18505,6 +18551,19 @@ impl NativeCodeGenerator {
                 self.static_scopes = saved_static_scopes;
                 for name in assigned_names {
                     self.remove_static_value(&name);
+                }
+            }
+            NativeValue::RuntimeList { label } => {
+                let elements = self.runtime_list_elements(label).unwrap_or_default();
+                for element in elements {
+                    self.push_scope();
+                    self.bind_compiled_literal_iteration_value(binding, element);
+                    self.compile_expr(body)?;
+                    if self.queued_threads_capture_current_scope() {
+                        self.pop_scope_preserving_allocations();
+                    } else {
+                        self.pop_scope();
+                    }
                 }
             }
             _ => return Err(unsupported(span, "native foreach over non-static list")),
