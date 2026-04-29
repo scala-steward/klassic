@@ -398,10 +398,12 @@ all booleans, all supported static records, all non-string static lists, all
 `null`, all `()`, or equivalent static values, including the same callable
 value. Non-string list values may have different static lengths; the selected
 length is copied into runtime-list storage, including nested record fields.
-Runtime misses fail with a source-located native diagnostic because the native
-path still has no dynamic tagged `null` value, but a runtime
-key whose type has no compatible static keys returns static `null`; all-`null`
-compatible values also return static `null` for both hits and misses. If the
+Runtime misses fail with a source-located native diagnostic when the selected
+value must be materialized because the native path still has no dynamic tagged
+`null` value, but direct `Map#get(...) == null` / `!= null` checks lower to
+key-match tests over static maps and map literals. A runtime key whose type has
+no compatible static keys returns static `null`; all-`null` compatible values
+also return static `null` for both hits and misses. If the
 compatible entries are all callable values, immediate calls through that lookup
 dispatch to the selected lambda or builtin branch and merge the same supported
 native return shapes; runtime string/int/bool-key lookups can also be bound to

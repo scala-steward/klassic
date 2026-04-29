@@ -169,9 +169,10 @@ the module layout is described in `docs/architecture-rust.md`.
   helper iteration limited to the selected runtime-list prefix for `contains`,
   `cons`, `foreach`, `map`, scalar/string/line-list/record `foldLeft`,
   runtime-list accumulator `foldLeft`, `join`, display, printing, and equality; runtime
-  misses report a native diagnostic until the native path has dynamic tagged
-  `null` values, but key types with no compatible static keys, and all-`null`
-  compatible values, return static `null`.
+  misses report a native diagnostic when the missing value must be materialized,
+  but direct `Map#get(...) == null` / `!= null` checks lower to key-match tests.
+  Key types with no compatible static keys, and all-`null` compatible values,
+  return static `null`.
 - Map literal `Map#get` / `.get` can return runtime native values, including
   supported runtime records and variable-length runtime-list values, from
   static or runtime keys while preserving all map-entry and key effects.

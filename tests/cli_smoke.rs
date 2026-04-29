@@ -10398,6 +10398,99 @@ fn builds_native_executable_for_static_maps_and_sets() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_map_get_null_checks() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-map-get-null-check-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-map-get-null-check-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val key = head(args())
+val missing = key + "-missing"
+val records = %[
+  "hit": record { kind: "keyword", text: "if" },
+  "other": record { kind: "operator", text: "+" }
+]
+mutable hits = 0
+val hitRecordPresent = Map#get(records, key) != null
+val missingRecordNull = records.get(missing) == null
+val missingListNull = Map#get(%["hit": [1, 2], "other": [3]], missing) == null
+val nullHit = Map#get(%["hit": null, "other": 2], key) == null
+val nonNullHit = Map#get(%["hit": null, "other": 2], "other") != null
+val literalMissing = Map#get(%[
+  { hits += 1; key }: { hits += 1; 1 },
+  { hits += 1; "other" }: { hits += 1; null }
+], missing) == null
+val literalNullHit = Map#get(%[
+  { hits += 1; key }: { hits += 1; 1 },
+  { hits += 1; "other" }: { hits += 1; null }
+], "other") == null
+println(hitRecordPresent)
+println(missingRecordNull)
+println(missingListNull)
+println(nullHit)
+println(nonNullHit)
+println(literalMissing)
+println(literalNullHit)
+println(hits)
+assert(hitRecordPresent)
+assert(missingRecordNull)
+assert(missingListNull)
+assert(nullHit)
+assert(nonNullHit)
+assert(literalMissing)
+assert(literalNullHit)
+assertResult(8)(hits)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime Map#get null-check build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .arg("hit")
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime Map#get null-check run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n8\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_static_string_collection_runtime_membership() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -1939,6 +1939,11 @@ impl NativeCodeGenerator {
             return Ok(NativeValue::Bool);
         }
         if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && let Some(value) = self.compile_map_get_null_equality(lhs, rhs, op, span)?
+        {
+            return Ok(value);
+        }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
             && let Some(equal) =
                 self.static_equality_from_exprs_preserving_effects(lhs, rhs, span)?
         {
@@ -7301,6 +7306,222 @@ impl NativeCodeGenerator {
             .any(|element| self.static_value_equal_user(element, &needle));
         self.asm.mov_imm64(Reg::Rax, u64::from(contains));
         Ok(NativeValue::Bool)
+    }
+
+    fn compile_map_get_null_equality(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        op: BinaryOp,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let equal = op == BinaryOp::Equal;
+        if matches!(rhs, Expr::Null { .. }) {
+            return self.compile_map_get_expr_null_equality(lhs, equal, span);
+        }
+        if matches!(lhs, Expr::Null { .. }) {
+            return self.compile_map_get_expr_null_equality(rhs, equal, span);
+        }
+        Ok(None)
+    }
+
+    fn compile_map_get_expr_null_equality(
+        &mut self,
+        expr: &Expr,
+        equal: bool,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Some((map, key)) = self.map_get_arguments_from_expr(expr) else {
+            return Ok(None);
+        };
+        if let Some(value) = self.compile_map_literal_get_null_equality(map, key, equal, span)? {
+            return Ok(Some(value));
+        }
+        let entries = self.static_map_entries_from_expr(map, span)?;
+        self.compile_static_map_get_null_equality(entries, key, equal, span)
+            .map(Some)
+    }
+
+    fn map_get_arguments_from_expr<'a>(&self, expr: &'a Expr) -> Option<(&'a Expr, &'a Expr)> {
+        let Expr::Call {
+            callee, arguments, ..
+        } = expr
+        else {
+            return None;
+        };
+        match callee.as_ref() {
+            Expr::Identifier { name, .. }
+                if arguments.len() == 2
+                    && matches!(
+                        self.builtin_name_for_identifier(name).as_str(),
+                        "Map#get" | "get"
+                    ) =>
+            {
+                Some((&arguments[0], &arguments[1]))
+            }
+            Expr::FieldAccess { target, field, .. } if field == "get" && arguments.len() == 1 => {
+                Some((target.as_ref(), &arguments[0]))
+            }
+            Expr::Call {
+                callee: nested_callee,
+                arguments: map_arguments,
+                ..
+            } if arguments.len() == 1 && map_arguments.len() == 1 => {
+                let Expr::Identifier { name, .. } = nested_callee.as_ref() else {
+                    return None;
+                };
+                matches!(
+                    self.builtin_name_for_identifier(name).as_str(),
+                    "Map#get" | "get"
+                )
+                .then_some((&map_arguments[0], &arguments[0]))
+            }
+            _ => None,
+        }
+    }
+
+    fn compile_map_literal_get_null_equality(
+        &mut self,
+        map: &Expr,
+        key: &Expr,
+        equal: bool,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return Ok(None);
+        };
+        let mut compiled_entries = Vec::with_capacity(entries.len());
+        for (entry_key, entry_value) in entries {
+            let entry_key = self.compile_literal_value(entry_key)?;
+            let entry_value = self.compile_literal_value(entry_value)?;
+            compiled_entries.push((entry_key, Self::compiled_literal_value_is_null(entry_value)));
+        }
+        let key = self.compile_literal_value(key)?;
+        self.emit_compiled_map_get_null_equality(compiled_entries, key, equal, span)?;
+        Ok(Some(NativeValue::Bool))
+    }
+
+    fn compiled_literal_value_is_null(value: CompiledLiteralValue) -> bool {
+        matches!(value, CompiledLiteralValue::Native(NativeValue::Null))
+    }
+
+    fn emit_compiled_map_get_null_equality(
+        &mut self,
+        entries: Vec<(CompiledLiteralValue, bool)>,
+        key: CompiledLiteralValue,
+        equal: bool,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let done = self.asm.create_text_label();
+        let branches = entries
+            .into_iter()
+            .map(|(entry_key, is_null)| {
+                let label = self.asm.create_text_label();
+                self.emit_compiled_literal_values_equal(key, entry_key, span)?;
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, label);
+                Ok((label, is_null))
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+
+        self.asm.mov_imm64(Reg::Rax, u64::from(equal));
+        self.asm.jmp_label(done);
+        for (label, is_null) in branches {
+            self.asm.bind_text_label(label);
+            self.asm.mov_imm64(Reg::Rax, u64::from(is_null == equal));
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn compile_static_map_get_null_equality(
+        &mut self,
+        entries: Vec<(StaticValue, StaticValue)>,
+        key: &Expr,
+        equal: bool,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let key_value = self.compile_expr(key)?;
+        if let Some(static_key) = self.static_value_from_native(key_value) {
+            let is_null = entries
+                .iter()
+                .find(|(entry_key, _)| self.static_value_equal_user(entry_key, &static_key))
+                .map(|(_, value)| matches!(value, StaticValue::Null))
+                .unwrap_or(true);
+            self.asm.mov_imm64(Reg::Rax, u64::from(is_null == equal));
+            return Ok(NativeValue::Bool);
+        }
+
+        let scalar_key_slot = if matches!(key_value, NativeValue::Int | NativeValue::Bool) {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            Some(slot)
+        } else {
+            None
+        };
+        self.emit_static_map_get_null_equality(entries, key_value, scalar_key_slot, equal, span)?;
+        Ok(NativeValue::Bool)
+    }
+
+    fn emit_static_map_get_null_equality(
+        &mut self,
+        entries: Vec<(StaticValue, StaticValue)>,
+        key_value: NativeValue,
+        scalar_key_slot: Option<DataLabel>,
+        equal: bool,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let done = self.asm.create_text_label();
+        let mut branches = Vec::with_capacity(entries.len());
+        for (entry_key, entry_value) in entries {
+            let Some(label) = self.emit_static_map_get_null_key_match(
+                key_value,
+                scalar_key_slot,
+                &entry_key,
+                span,
+            )?
+            else {
+                continue;
+            };
+            branches.push((label, matches!(entry_value, StaticValue::Null)));
+        }
+
+        self.asm.mov_imm64(Reg::Rax, u64::from(equal));
+        self.asm.jmp_label(done);
+        for (label, is_null) in branches {
+            self.asm.bind_text_label(label);
+            self.asm.mov_imm64(Reg::Rax, u64::from(is_null == equal));
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_static_map_get_null_key_match(
+        &mut self,
+        key_value: NativeValue,
+        scalar_key_slot: Option<DataLabel>,
+        entry_key: &StaticValue,
+        span: Span,
+    ) -> Result<Option<TextLabel>, Diagnostic> {
+        let label = self.asm.create_text_label();
+        if let Some(slot) = scalar_key_slot {
+            let Some(bits) = Self::static_value_scalar_bits(entry_key, key_value) else {
+                return Ok(None);
+            };
+            self.asm.mov_data_addr(Reg::R10, slot);
+            self.asm.load_ptr_disp32(Reg::R10, Reg::R10, 0);
+            self.asm.mov_imm64(Reg::Rax, bits);
+            self.asm.cmp_reg_reg(Reg::R10, Reg::Rax);
+            self.asm.jcc_label(Condition::Equal, label);
+            return Ok(Some(label));
+        }
+
+        self.emit_native_value_equal_static_user(key_value, entry_key, span)?;
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::NotEqual, label);
+        Ok(Some(label))
     }
 
     fn compile_runtime_list_contains_value(

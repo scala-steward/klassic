@@ -335,6 +335,9 @@ runtime-list storage.
 Map literal `Map#get` / `.get` can also select runtime native values,
 including variable-length runtime-list values, from static or runtime keys while
 preserving every entry's evaluation effects.
+Direct `Map#get(...) == null` and `Map#get(...) != null` checks over static maps
+or map literals lower to key-match tests, so runtime misses and null-valued hits
+can be tested without materializing a dynamic tagged `null`.
 Those runtime record results can be passed back through static list/set
 `contains` and map `containsValue` helpers for structural record membership.
 Static string-key maps, static string-valued maps, string sets,
