@@ -4101,6 +4101,14 @@ impl NativeCodeGenerator {
                 "foldLeft expects one list, one initial value, and one reducer function",
             ));
         }
+        if let Some(value) = self.compile_list_literal_fold_left(
+            &list_arguments[0],
+            &initial_arguments[0],
+            &reducer_arguments[0],
+            span,
+        )? {
+            return Ok(value);
+        }
         let list = self.compile_expr(&list_arguments[0])?;
         let reducer = &reducer_arguments[0];
         match list {
@@ -4172,6 +4180,86 @@ impl NativeCodeGenerator {
             ),
             _ => Err(unsupported(span, "native foldLeft for non-static list")),
         }
+    }
+
+    fn compile_list_literal_fold_left(
+        &mut self,
+        list: &Expr,
+        initial: &Expr,
+        reducer: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = list else {
+            return Ok(None);
+        };
+        if !self.list_literal_has_runtime_values(elements) {
+            return Ok(None);
+        }
+
+        let elements = self.compile_literal_values(elements)?;
+        let initial = self.compile_expr(initial)?;
+        if !matches!(initial, NativeValue::Int | NativeValue::Bool) {
+            return Err(unsupported(
+                span,
+                "native foldLeft over list literal runtime values for non-Int or non-Bool initial value",
+            ));
+        }
+        let acc_storage = self.asm.data_label_with_i64s(&[0]);
+        self.emit_store_rax_to_data_slot(acc_storage);
+
+        let reducer = self.compile_runtime_line_lambda(
+            reducer,
+            2,
+            span,
+            "native foldLeft over list literal runtime values for non-lambda reducer",
+            "native foldLeft over list literal runtime values for this reducer arity",
+        )?;
+        if reducer.contains_thread_call {
+            return Err(unsupported(
+                span,
+                "native foldLeft over list literal runtime values with thread reducer",
+            ));
+        }
+        let [acc_param, element_param] = reducer.params.as_slice() else {
+            return Err(unsupported(
+                span,
+                "native foldLeft over list literal runtime values for this reducer arity",
+            ));
+        };
+
+        for element in elements {
+            self.push_scope();
+            self.bind_runtime_line_lambda_captures(&reducer);
+            self.asm.mov_data_addr(Reg::Rax, acc_storage);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+            let acc_slot = self.allocate_slot(acc_param.clone(), initial);
+            self.asm.store_rbp_slot(acc_slot.offset, Reg::Rax);
+            self.bind_compiled_literal_iteration_value(element_param, element);
+            let next_acc = self.compile_expr(&reducer.body);
+            self.pop_scope();
+            let next_acc = next_acc?;
+            if next_acc != initial {
+                return Err(unsupported(
+                    span,
+                    "native foldLeft over list literal runtime values for reducer result with different scalar type",
+                ));
+            }
+            self.emit_store_rax_to_data_slot(acc_storage);
+        }
+
+        self.asm.mov_data_addr(Reg::Rax, acc_storage);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+        Ok(Some(initial))
+    }
+
+    fn list_literal_has_runtime_values(&mut self, elements: &[Expr]) -> bool {
+        let before_static_scopes = self.static_scopes.clone();
+        let has_runtime = elements.iter().any(|element| {
+            self.preview_static_value_after_effectful_eval(element)
+                .is_none()
+        });
+        self.static_scopes = before_static_scopes;
+        has_runtime
     }
 
     fn compile_runtime_lines_fold_left(

@@ -8516,6 +8516,7 @@ foreach(box in [{{ foreachHits += 1; #Box(FileInput#all(path), FileInput#lines(p
   println(box.count)
   foreachScore = foreachScore * 10 + box.count
 }}
+val foldedCount = foldLeft([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}])(0)((acc, box) => acc + box.count)
 println(listHit)
 println(listMiss)
 println(setHit)
@@ -8529,6 +8530,7 @@ println(keyHit)
 println(keyMiss)
 println(hits)
 println(foreachScore)
+println(foldedCount)
 assert(listHit)
 assert(!listMiss)
 assert(setHit)
@@ -8540,9 +8542,10 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(25)(hits)
+assertResult(27)(hits)
 assertResult(2)(foreachHits)
 assertResult(35)(foreachScore)
+assertResult(8)(foldedCount)
 "##,
             path_holder.display()
         ),
@@ -8588,7 +8591,7 @@ assertResult(35)(foreachScore)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n25\n35\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n27\n35\n8\n"
     );
     assert!(run.stderr.is_empty());
 }
