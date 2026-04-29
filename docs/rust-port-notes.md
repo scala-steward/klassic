@@ -184,7 +184,9 @@ the module layout is described in `docs/architecture-rust.md`.
   also be bound to immutable values, called later, and formatted with the
   selected callable display through printing, interpolation, string
   concatenation, and `toString`; equality involving those function values keeps
-  the evaluator's always-false function comparison semantics.
+  the evaluator's always-false function comparison semantics. Recursive native
+  functions can capture frame-independent callable dispatch values, including
+  top-level string-key dispatch bindings.
 - Block, cleanup, and same-runtime-return conditional callees retain those
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so

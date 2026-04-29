@@ -218,7 +218,9 @@ cargo run -- -e "1 + 2"
   stored in immutable values, called later, and formatted through printing,
   interpolation, string concatenation, or `toString` with the same branch
   dispatch; equality involving these function values keeps the evaluator's
-  always-false function comparison semantics.
+  always-false function comparison semantics. Recursive functions can capture
+  bound callable dispatch values whose selector and candidates do not depend on
+  the recursive function frame.
   Lambdas also remember the native stack slots for captured runtime bindings;
   when a block, inline lambda, or call-site inlined function returns such a
   lambda, the captured slots are kept alive so block/function-local mutable

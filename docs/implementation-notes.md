@@ -393,7 +393,10 @@ native return shapes; runtime string/int/bool-key lookups can also be bound to
 immutable values, called later, and formatted through printing, interpolation,
 string concatenation, or `toString` with the selected callable display through
 the same dispatch path; equality involving those function values follows the
-evaluator's always-false function comparison semantics. Static
+evaluator's always-false function comparison semantics. Recursive functions may
+rebind frame-independent callable dispatch captures inside their emitted
+function body, so a top-level string-key selected callable can be used from a
+self-recursive function. Static
 `null` is supported for immutable bindings, printing, equality, and `Map#get`
 misses; `()` is supported for immutable bindings, printing, static string
 concatenation, equality, and `assertResult`. `ToDo()` emits a native runtime failure with the evaluator's

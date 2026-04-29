@@ -106,7 +106,8 @@ The repository contains a Rust-native language implementation with:
   static-key map-literal lookups returning runtime native values, immediate
   runtime-key dispatch through static callable maps plus immutable runtime
   string/int/bool-key callable map lookup bindings with selected callable
-  display printing/interpolation/string concatenation/`toString` and evaluator-style
+  display printing/interpolation/string concatenation/`toString`, frame-independent
+  recursive captures, and evaluator-style
   false function equality, runtime line-list
   membership against static string-list entries, static membership for
   effectful queries that settle back to static values, incompatible-key static

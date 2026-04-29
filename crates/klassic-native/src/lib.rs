@@ -1015,14 +1015,15 @@ impl NativeCodeGenerator {
         self.native_function_param_value(annotation)
     }
 
-    fn native_value_can_rebind_top_level_capture(value: NativeValue) -> bool {
+    fn native_value_can_rebind_top_level_capture(&self, value: NativeValue) -> bool {
         matches!(
             value,
             NativeValue::RuntimeString { .. }
                 | NativeValue::RuntimeLinesList { .. }
                 | NativeValue::RuntimeList { .. }
                 | NativeValue::RuntimeRecord { .. }
-        )
+                | NativeValue::RuntimeMapCallableDispatch(_)
+        ) && !self.native_value_captures_current_scope(value)
     }
 
     fn runtime_record_scratch_value_from_annotation(
@@ -23465,7 +23466,7 @@ impl NativeCodeGenerator {
             }
             if let Some(slot) = lookup_var_slot_in_scopes(&saved_scopes, name)
                 && slot.offset == 0
-                && Self::native_value_can_rebind_top_level_capture(slot.value)
+                && self.native_value_can_rebind_top_level_capture(slot.value)
             {
                 self.bind_constant(name.clone(), slot.value);
                 continue;

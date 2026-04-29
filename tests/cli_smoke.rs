@@ -4181,6 +4181,86 @@ fn builds_native_executable_for_recursive_runtime_top_level_captures() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_recursive_callable_dispatch_capture() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-dispatch-capture-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-recursive-dispatch-capture-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        "def plusOne(x: Int): Int = x + 1\n\
+def plusTwo(x: Int): Int = x + 2\n\
+val key = head(args())\n\
+val f = Map#get(%[\"one\": plusOne, \"two\": plusTwo], key)\n\
+def applyMany(n: Int, x: Int): Int = if(n < 1) x else applyMany(n - 1, f(x))\n\
+val actual = applyMany(3, 0)\n\
+println(actual)\n\
+if(key == \"one\") {\n\
+  assertResult(3)(actual)\n\
+} else {\n\
+  assertResult(6)(actual)\n\
+}\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "recursive callable dispatch capture build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let one_run = Command::new(&output_path)
+        .arg("one")
+        .output()
+        .expect("generated executable should run with one key");
+    let two_run = Command::new(&output_path)
+        .arg("two")
+        .output()
+        .expect("generated executable should run with two key");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        one_run.status.success(),
+        "recursive callable dispatch capture one run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&one_run.stdout),
+        String::from_utf8_lossy(&one_run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&one_run.stdout), "3\n");
+    assert!(one_run.stderr.is_empty());
+
+    assert!(
+        two_run.status.success(),
+        "recursive callable dispatch capture two run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&two_run.stdout),
+        String::from_utf8_lossy(&two_run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&two_run.stdout), "6\n");
+    assert!(two_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_file_output_content() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
