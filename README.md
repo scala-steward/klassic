@@ -313,8 +313,8 @@ Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
 Dynamic `if` branches can merge fixed-capacity runtime-list results, including
 compatible static-list branches and record fields that carry runtime-list
-values, and preserve selected runtime lengths when the branch output carries
-one.
+values, and preserve selected runtime lengths whenever a runtime-list branch
+participates in the merge.
 Annotated `List<String>` function parameters and returns can consume compatible
 runtime-list values by copying their string elements into fixed line-list
 buffers.

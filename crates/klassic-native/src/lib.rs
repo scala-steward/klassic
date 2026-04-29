@@ -7793,15 +7793,17 @@ impl NativeCodeGenerator {
     fn prepare_native_list_branch_output(
         &mut self,
         value: NativeValue,
+        force_dynamic_len: bool,
         span: Span,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
         if !Self::native_value_can_copy_to_runtime_list(value) {
             return Ok(None);
         }
-        let force_dynamic_len = matches!(
-            value,
-            NativeValue::RuntimeList { label } if self.runtime_list_dynamic_len(label).is_some()
-        );
+        let force_dynamic_len = force_dynamic_len
+            || matches!(
+                value,
+                NativeValue::RuntimeList { label } if self.runtime_list_dynamic_len(label).is_some()
+            );
         let elements = self.compiled_literal_values_from_list_native(
             value,
             span,
@@ -19442,11 +19444,18 @@ impl NativeCodeGenerator {
         } else {
             None
         };
-        let branch_runtime_list_output = if let Some(else_branch) = else_branch
-            && (self.expr_may_yield_runtime_list(then_branch)
-                || self.expr_may_yield_runtime_list(else_branch))
-        {
-            self.prepare_native_list_branch_output(then_value, span)?
+        let branch_runtime_list_output = if let Some(else_branch) = else_branch {
+            let branch_may_yield_runtime_list = self.expr_may_yield_runtime_list(then_branch)
+                || self.expr_may_yield_runtime_list(else_branch);
+            if branch_may_yield_runtime_list {
+                self.prepare_native_list_branch_output(
+                    then_value,
+                    branch_may_yield_runtime_list,
+                    span,
+                )?
+            } else {
+                None
+            }
         } else {
             None
         };

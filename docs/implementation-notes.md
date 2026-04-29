@@ -125,8 +125,8 @@ runtime integer/boolean locals still invalidate static facts for those variables
 effects and skip compiling the dead body, matching evaluator behavior for
 unreachable unsupported native constructs. Dynamic `while` loops that cannot be
 fully simulated also invalidate static facts for locals assigned in the loop
-condition or body before later folds run, and fixed-shape runtime-list locals
-assigned in those loops are materialized into mutable runtime-list storage.
+condition or body before later folds run, and runtime-list locals assigned in
+those loops are materialized into mutable selected-length storage.
 Static binary folds for numeric, equality, and string-concatenation expressions
 use the same guard. Numeric Float/Double binary expressions and string
 concatenation can still preserve mutable block-prefix effects when operands
@@ -380,7 +380,8 @@ Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
 Dynamic `if` joins can merge fixed-capacity runtime-list values and record
 fields that carry them by copying each branch into shared runtime-list element
-storage, preserving selected runtime lengths when the branch output carries one.
+storage, preserving selected runtime lengths whenever a runtime-list branch
+participates in the merge.
 Annotated `List<String>` function parameters and returns can consume compatible
 runtime-list values by copying their string elements into fixed line-list
 buffers, which also lets supported record returns carry runtime-list fields
