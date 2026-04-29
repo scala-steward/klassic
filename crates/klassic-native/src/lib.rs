@@ -1742,6 +1742,25 @@ impl NativeCodeGenerator {
                 let slot = self.lookup_var(name).ok_or_else(|| {
                     Diagnostic::compile(*span, format!("undefined native variable `{name}`"))
                 })?;
+                if self.dynamic_control_depth > 0
+                    && let NativeValue::RuntimeList { label } = slot.value
+                {
+                    let compiled = self.compile_expr(value)?;
+                    if !Self::native_value_can_copy_to_runtime_list(compiled) {
+                        return Err(unsupported(
+                            *span,
+                            "native runtime-list assignment for this value type",
+                        ));
+                    }
+                    self.emit_copy_native_list_to_runtime_list_output(
+                        compiled,
+                        label,
+                        *span,
+                        "runtime-list assignment exceeds 65536 bytes",
+                    )?;
+                    self.remove_static_value(name);
+                    return Ok(slot.value);
+                }
                 if native_value_can_be_static_mutable(slot.value) {
                     if self.dynamic_control_depth > 0 && self.mergeable_dynamic_branch_depth == 0 {
                         return Err(unsupported(
@@ -7711,6 +7730,56 @@ impl NativeCodeGenerator {
         )?;
         self.prepare_runtime_list_branch_output_from_elements(&elements, span)
             .map(Some)
+    }
+
+    fn prepare_mutable_runtime_list_output(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+    ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
+        if !Self::native_value_can_copy_to_runtime_list(value) {
+            return Ok(None);
+        }
+        let source_has_dynamic_len = matches!(
+            value,
+            NativeValue::RuntimeList { label } if self.runtime_list_dynamic_len(label).is_some()
+        );
+        let elements = self.compiled_literal_values_from_list_native(
+            value,
+            span,
+            "native mutable runtime-list binding",
+        )?;
+        self.prepare_runtime_list_output_from_candidate_elements(
+            vec![elements],
+            source_has_dynamic_len,
+            span,
+            "native mutable runtime-list binding",
+        )
+        .map(Some)
+    }
+
+    fn materialize_assigned_runtime_list_storage(
+        &mut self,
+        names: &HashSet<String>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        for name in names {
+            let Some(slot) = self.lookup_var(name) else {
+                continue;
+            };
+            let Some(output) = self.prepare_mutable_runtime_list_output(slot.value, span)? else {
+                continue;
+            };
+            self.emit_copy_native_list_to_runtime_list_output(
+                slot.value,
+                output,
+                span,
+                "mutable runtime-list binding exceeds 65536 bytes",
+            )?;
+            self.assign_var_value(name, NativeValue::RuntimeList { label: output });
+            self.remove_static_value(name);
+        }
+        Ok(())
     }
 
     fn prepare_runtime_list_branch_output(
@@ -19697,6 +19766,7 @@ impl NativeCodeGenerator {
 
         let mut assigned_names = assigned_names_in_expr(condition);
         assigned_names.extend(assigned_names_in_expr(body));
+        self.materialize_assigned_runtime_list_storage(&assigned_names, span)?;
         let saved_static_scopes = self.static_scopes.clone();
         self.static_scopes = vec![HashMap::new(); saved_static_scopes.len()];
         let loop_label = self.asm.create_text_label();
@@ -26476,7 +26546,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_native_construct_after_typecheck() {
+    fn compiles_dynamic_runtime_list_assignment_after_typecheck() {
         let source = r#"
             mutable xs = [1]
             mutable i = 0
@@ -26486,13 +26556,8 @@ mod tests {
             }
             println(xs)
         "#;
-        let error = compile_source_to_elf("<test>", source, NativeCompilerConfig::default())
-            .expect_err("dynamic aggregate updates are not native-compiled yet");
-        assert!(
-            error
-                .diagnostic()
-                .message
-                .contains("native static aggregate assignment inside dynamic control flow")
-        );
+        let bytes = compile_source_to_elf("<test>", source, NativeCompilerConfig::default())
+            .expect("dynamic runtime-list assignment should compile");
+        assert_eq!(&bytes[..4], b"\x7fELF");
     }
 }

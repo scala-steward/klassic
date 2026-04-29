@@ -8184,6 +8184,61 @@ fn builds_native_executable_for_dynamic_while_assignment_state() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_dynamic_while_runtime_list_assignment() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-while-runtime-list-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-while-runtime-list-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        "mutable xs = [1]\nmutable i = 0\nwhile(i < 2) {\n  xs = [i]\n  i += 1\n}\nprintln(xs)\nassertResult([1])(xs)\nmutable untouched = [7]\nwhile(stopwatch(() => 1) < 0) {\n  untouched = [8]\n}\nprintln(untouched)\nassertResult([7])(untouched)\n",
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime-list while assignment build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime-list while assignment run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "[1]\n[7]\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_while_condition_assignment_state() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

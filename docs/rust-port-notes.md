@@ -224,6 +224,9 @@ the module layout is described in `docs/architecture-rust.md`.
   static lists through curried `cons` and helpers that take static callable
   arguments. Calls that cannot fold are rejected with a compile diagnostic
   instead of recursively inlining until the compiler stack overflows.
+- Dynamic `while` loops can update fixed-shape runtime-list locals by
+  materializing the pre-loop value into mutable runtime-list storage and copying
+  each assigned list value into that storage.
 - `FileOutput#write` / `FileOutput#append` can write fixed-buffer runtime
   string content. Because the resulting contents are not known at native build
   time, the affected path is treated as unknown for later compile-time file

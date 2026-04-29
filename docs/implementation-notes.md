@@ -125,7 +125,8 @@ runtime integer/boolean locals still invalidate static facts for those variables
 effects and skip compiling the dead body, matching evaluator behavior for
 unreachable unsupported native constructs. Dynamic `while` loops that cannot be
 fully simulated also invalidate static facts for locals assigned in the loop
-condition or body before later folds run.
+condition or body before later folds run, and fixed-shape runtime-list locals
+assigned in those loops are materialized into mutable runtime-list storage.
 Static binary folds for numeric, equality, and string-concatenation expressions
 use the same guard. Numeric Float/Double binary expressions and string
 concatenation can still preserve mutable block-prefix effects when operands
@@ -383,7 +384,8 @@ runtime-list values by copying their string elements into fixed line-list
 buffers, which also lets supported record returns carry runtime-list fields
 through the annotated record ABI.
 Mutable bindings can rebind runtime-list values in straight-line native code,
-including `cons` and `tail` chains.
+including `cons` and `tail` chains, and fixed-shape runtime-list assignments can
+also run inside dynamic `while` bodies.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, runtime-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
