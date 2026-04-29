@@ -48,7 +48,8 @@ unannotated integer/boolean return inference, immutable static string/list
 bindings, stack-passed arguments beyond the first six integer/boolean native
 function parameters, call-site inlined unannotated pass-through and
 string-literal concatenation `def`s over runtime `String` / `List<String>`
-values, temporary stack tracking for saved operands and arguments,
+values even when only the return is annotated, temporary stack tracking for
+saved operands and arguments,
 streamed `println` / `printlnError` string interpolation, folded
 interpolated strings when fragments depend on immutable static values, including
 fragments with mutable block prefixes when their final values remain recoverable,

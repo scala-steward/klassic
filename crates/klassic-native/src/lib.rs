@@ -690,10 +690,12 @@ impl NativeCodeGenerator {
                 } => {
                     let mut flexible_params = Vec::new();
                     let mut param_values = Vec::new();
+                    let mut param_unannotated = Vec::new();
                     for annotation in param_annotations {
                         let value = annotation
                             .as_ref()
                             .and_then(|annotation| self.native_function_param_value(annotation));
+                        param_unannotated.push(annotation.is_none());
                         flexible_params.push(value.is_none() && annotation.is_some());
                         param_values.push(value.unwrap_or(NativeValue::Int));
                     }
@@ -732,6 +734,7 @@ impl NativeCodeGenerator {
                         params.clone(),
                         param_values,
                         flexible_params,
+                        param_unannotated,
                         return_value,
                         body.as_ref().clone(),
                         inline_at_call_site,
@@ -756,10 +759,12 @@ impl NativeCodeGenerator {
                     {
                         let mut flexible_params = Vec::new();
                         let mut param_values = Vec::new();
+                        let mut param_unannotated = Vec::new();
                         for annotation in param_annotations {
                             let value = annotation.as_ref().and_then(|annotation| {
                                 self.native_function_param_value(annotation)
                             });
+                            param_unannotated.push(annotation.is_none());
                             flexible_params.push(value.is_none() && annotation.is_some());
                             param_values.push(value.unwrap_or(NativeValue::Int));
                         }
@@ -769,6 +774,7 @@ impl NativeCodeGenerator {
                             params.clone(),
                             param_values,
                             flexible_params,
+                            param_unannotated,
                             native_value_hint_from_expr(body).unwrap_or(NativeValue::Int),
                             body.as_ref().clone(),
                             true,
@@ -817,6 +823,7 @@ impl NativeCodeGenerator {
         params: Vec<String>,
         param_values: Vec<NativeValue>,
         flexible_params: Vec<bool>,
+        param_unannotated: Vec<bool>,
         return_value: NativeValue,
         body: Expr,
         inline_at_call_site: bool,
@@ -837,6 +844,7 @@ impl NativeCodeGenerator {
                 params,
                 param_values,
                 flexible_params,
+                param_unannotated,
                 return_value,
                 body,
                 inline_at_call_site,
@@ -2596,6 +2604,9 @@ impl NativeCodeGenerator {
         if function.inline_at_call_site {
             return self.compile_inline_function_call(&function, arguments, span);
         }
+        if self.should_inline_unannotated_runtime_function_call(name, &function, arguments) {
+            return self.compile_inline_function_call(&function, arguments, span);
+        }
         self.referenced_functions.insert(name.to_string());
         if arguments.len() != function.params.len() {
             return Err(Diagnostic::compile(
@@ -2732,6 +2743,43 @@ impl NativeCodeGenerator {
             self.release_temp_stack(scalar_argument_count * 8);
         }
         self.copy_function_return_to_call_site(function.return_value, span)
+    }
+
+    fn should_inline_unannotated_runtime_function_call(
+        &mut self,
+        name: &str,
+        function: &NativeFunction,
+        arguments: &[Expr],
+    ) -> bool {
+        if self.active_function_name.as_deref() == Some(name)
+            || arguments.len() != function.params.len()
+        {
+            return false;
+        }
+        function
+            .param_unannotated
+            .iter()
+            .copied()
+            .zip(arguments.iter())
+            .any(|(unannotated, argument)| {
+                unannotated
+                    && self.return_value_allows_unannotated_runtime_argument_expr(
+                        function.return_value,
+                        argument,
+                    )
+            })
+    }
+
+    fn return_value_allows_unannotated_runtime_argument_expr(
+        &mut self,
+        return_value: NativeValue,
+        argument: &Expr,
+    ) -> bool {
+        match return_value {
+            NativeValue::RuntimeString { .. } => self.expr_may_yield_native_string(argument),
+            NativeValue::RuntimeLinesList { .. } => self.expr_may_yield_native_lines_list(argument),
+            _ => false,
+        }
     }
 
     fn copy_function_return_to_call_site(
@@ -3098,6 +3146,11 @@ impl NativeCodeGenerator {
                 .get(index)
                 .copied()
                 .unwrap_or(false);
+            let unannotated = function
+                .param_unannotated
+                .get(index)
+                .copied()
+                .unwrap_or(false);
             let static_argument = self.static_value_from_pure_expr(argument);
             let value = self.compile_expr(argument)?;
             if matches!(expected_value, NativeValue::RuntimeString { .. }) {
@@ -3125,7 +3178,13 @@ impl NativeCodeGenerator {
                 self.bind_constant(param.clone(), value);
                 continue;
             }
-            let accepts_call_site_value = flexible || function.flexible_return;
+            let accepts_call_site_value = flexible
+                || function.flexible_return
+                || (unannotated
+                    && self.return_value_accepts_unannotated_runtime_argument_value(
+                        function.return_value,
+                        value,
+                    ));
             if !accepts_call_site_value && value != expected_value {
                 self.pop_scope();
                 return Err(unsupported(
@@ -3177,6 +3236,20 @@ impl NativeCodeGenerator {
             ));
         }
         Ok(value)
+    }
+
+    fn return_value_accepts_unannotated_runtime_argument_value(
+        &self,
+        return_value: NativeValue,
+        value: NativeValue,
+    ) -> bool {
+        match return_value {
+            NativeValue::RuntimeString { .. } => self.native_string_ref(value).is_some(),
+            NativeValue::RuntimeLinesList { .. } => {
+                self.native_value_is_lines_list_compatible(value)
+            }
+            _ => false,
+        }
     }
 
     fn inline_return_value_matches(
@@ -18408,6 +18481,7 @@ struct NativeFunction {
     params: Vec<String>,
     param_values: Vec<NativeValue>,
     flexible_params: Vec<bool>,
+    param_unannotated: Vec<bool>,
     return_value: NativeValue,
     body: Expr,
     inline_at_call_site: bool,

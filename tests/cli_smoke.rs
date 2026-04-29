@@ -6969,6 +6969,8 @@ def blockId(x) = {{
   y
 }}
 def render(x) = "value=" + x
+def renderAnnotated(x): String = "typed=" + x
+def restAnnotated(xs): List<String> = tail(xs)
 val text = FileInput#all("{}")
 val lines = FileInput#lines("{}")
 println(id(text))
@@ -6976,11 +6978,15 @@ println(join(id(lines), "|"))
 println(first(lines))
 println(blockId(text))
 println(render(text))
+println(renderAnnotated(text))
+println(join(restAnnotated(lines), ":"))
 assertResult("omega")(id(text))
 assertResult(["red", "blue"])(id(lines))
 assertResult("red")(first(lines))
 assertResult("omega")(blockId(text))
 assertResult("value=omega")(render(text))
+assertResult("typed=omega")(renderAnnotated(text))
+assertResult(["blue"])(restAnnotated(lines))
 "#,
             text_path.display(),
             lines_path.display()
@@ -7026,7 +7032,7 @@ assertResult("value=omega")(render(text))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "omega\nred|blue\nred\nomega\nvalue=omega\n"
+        "omega\nred|blue\nred\nomega\nvalue=omega\ntyped=omega\nblue\n"
     );
     assert!(run.stderr.is_empty());
 }
