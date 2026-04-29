@@ -23341,6 +23341,7 @@ fn native_value_can_be_static_mutable(value: NativeValue) -> bool {
             | NativeValue::StaticFloat { .. }
             | NativeValue::StaticDouble { .. }
             | NativeValue::StaticString { .. }
+            | NativeValue::RuntimeList { .. }
             | NativeValue::StaticIntList { .. }
             | NativeValue::StaticList { .. }
             | NativeValue::StaticRecord { .. }

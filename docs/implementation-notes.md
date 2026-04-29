@@ -362,6 +362,8 @@ through `head`, `tail`, `size`, `isEmpty`, `contains`, `cons`, `foreach`,
 `map`, `foldLeft`, `join`, and `FileOutput#writeLines`.
 Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
+Mutable bindings can rebind runtime-list values in straight-line native code,
+including `cons` and `tail` chains.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`

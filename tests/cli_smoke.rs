@@ -9441,6 +9441,93 @@ assertResult(2)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_mutable_runtime_list_literal_binding() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-mutable-runtime-list-binding-{unique}.kl"
+    ));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-mutable-runtime-list-binding-path-{unique}.txt"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-mutable-runtime-list-binding-{unique}.txt"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-mutable-runtime-list-binding-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        format!(
+            r##"val path = FileInput#all("{}")
+val runtime = FileInput#all(path)
+mutable hits = 0
+mutable xs = [{{ hits += 1; runtime }}]
+println(xs)
+xs = cons({{ hits += 1; "head" }})(xs)
+println(join(xs, "|"))
+xs = cons({{ hits += 1; runtime + "!" }})(tail(xs))
+println(join(xs, "|"))
+xs = tail(xs)
+println(xs)
+println(hits)
+assertResult(["head", "ab"])(cons("head")(tail(cons("skip")(xs))))
+assertResult(["ab"])(xs)
+assertResult(3)(hits)
+"##,
+            path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "mutable runtime list binding build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "ab").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "mutable runtime list binding run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[ab]\nhead|ab\nab!|ab\n[ab]\n3\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

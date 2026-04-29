@@ -290,6 +290,8 @@ string concatenation, equality, `assertResult`, `head`, `tail`, `size`,
 `FileOutput#writeLines` support.
 Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
+Mutable bindings can also rebind runtime-list values in straight-line native
+code.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime
