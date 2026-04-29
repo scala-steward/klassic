@@ -286,7 +286,8 @@ expectations or static collection bindings.
 Immutable list literal bindings can also retain evaluated runtime native
 elements as runtime list values, with printing, `toString`, interpolation,
 string concatenation, equality, `assertResult`, `head`, `tail`, `size`,
-`isEmpty`, `contains`, `foreach`, `map`, and `foldLeft` support.
+`isEmpty`, `contains`, `foreach`, `map`, `foldLeft`, `join`, and
+`FileOutput#writeLines` support.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime

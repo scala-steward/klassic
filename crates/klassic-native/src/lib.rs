@@ -5826,6 +5826,22 @@ impl NativeCodeGenerator {
                 span,
             ));
         }
+        if let NativeValue::RuntimeList { label } = list {
+            if self.expr_may_yield_runtime_string(&arguments[1]) {
+                let delimiter = self.compile_expr(&arguments[1])?;
+                let Some(delimiter) = self.native_string_ref(delimiter) else {
+                    return Err(unsupported(span, "native join for non-string delimiter"));
+                };
+                return self.emit_runtime_list_join(label, delimiter, span);
+            }
+            let delimiter =
+                self.static_string_from_argument_preserving_effects(&arguments[1], span, "join")?;
+            let delimiter = NativeStringRef {
+                data: self.asm.data_label_with_bytes(delimiter.as_bytes()),
+                len: NativeStringLen::Immediate(delimiter.len()),
+            };
+            return self.emit_runtime_list_join(label, delimiter, span);
+        }
         if self.expr_may_yield_runtime_string(&arguments[1]) {
             let delimiter = self.compile_expr(&arguments[1])?;
             let Some(delimiter) = self.native_string_ref(delimiter) else {
@@ -6272,6 +6288,47 @@ impl NativeCodeGenerator {
             data: output,
             len: output_len,
         })
+    }
+
+    fn emit_runtime_list_join(
+        &mut self,
+        label: RuntimeListLabel,
+        delimiter: NativeStringRef,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let elements = self.runtime_list_elements(label).unwrap_or_default();
+        let output = self.runtime_string_scratch_value();
+        let NativeValue::RuntimeString { data, len } = output else {
+            unreachable!("runtime string scratch should be a runtime string")
+        };
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(offset);
+        for (index, element) in elements.into_iter().enumerate() {
+            let value = self
+                .compiled_literal_native_value(element)
+                .and_then(|value| self.native_string_ref(value))
+                .ok_or_else(|| {
+                    unsupported(span, "native join over runtime list for non-string element")
+                })?;
+            if index > 0 {
+                self.emit_append_native_string_to_runtime_buffer_offset_label(
+                    data,
+                    offset,
+                    delimiter,
+                    span,
+                    "join runtime-list result exceeds 65536 bytes",
+                );
+            }
+            self.emit_append_native_string_to_runtime_buffer_offset_label(
+                data,
+                offset,
+                value,
+                span,
+                "join runtime-list result exceeds 65536 bytes",
+            );
+        }
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        Ok(output)
     }
 
     fn compile_numeric_helper(
@@ -14942,20 +14999,30 @@ impl NativeCodeGenerator {
         value: NativeValue,
         span: Span,
     ) -> Result<Option<NativeStringRef>, Diagnostic> {
-        let NativeValue::RuntimeLinesList { data, len } = value else {
-            return Ok(None);
-        };
-        let delimiter = self.asm.data_label_with_bytes(b"\n");
-        let content = self.emit_runtime_lines_join(
-            NativeStringRef {
-                data,
-                len: NativeStringLen::Runtime(len),
-            },
-            delimiter,
-            1,
-            span,
-        );
-        Ok(self.native_string_ref(content))
+        match value {
+            NativeValue::RuntimeLinesList { data, len } => {
+                let delimiter = self.asm.data_label_with_bytes(b"\n");
+                let content = self.emit_runtime_lines_join(
+                    NativeStringRef {
+                        data,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    delimiter,
+                    1,
+                    span,
+                );
+                Ok(self.native_string_ref(content))
+            }
+            NativeValue::RuntimeList { label } => {
+                let delimiter = NativeStringRef {
+                    data: self.asm.data_label_with_bytes(b"\n"),
+                    len: NativeStringLen::Immediate(1),
+                };
+                let content = self.emit_runtime_list_join(label, delimiter, span)?;
+                Ok(self.native_string_ref(content))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn compile_string_predicate_helper(

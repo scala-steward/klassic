@@ -359,7 +359,7 @@ runtime-list label after copying runtime string, line-list, and record elements
 into list-owned buffers. The native path can then print or render those runtime
 lists, compare them with compatible static or runtime lists, and feed them
 through `head`, `tail`, `size`, `isEmpty`, `contains`, `foreach`, `map`, and
-`foldLeft`.
+`foldLeft`, `join`, and `FileOutput#writeLines`.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`

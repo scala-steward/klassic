@@ -9154,6 +9154,109 @@ assertResult(3)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_list_literal_binding_join_and_write_lines() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-join-{unique}.kl"
+    ));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-join-path-{unique}.txt"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-join-{unique}.txt"
+    ));
+    let delimiter_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-join-delimiter-{unique}.txt"
+    ));
+    let written_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-binding-join-written-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-list-binding-join-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r##"val path = FileInput#all("{}")
+val runtime = FileInput#all(path)
+val delimiter = FileInput#all("{}")
+mutable hits = 0
+val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val direct = join(xs, "|")
+val method = xs.join("/")
+val runtimeDelimited = join(xs, delimiter)
+println(direct)
+println(method)
+println(runtimeDelimited)
+FileOutput#writeLines("{}", xs)
+val written = FileInput#all("{}")
+println(written)
+println(hits)
+assertResult("ab|tail")(direct)
+assertResult("ab/tail")(method)
+assertResult("ab::tail")(runtimeDelimited)
+assertResult("ab\ntail")(written)
+assertResult(2)(hits)
+"##,
+            path_holder.display(),
+            delimiter_path.display(),
+            written_path.display(),
+            written_path.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime list binding join build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "ab").expect("input should write after native build");
+    fs::write(&delimiter_path, "::").expect("delimiter should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&delimiter_path);
+    let _ = fs::remove_file(&written_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime list binding join run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "ab|tail\nab/tail\nab::tail\nab\ntail\n2\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
