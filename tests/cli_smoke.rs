@@ -10421,6 +10421,9 @@ val missingRecordNull = records.get(missing) == null
 val missingListNull = Map#get(%["hit": [1, 2], "other": [3]], missing) == null
 val nullHit = Map#get(%["hit": null, "other": 2], key) == null
 val nonNullHit = Map#get(%["hit": null, "other": 2], "other") != null
+val symmetricMissingNull = null == Map#get(records, missing)
+val methodPresent = null != records.get(key)
+val callablePresent = Map#get(%["hit": length, "other": size], key) != null
 val literalMissing = Map#get(%[
   { hits += 1; key }: { hits += 1; 1 },
   { hits += 1; "other" }: { hits += 1; null }
@@ -10443,6 +10446,9 @@ println(missingRecordNull)
 println(missingListNull)
 println(nullHit)
 println(nonNullHit)
+println(symmetricMissingNull)
+println(methodPresent)
+println(callablePresent)
 println(literalMissing)
 println(literalNullHit)
 println(branchText)
@@ -10454,6 +10460,9 @@ assert(missingRecordNull)
 assert(missingListNull)
 assert(nullHit)
 assert(nonNullHit)
+assert(symmetricMissingNull)
+assert(methodPresent)
+assert(callablePresent)
 assert(literalMissing)
 assert(literalNullHit)
 assertResult("missing")(branchText)
@@ -10499,7 +10508,7 @@ assertResult(8)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nmissing\npresent\n3\n8\n"
+        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nmissing\npresent\n3\n8\n"
     );
     assert!(run.stderr.is_empty());
 }
