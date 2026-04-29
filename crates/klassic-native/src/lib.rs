@@ -3890,6 +3890,25 @@ impl NativeCodeGenerator {
                 span,
             ));
         }
+        if self.expr_may_yield_runtime_list(&tail_arguments[0]) {
+            let head = self.compile_literal_value(&head_arguments[0])?;
+            let head = self.stabilize_runtime_list_literal_value(
+                head,
+                span,
+                "runtime cons list exceeds 65536 bytes",
+            )?;
+            let tail = self.compile_expr(&tail_arguments[0])?;
+            let NativeValue::RuntimeList { label } = tail else {
+                return Err(unsupported(
+                    span,
+                    "native cons for runtime list with non-runtime tail",
+                ));
+            };
+            let mut elements = self.runtime_list_elements(label).unwrap_or_default();
+            elements.insert(0, head);
+            let label = self.intern_runtime_list(elements);
+            return Ok(NativeValue::RuntimeList { label });
+        }
         let head = self.static_value_from_argument_preserving_effects(
             &head_arguments[0],
             span,
@@ -17061,6 +17080,37 @@ impl NativeCodeGenerator {
                         .as_deref()
                         .is_some_and(|branch| self.expr_may_yield_runtime_list(branch))
             }
+            Expr::Call {
+                callee, arguments, ..
+            } => match callee.as_ref() {
+                Expr::Identifier { name, .. } => {
+                    match self.builtin_name_for_identifier(name).as_str() {
+                        "tail" if arguments.len() == 1 => {
+                            self.expr_may_yield_runtime_list(&arguments[0])
+                        }
+                        _ => false,
+                    }
+                }
+                Expr::FieldAccess { target, field, .. } => {
+                    field == "tail"
+                        && arguments.is_empty()
+                        && self.expr_may_yield_runtime_list(target)
+                }
+                Expr::Call {
+                    callee: nested_callee,
+                    arguments: head_arguments,
+                    ..
+                } => {
+                    matches!(
+                        nested_callee.as_ref(),
+                        Expr::Identifier { name, .. }
+                            if self.builtin_name_for_identifier(name) == "cons"
+                    ) && head_arguments.len() == 1
+                        && arguments.len() == 1
+                        && self.expr_may_yield_runtime_list(&arguments[0])
+                }
+                _ => false,
+            },
             _ => false,
         }
     }
