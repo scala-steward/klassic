@@ -57,7 +57,7 @@ fixed-buffer `RuntimeString` interpolation when fragments include native runtime
 strings or dynamic native `Int` / `Boolean` values,
 compile-time folded static string helpers including `split` / `join`, static
 string concatenation for immutable values, static record fields, and runtime
-`String` / `List<String>` plus dynamic `Int` / `Boolean` record fields,
+`String` / `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields,
 runtime string concatenation that formats dynamic native `Int` / `Boolean` and
 runtime record operands,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
@@ -301,8 +301,8 @@ static reducer path for list-building reducers such as `e #cons acc`. Static nom
 structural records whose fields are static native values now support native
 construction, field selection, printing, static lambda method fields, and
 `assertResult` equality. Record literals and constructors can also carry
-fixed-buffer runtime `String` / `List<String>` and dynamic `Int` / `Boolean`
-fields for field selection, printing, and equality against compatible static
+fixed-buffer runtime `String` / `List<String>`, dynamic `Int` / `Boolean`, and
+nested runtime record fields for field selection, printing, and equality against compatible
 records, plus runtime string display through `toString`, interpolation, and
 concatenation. Static map
 and set literals are also represented as compile-time arenas; maps preserve

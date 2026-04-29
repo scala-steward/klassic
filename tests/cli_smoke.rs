@@ -8270,11 +8270,15 @@ fn builds_native_executable_for_runtime_record_fields() {
     fs::write(
         &source_path,
         format!(
-            r##"record Box {{
+r##"record Box {{
   text: String
   lines: List<String>
   count: Int
   ok: Boolean
+}}
+record Outer {{
+  box: #Box
+  title: String
 }}
 val path = FileInput#all("{}")
 val text = FileInput#all(path)
@@ -8301,9 +8305,17 @@ val expectedLiteral = record {{
   label: "ok"
 }}
 val expectedConstructed = #Box("a\nb", ["a", "b"], 3, true)
+def textOf(b: #Box): String = b.text
+def countOf(b) = b.count
+def makeBox(): #Box = #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), FileOutput#exists(path))
+def identityBox(b: #Box): #Box = b
+val nested = #Outer(identityBox(constructed), "wrap")
+val expectedNested = #Outer(expectedConstructed, "wrap")
+val made = identityBox(makeBox())
 val literalText = "literal=" + literal
 val constructedText = "constructed=#{{constructed}}"
 val againText = toString(literalAgain)
+val nestedText = "nested=#{{nested}}"
 println(literal.text)
 println(join(literal.lines, "|"))
 println(literal.count)
@@ -8320,6 +8332,16 @@ println(literal == literalAgain)
 println(literalText)
 println(constructedText)
 println(againText)
+println(textOf(constructed))
+println(countOf(constructed))
+println(made.text)
+println(made.count)
+println(nested.box.text)
+println(nested.box.count)
+println(nested)
+println(nestedText)
+println(toString(nested))
+println(nested == expectedNested)
 assertResult("a\nb")(literal.text)
 assertResult(["a", "b"])(literal.lines)
 assertResult(3)(literal.count)
@@ -8335,6 +8357,16 @@ assert(literal == literalAgain)
 assertResult("literal=#(a\nb, [a, b], 3, true, ok)")(literalText)
 assertResult("constructed=#Box(a\nb, [a, b], 3, true)")(constructedText)
 assertResult("#(a\nb, [a, b], 3, true, ok)")(againText)
+assertResult("a\nb")(textOf(constructed))
+assertResult(3)(countOf(constructed))
+assertResult("a\nb")(made.text)
+assertResult(3)(made.count)
+assertResult("a\nb")(nested.box.text)
+assertResult(3)(nested.box.count)
+assertResult(expectedNested)(nested)
+assert(nested == expectedNested)
+assertResult("nested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)")(nestedText)
+assertResult("#Outer(#Box(a\nb, [a, b], 3, true), wrap)")(toString(nested))
 "##,
             path_holder.display()
         ),
@@ -8380,7 +8412,7 @@ assertResult("#(a\nb, [a, b], 3, true, ok)")(againText)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }
