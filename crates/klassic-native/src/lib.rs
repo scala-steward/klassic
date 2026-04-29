@@ -18626,6 +18626,37 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn expr_may_yield_static_list_like(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr)
+                .or_else(|| native_value_hint_from_expr(expr)),
+            Some(NativeValue::StaticIntList { .. } | NativeValue::StaticList { .. })
+        ) {
+            return true;
+        }
+        match expr {
+            Expr::ListLiteral { .. } => true,
+            Expr::Identifier { name, .. } => self
+                .lookup_var(name)
+                .is_some_and(|slot| Self::native_value_is_static_list_like(slot.value)),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .is_some_and(|expr| self.expr_may_yield_static_list_like(expr)),
+            Expr::Cleanup { body, .. } => self.expr_may_yield_static_list_like(body),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_may_yield_static_list_like(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|branch| self.expr_may_yield_static_list_like(branch))
+            }
+            _ => false,
+        }
+    }
+
     fn expr_may_yield_runtime_list_element(&self, expr: &Expr) -> bool {
         self.expr_may_yield_runtime_string(expr)
             || self.expr_may_yield_runtime_lines_list(expr)
@@ -19668,7 +19699,10 @@ impl NativeCodeGenerator {
         let branch_runtime_list_output = if let Some(else_branch) = else_branch {
             let branch_may_yield_runtime_list = self.expr_may_yield_runtime_list(then_branch)
                 || self.expr_may_yield_runtime_list(else_branch);
-            if branch_may_yield_runtime_list {
+            let branch_may_yield_list_like = branch_may_yield_runtime_list
+                || (self.expr_may_yield_static_list_like(then_branch)
+                    && self.expr_may_yield_static_list_like(else_branch));
+            if branch_may_yield_list_like {
                 self.prepare_native_list_branch_output(
                     then_value,
                     branch_may_yield_runtime_list,

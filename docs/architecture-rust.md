@@ -154,7 +154,10 @@ cargo run -- -e "1 + 2"
   runtime line-list branch results are materialized into shared fixed runtime
   buffers so the selected value can flow past the join, and divergent static
   string-list branches can join with each other or with runtime line-list
-  branches through the same buffer.
+  branches through the same buffer. Divergent static list-like branches whose
+  element types match (for example, two `Int` lists or two `String` lists of
+  the same length) are also materialized through a runtime-list buffer so the
+  joined value flows past the join.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

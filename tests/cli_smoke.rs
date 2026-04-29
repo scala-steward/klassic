@@ -2418,6 +2418,78 @@ fn builds_native_executable_for_static_if_values() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_dynamic_if_static_list_branches() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-if-static-list-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-if-static-list-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val key = head(args())
+val ints = if(key == "left") [1, 2, 3] else [4, 5, 6]
+val strs = if(key == "left") ["alpha", "beta"] else ["gamma", "delta"]
+println(head(ints))
+println(head(tail(ints)))
+println(size(ints))
+println(head(strs))
+println(head(tail(strs)))
+println(size(strs))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic if static-list branch build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let left_run = Command::new(&output_path)
+        .arg("left")
+        .output()
+        .expect("generated executable should run left");
+    let right_run = Command::new(&output_path)
+        .arg("right")
+        .output()
+        .expect("generated executable should run right");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(left_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&left_run.stdout),
+        "1\n2\n3\nalpha\nbeta\n2\n"
+    );
+    assert!(left_run.stderr.is_empty());
+
+    assert!(right_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&right_run.stdout),
+        "4\n5\n3\ngamma\ndelta\n2\n"
+    );
+    assert!(right_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_static_string_helpers() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
