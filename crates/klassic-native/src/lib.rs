@@ -2671,6 +2671,9 @@ impl NativeCodeGenerator {
                         format!("{name} expects 1 argument but got {}", arguments.len()),
                     ));
                 }
+                if let Some(value) = self.compile_list_literal_tail(&arguments[0], span)? {
+                    return Ok(value);
+                }
                 let value = self.compile_expr(&arguments[0])?;
                 match value {
                     NativeValue::StaticIntList { label, len } => {
@@ -4798,6 +4801,51 @@ impl NativeCodeGenerator {
             self.compile_expr(element)?;
         }
         Ok(Some(self.emit_compiled_literal_value(selected)))
+    }
+
+    fn compile_list_literal_tail(
+        &mut self,
+        list: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = list else {
+            return Ok(None);
+        };
+        if !self.list_literal_has_runtime_values(elements) {
+            return Ok(None);
+        }
+        let Some((first, rest)) = elements.split_first() else {
+            return Ok(None);
+        };
+
+        self.compile_expr(first)?;
+        let (data, len) = self.runtime_record_branch_string_buffer();
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(offset);
+        for element in rest {
+            let value = self.compile_expr(element)?;
+            let Some(value) = self.native_string_ref(value) else {
+                return Err(unsupported(
+                    span,
+                    "native tail over list literal runtime values for non-string element",
+                ));
+            };
+            self.emit_append_newline_separator_to_runtime_buffer_offset_label(
+                data,
+                offset,
+                span,
+                "tail list-literal line-list result exceeds 65536 bytes",
+            );
+            self.emit_append_native_string_to_runtime_buffer_offset_label(
+                data,
+                offset,
+                value,
+                span,
+                "tail list-literal line-list result exceeds 65536 bytes",
+            );
+        }
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        Ok(Some(NativeValue::RuntimeLinesList { data, len }))
     }
 
     fn compile_literal_value(&mut self, expr: &Expr) -> Result<CompiledLiteralValue, Diagnostic> {

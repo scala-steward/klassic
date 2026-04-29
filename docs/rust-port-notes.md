@@ -127,6 +127,8 @@ the module layout is described in `docs/architecture-rust.md`.
 - Direct `head` over list literals can return runtime native values, including
   supported runtime records, while evaluating every list element in source
   order.
+- Direct `tail` over list literals can return runtime line-list values from
+  runtime string elements on the same evaluated-elements path.
 - List/set literal `contains` and map literal `containsKey` / `containsValue`
   can compare runtime native values directly after preserving literal evaluation
   effects.

@@ -333,6 +333,8 @@ supported runtime records, from static or runtime keys after evaluating every
 map entry and the key in source order.
 Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
+Direct `tail` over list literals can return runtime line-list values from
+runtime string elements after evaluating every list element in source order.
 List/set literal `contains` and map literal `containsKey` / `containsValue` can
 compare runtime native values directly after evaluating the literal and query
 in source order.

@@ -301,6 +301,8 @@ cargo run -- -e "1 + 2"
   static lambda method fields.
   Direct `head` over list literals can return runtime native values while
   preserving every list element's evaluation effects.
+  Direct `tail` over list literals can return runtime line-list values from
+  runtime string elements on the same evaluated-elements path.
   Literal `contains` / `containsKey` / `containsValue` selectors can compare
   runtime native values directly without materializing a first-class runtime
   collection.
