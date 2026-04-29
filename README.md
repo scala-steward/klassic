@@ -299,8 +299,9 @@ List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime
 string/int/bool keys by copying the selected entry into runtime record storage.
-Map literal `Map#get` / `.get` can also select runtime native values from
-static or runtime keys, while preserving every entry's evaluation effects.
+Map literal `Map#get` / `.get` can also select runtime native values,
+including runtime-list values, from static or runtime keys while preserving
+every entry's evaluation effects.
 Those runtime record results can be passed back through static list/set
 `contains` and map `containsValue` helpers for structural record membership.
 Static string-key maps, static string-valued maps, string sets,

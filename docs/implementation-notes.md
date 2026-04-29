@@ -331,8 +331,8 @@ and map `containsValue`.
 Effectful query expressions that compile back to static values after preserving
 their effects are also compared through the static collection membership path.
 Map literal `Map#get` / `.get` can return runtime native values, including
-supported runtime records, from static or runtime keys after evaluating every
-map entry and the key in source order.
+supported runtime records and runtime-list values, from static or runtime keys
+after evaluating every map entry and the key in source order.
 Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
 Direct `tail` over list literals can return runtime line-list values from

@@ -9646,6 +9646,119 @@ assertResult(2)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_list_literal_map_get_results() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-list-map-get-{unique}.kl"));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-map-get-path-{unique}.txt"
+    ));
+    let input_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-list-map-get-{unique}.txt"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-list-map-get-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r##"record Bag {{
+  items: List<String>
+  label: String
+}}
+val path = FileInput#all("{}")
+val runtime = FileInput#all(path)
+val key = head(args())
+mutable hits = 0
+val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val picked = Map#get(%["live": xs, "static": ["static", "branch"]], key)
+val bag = Map#get(%[
+  "live": #Bag(xs, "live"),
+  "static": #Bag(["static", "branch"], "static")
+], key)
+println(join(picked, "|"))
+println(picked)
+println(join(bag.items, "|"))
+println(bag)
+println(hits)
+if(key == "live") {{
+  assertResult(["ab", "tail"])(picked)
+  assertResult(#Bag(["ab", "tail"], "live"))(bag)
+}} else {{
+  assertResult(["static", "branch"])(picked)
+  assertResult(#Bag(["static", "branch"], "static"))(bag)
+}}
+assertResult(2)(hits)
+"##,
+            path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime list Map#get build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "ab").expect("input should write after native build");
+    let live_run = Command::new(&output_path)
+        .arg("live")
+        .output()
+        .expect("generated executable should run live branch");
+    let static_run = Command::new(&output_path)
+        .arg("static")
+        .output()
+        .expect("generated executable should run static branch");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        live_run.status.success(),
+        "runtime list Map#get live run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&live_run.stdout),
+        String::from_utf8_lossy(&live_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&live_run.stdout),
+        "ab|tail\n[ab, tail]\nab|tail\n#Bag([ab, tail], live)\n2\n"
+    );
+    assert!(live_run.stderr.is_empty());
+
+    assert!(
+        static_run.status.success(),
+        "runtime list Map#get static run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&static_run.stdout),
+        String::from_utf8_lossy(&static_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&static_run.stdout),
+        "static|branch\n[static, branch]\nstatic|branch\n#Bag([static, branch], static)\n2\n"
+    );
+    assert!(static_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

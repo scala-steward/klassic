@@ -512,6 +512,7 @@ enum CompiledLiteralMapGetOutput {
     Scalar { value: NativeValue, slot: DataLabel },
     RuntimeString { data: DataLabel, len: DataLabel },
     RuntimeLinesList { data: DataLabel, len: DataLabel },
+    RuntimeList { label: RuntimeListLabel },
     RuntimeRecord { output: RuntimeRecordBranchOutput },
 }
 
@@ -8509,6 +8510,9 @@ impl NativeCodeGenerator {
         if let Some(output) = self.prepare_compiled_literal_record_output(values, span)? {
             return Ok(CompiledLiteralMapGetOutput::RuntimeRecord { output });
         }
+        if let Some(label) = self.prepare_compiled_literal_runtime_list_output(values, span)? {
+            return Ok(CompiledLiteralMapGetOutput::RuntimeList { label });
+        }
         if let Some(value) = Self::compiled_literal_scalar_value_kind(values, span)? {
             return Ok(CompiledLiteralMapGetOutput::Scalar {
                 value,
@@ -8591,6 +8595,63 @@ impl NativeCodeGenerator {
                 return Err(unsupported(
                     span,
                     "native Map#get over map literal runtime values for mixed record values",
+                ));
+            }
+        }
+        Ok(Some(output))
+    }
+
+    fn prepare_compiled_literal_runtime_list_output(
+        &mut self,
+        values: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
+        let Some(first) = values.first().and_then(|value| {
+            self.compiled_literal_native_value(*value)
+                .filter(|value| Self::native_value_can_copy_to_runtime_list(*value))
+        }) else {
+            return Ok(None);
+        };
+        let Some(output) = self.prepare_native_list_branch_output(first, span)? else {
+            return Ok(None);
+        };
+        let output_len = self.runtime_list_len(output).ok_or_else(|| {
+            unsupported(
+                span,
+                "native Map#get over map literal runtime values for list value",
+            )
+        })?;
+        for value in values {
+            let Some(value) = self.compiled_literal_native_value(*value) else {
+                return Err(unsupported(
+                    span,
+                    "native Map#get over map literal runtime values for mixed list values",
+                ));
+            };
+            if !Self::native_value_can_copy_to_runtime_list(value) {
+                return Err(unsupported(
+                    span,
+                    "native Map#get over map literal runtime values for mixed list values",
+                ));
+            }
+            let value_len = match value {
+                NativeValue::RuntimeList { label } => self.runtime_list_len(label),
+                value if Self::native_value_is_static_list_like(value) => self
+                    .static_value_from_native(value)
+                    .and_then(|value| self.static_list_values_from_value(&value))
+                    .map(|values| values.len()),
+                _ => None,
+            }
+            .ok_or_else(|| {
+                unsupported(
+                    span,
+                    "native Map#get over map literal runtime values for list value",
+                )
+            })?;
+            if value_len != output_len {
+                return Err(unsupported(
+                    span,
+                    "native Map#get over map literal runtime values for mixed list values",
                 ));
             }
         }
@@ -8713,6 +8774,22 @@ impl NativeCodeGenerator {
                 );
                 Ok(())
             }
+            CompiledLiteralMapGetOutput::RuntimeList { label } => {
+                let value = self
+                    .compiled_literal_native_value(compiled_value)
+                    .ok_or_else(|| {
+                        unsupported(
+                            span,
+                            "native Map#get over map literal runtime values for list value",
+                        )
+                    })?;
+                self.emit_copy_native_list_to_runtime_list_output(
+                    value,
+                    *label,
+                    span,
+                    "Map#get map-literal runtime-list result exceeds 65536 bytes",
+                )
+            }
             CompiledLiteralMapGetOutput::RuntimeRecord { output } => {
                 let value = self
                     .compiled_literal_native_value(compiled_value)
@@ -8748,6 +8825,9 @@ impl NativeCodeGenerator {
             }
             CompiledLiteralMapGetOutput::RuntimeLinesList { data, len } => {
                 NativeValue::RuntimeLinesList { data, len }
+            }
+            CompiledLiteralMapGetOutput::RuntimeList { label } => {
+                NativeValue::RuntimeList { label }
             }
             CompiledLiteralMapGetOutput::RuntimeRecord { output } => NativeValue::RuntimeRecord {
                 label: output.label,
