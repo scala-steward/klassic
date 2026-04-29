@@ -308,8 +308,8 @@ cargo run -- -e "1 + 2"
   and return known collection cardinality or emptiness on the same path.
   List literal `foreach` can unroll over runtime native values after evaluating
   all elements before the body.
-  List literal `foldLeft` can reduce those values into native scalar or record
-  accumulators.
+  List literal `foldLeft` can reduce those values into native scalar, string, or
+  record accumulators.
   Map literal `Map#get` / `.get` can select runtime native values from static or
   runtime keys on the same evaluated-entry path.
   Static file input/output helpers for static paths are supported

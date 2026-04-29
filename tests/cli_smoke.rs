@@ -8524,6 +8524,7 @@ foreach(box in [{{ foreachHits += 1; #Box(FileInput#all(path), FileInput#lines(p
 }}
 val foldedCount = foldLeft([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}])(0)((acc, box) => acc + box.count)
 val foldedSummary = foldLeft([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}])(#Summary("", 0, true))((acc, box) => #Summary(acc.text + box.text, acc.count + box.count, acc.ok && box.ok))
+val foldedText = foldLeft([{{ hits += 1; runtimeBox.text }}, {{ hits += 1; "!" }}])("")((acc, text) => acc + text)
 println(listHit)
 println(listMiss)
 println(setHit)
@@ -8541,6 +8542,7 @@ println(foldedCount)
 println(foldedSummary.count)
 println(foldedSummary.ok)
 println(foldedSummary.text)
+println(foldedText)
 println(pickedRuntimeBox.count)
 println(pickedRuntimeBox.ok)
 println(pickedRuntimeBox.text)
@@ -8555,11 +8557,12 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(33)(hits)
+assertResult(35)(hits)
 assertResult(2)(foreachHits)
 assertResult(35)(foreachScore)
 assertResult(8)(foldedCount)
 assertResult(#Summary("a\nbother", 8, false))(foldedSummary)
+assertResult("a\nb!")(foldedText)
 assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
 "##,
             path_holder.display()
@@ -8606,7 +8609,7 @@ assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n33\n35\n8\n8\nfalse\na\nbother\n3\ntrue\na\nb\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n35\n35\n8\n8\nfalse\na\nbother\na\nb!\n3\ntrue\na\nb\n"
     );
     assert!(run.stderr.is_empty());
 }

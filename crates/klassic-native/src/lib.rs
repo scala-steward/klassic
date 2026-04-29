@@ -4210,6 +4210,10 @@ impl NativeCodeGenerator {
                 storage: DataLabel,
                 value_kind: NativeValue,
             },
+            String {
+                data: DataLabel,
+                len: DataLabel,
+            },
             Record {
                 output: RuntimeRecordBranchOutput,
             },
@@ -4232,10 +4236,20 @@ impl NativeCodeGenerator {
                 storage,
                 value_kind: initial,
             }
+        } else if let Some(initial) = self.native_string_ref(initial) {
+            let (data, len) = self.runtime_record_branch_string_buffer();
+            self.emit_copy_native_string_to_runtime_string_buffer(
+                data,
+                len,
+                initial,
+                span,
+                "foldLeft list-literal string accumulator exceeds 65536 bytes",
+            );
+            LiteralFoldAccumulator::String { data, len }
         } else {
             return Err(unsupported(
                 span,
-                "native foldLeft over list literal runtime values for non-Int, non-Bool, or non-record initial value",
+                "native foldLeft over list literal runtime values for non-Int, non-Bool, non-String, or non-record initial value",
             ));
         };
 
@@ -4280,6 +4294,15 @@ impl NativeCodeGenerator {
                         },
                     );
                 }
+                LiteralFoldAccumulator::String { data, len } => {
+                    self.bind_constant(
+                        acc_param.clone(),
+                        NativeValue::RuntimeString {
+                            data: *data,
+                            len: *len,
+                        },
+                    );
+                }
             }
             self.bind_compiled_literal_iteration_value(element_param, element);
             let next_acc = self.compile_expr(&reducer.body);
@@ -4306,6 +4329,21 @@ impl NativeCodeGenerator {
                         "foldLeft list-literal record accumulator exceeds 65536 bytes",
                     )?;
                 }
+                LiteralFoldAccumulator::String { data, len } => {
+                    let Some(next_acc) = self.native_string_ref(next_acc) else {
+                        return Err(unsupported(
+                            span,
+                            "native foldLeft over list literal runtime values for non-string reducer result",
+                        ));
+                    };
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        *data,
+                        *len,
+                        next_acc,
+                        span,
+                        "foldLeft list-literal string accumulator exceeds 65536 bytes",
+                    );
+                }
             }
         }
 
@@ -4321,6 +4359,9 @@ impl NativeCodeGenerator {
             LiteralFoldAccumulator::Record { output } => NativeValue::RuntimeRecord {
                 label: output.label,
             },
+            LiteralFoldAccumulator::String { data, len } => {
+                NativeValue::RuntimeString { data, len }
+            }
         }))
     }
 
