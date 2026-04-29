@@ -88,6 +88,7 @@ The repository contains a Rust-native language implementation with:
   list/map/set-literal equality / `assertResult` over runtime native values
   and static collection bindings,
   immutable runtime list-literal bindings with display, equality, list-helper, `cons`, `map`, `foldLeft`, `join`, and `FileOutput#writeLines` support,
+  runtime record fields carrying runtime-list values through field access, display, and equality,
   list-literal `foreach` and scalar/string/line-list/record-accumulator `foldLeft` over runtime native values,
   map-literal `Map#get` / `.get` returning runtime native values from static or runtime keys,
   direct or method-style static-list `head` lookups including `tail` and

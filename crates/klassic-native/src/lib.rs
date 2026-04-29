@@ -12406,6 +12406,10 @@ impl NativeCodeGenerator {
             RuntimeRecordField::Runtime(NativeValue::RuntimeLinesList { .. }) => {
                 self.native_value_is_lines_list_compatible(value)
             }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeList { .. }) => {
+                matches!(value, NativeValue::RuntimeList { .. })
+                    || Self::native_value_is_static_list_like(value)
+            }
             RuntimeRecordField::Runtime(NativeValue::RuntimeRecord { label }) => {
                 matches!(
                     value,
@@ -12435,6 +12439,9 @@ impl NativeCodeGenerator {
             }
             RuntimeRecordField::Runtime(NativeValue::RuntimeLinesList { .. }) => {
                 self.static_string_list_content_from_value(value).is_some()
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeList { .. }) => {
+                self.static_list_values_from_value(value).is_some()
             }
             RuntimeRecordField::Runtime(NativeValue::RuntimeRecord { label }) => matches!(
                 value,
@@ -16206,6 +16213,19 @@ impl NativeCodeGenerator {
                     label: actual_label,
                 },
             ) => self.emit_runtime_records_equal(label, actual_label, span)?,
+            (NativeValue::RuntimeList { label }, NativeValue::RuntimeList { .. }) => {
+                self.emit_runtime_list_equal_native(label, actual, span)?;
+            }
+            (NativeValue::RuntimeList { label }, value)
+                if Self::native_value_is_static_list_like(value) =>
+            {
+                self.emit_runtime_list_equal_static_native(label, value, span)?;
+            }
+            (value, NativeValue::RuntimeList { label })
+                if Self::native_value_is_static_list_like(value) =>
+            {
+                self.emit_runtime_list_equal_static_native(label, value, span)?;
+            }
             _ => {
                 self.asm.mov_imm64(Reg::Rax, 0);
             }
@@ -16259,6 +16279,12 @@ impl NativeCodeGenerator {
                     label: static_label,
                 },
             ) => self.emit_runtime_record_equal_static_record(label, *static_label, span)?,
+            (NativeValue::RuntimeList { label }, value)
+                if self.static_list_values_from_value(value).is_some() =>
+            {
+                let value = self.emit_static_value(value);
+                self.emit_runtime_list_equal_static_native(label, value, span)?;
+            }
             _ => {
                 self.asm.mov_imm64(Reg::Rax, 0);
             }
@@ -23330,6 +23356,7 @@ fn runtime_record_field_value_is_supported(value: NativeValue) -> bool {
         value,
         NativeValue::RuntimeString { .. }
             | NativeValue::RuntimeLinesList { .. }
+            | NativeValue::RuntimeList { .. }
             | NativeValue::RuntimeRecord { .. }
             | NativeValue::RuntimeMapCallableDispatch(_)
     )

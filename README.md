@@ -288,6 +288,8 @@ elements as runtime list values, with printing, `toString`, interpolation,
 string concatenation, equality, `assertResult`, `head`, `tail`, `size`,
 `isEmpty`, `contains`, `cons`, `foreach`, `map`, `foldLeft`, `join`, and
 `FileOutput#writeLines` support.
+Runtime records can carry those runtime list values through field access,
+display, and equality against compatible static records.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime
