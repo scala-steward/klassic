@@ -362,6 +362,9 @@ into list-owned buffers. The native path can then print or render those runtime
 lists, compare them with compatible static or runtime lists, and feed them
 through `head`, `tail`, `size`, `isEmpty`, `contains`, `cons`, `foreach`,
 `map`, `foldLeft`, `join`, and `FileOutput#writeLines`.
+Runtime-list `foldLeft` can also update compatible `List<String>` accumulators,
+including reducers that produce a fresh list with `cons`; those reducer results
+are copied back through the same fixed line-list accumulator buffer.
 Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
 Dynamic `if` joins can merge fixed-shape runtime-list values and record fields

@@ -87,7 +87,7 @@ The repository contains a Rust-native language implementation with:
   string concatenation over runtime native values into runtime strings,
   list/map/set-literal equality / `assertResult` over runtime native values
   and static collection bindings,
-  immutable runtime list-literal bindings with display, equality, list-helper, `cons`, `map`, `foldLeft`, `join`, and `FileOutput#writeLines` support,
+  immutable runtime list-literal bindings with display, equality, list-helper, `cons`, `map`, `foldLeft` including list-building accumulators, `join`, and `FileOutput#writeLines` support,
   fixed-shape dynamic `if` merges for runtime-list values and record fields carrying them,
   annotated `List<String>` function argument/return interop for compatible runtime-list values,
   runtime record fields carrying runtime-list values through field access, display, and equality,

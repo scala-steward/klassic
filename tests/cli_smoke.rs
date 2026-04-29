@@ -9088,6 +9088,7 @@ val mappedViaFunction = map(xs)((x) => "[" + x + "]")
 val foldedText = xs.foldLeft("", (acc, x) => acc + "[" + x + "]")
 val total = foldLeft(sizes)(0)((acc, n) => acc + n)
 val allPositive = sizes.foldLeft(true, (acc, n) => acc && n > 0)
+val reversed = xs.foldLeft([], (acc, x) => cons(x)(acc))
 println(mapped)
 println(join(mapped, "|"))
 println(mappedViaFunction)
@@ -9095,12 +9096,14 @@ println(join(mappedViaFunction, "|"))
 println(foldedText)
 println(total)
 println(allPositive)
+println(join(reversed, "|"))
 println(hits)
 assertResult(["ab!", "tail!"])(mapped)
 assertResult(["[ab]", "[tail]"])(mappedViaFunction)
 assertResult("[ab][tail]")(foldedText)
 assertResult(6)(total)
 assert(allPositive)
+assertResult(["tail", "ab"])(reversed)
 assertResult(3)(hits)
 "##,
             path_holder.display()
@@ -9147,7 +9150,7 @@ assertResult(3)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[ab!, tail!]\nab!|tail!\n[[ab], [tail]]\n[ab]|[tail]\n[ab][tail]\n6\ntrue\n3\n"
+        "[ab!, tail!]\nab!|tail!\n[[ab], [tail]]\n[ab]|[tail]\n[ab][tail]\n6\ntrue\ntail|ab\n3\n"
     );
     assert!(run.stderr.is_empty());
 }

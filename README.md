@@ -288,6 +288,8 @@ elements as runtime list values, with printing, `toString`, interpolation,
 string concatenation, equality, `assertResult`, `head`, `tail`, `size`,
 `isEmpty`, `contains`, `cons`, `foreach`, `map`, `foldLeft`, `join`, and
 `FileOutput#writeLines` support.
+Runtime-list `foldLeft` can also use compatible `List<String>` accumulators,
+including reducers that build a list with `cons`.
 Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
 Dynamic `if` branches can merge fixed-shape runtime-list results, including
