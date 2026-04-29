@@ -7798,12 +7798,16 @@ impl NativeCodeGenerator {
         if !Self::native_value_can_copy_to_runtime_list(value) {
             return Ok(None);
         }
+        let force_dynamic_len = matches!(
+            value,
+            NativeValue::RuntimeList { label } if self.runtime_list_dynamic_len(label).is_some()
+        );
         let elements = self.compiled_literal_values_from_list_native(
             value,
             span,
             "native if runtime-list branch value",
         )?;
-        self.prepare_runtime_list_branch_output_from_elements(&elements, span)
+        self.prepare_runtime_list_branch_output_from_elements(&elements, force_dynamic_len, span)
             .map(Some)
     }
 
@@ -7858,15 +7862,17 @@ impl NativeCodeGenerator {
         label: RuntimeListLabel,
         span: Span,
     ) -> Result<RuntimeListLabel, Diagnostic> {
+        let force_dynamic_len = self.runtime_list_dynamic_len(label).is_some();
         let elements = self
             .runtime_list_elements(label)
             .ok_or_else(|| unsupported(span, "native if runtime-list branch value"))?;
-        self.prepare_runtime_list_branch_output_from_elements(&elements, span)
+        self.prepare_runtime_list_branch_output_from_elements(&elements, force_dynamic_len, span)
     }
 
     fn prepare_runtime_list_branch_output_from_elements(
         &mut self,
         elements: &[CompiledLiteralValue],
+        force_dynamic_len: bool,
         span: Span,
     ) -> Result<RuntimeListLabel, Diagnostic> {
         let output = elements
@@ -7874,7 +7880,12 @@ impl NativeCodeGenerator {
             .copied()
             .map(|value| self.prepare_compiled_literal_branch_output(value, span))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(self.intern_runtime_list(output))
+        let length = if force_dynamic_len {
+            RuntimeListLength::Dynamic(self.asm.data_label_with_i64s(&[0]))
+        } else {
+            RuntimeListLength::Static
+        };
+        Ok(self.intern_runtime_list_with_length(output, length))
     }
 
     fn prepare_compiled_literal_branch_output(

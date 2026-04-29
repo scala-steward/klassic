@@ -9830,11 +9830,22 @@ val runtime = FileInput#all(path)
 mutable hits = 0
 val chooseLeft = size(args()) == 0
 val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val dynamicKey = if(chooseLeft) "live" else "static"
+val variedPrefix = Map#get(%[
+  "live": [runtime],
+  "static": [runtime, "tail"]
+], dynamicKey)
 val picked = if(chooseLeft) xs else cons("fallback")(tail(xs))
+val prefixPicked = if(chooseLeft) variedPrefix else ["fallback", "tail"]
+val prefixBag = if(chooseLeft) #Bag(variedPrefix, "prefix") else #Bag(["fallback", "tail"], "fallback")
 val staticPicked = if(chooseLeft) xs else ["static", "branch"]
 val bag = if(chooseLeft) #Bag(xs, "left") else #Bag(cons("fallback")(tail(xs)), "right")
 val staticBag = if(chooseLeft) #Bag(xs, "runtime") else #Bag(["static", "branch"], "static")
 println(join(picked, "|"))
+println(prefixPicked)
+println(size(prefixPicked))
+println(prefixBag)
+println(size(prefixBag.items))
 println(join(staticPicked, "|"))
 println(join(bag.items, "|"))
 println(bag)
@@ -9842,11 +9853,19 @@ println(staticBag)
 println(hits)
 if(chooseLeft) {{
   assertResult(["ab", "tail"])(picked)
+  assertResult(["ab"])(prefixPicked)
+  assertResult(1)(size(prefixPicked))
+  assertResult(#Bag(["ab"], "prefix"))(prefixBag)
+  assertResult(1)(size(prefixBag.items))
   assertResult(["ab", "tail"])(staticPicked)
   assertResult(#Bag(["ab", "tail"], "left"))(bag)
   assertResult(#Bag(["ab", "tail"], "runtime"))(staticBag)
 }} else {{
   assertResult(["fallback", "tail"])(picked)
+  assertResult(["fallback", "tail"])(prefixPicked)
+  assertResult(2)(size(prefixPicked))
+  assertResult(#Bag(["fallback", "tail"], "fallback"))(prefixBag)
+  assertResult(2)(size(prefixBag.items))
   assertResult(["static", "branch"])(staticPicked)
   assertResult(#Bag(["fallback", "tail"], "right"))(bag)
   assertResult(#Bag(["static", "branch"], "static"))(staticBag)
@@ -9901,7 +9920,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&left_run.stdout),
-        "ab|tail\nab|tail\nab|tail\n#Bag([ab, tail], left)\n#Bag([ab, tail], runtime)\n2\n"
+        "ab|tail\n[ab]\n1\n#Bag([ab], prefix)\n1\nab|tail\nab|tail\n#Bag([ab, tail], left)\n#Bag([ab, tail], runtime)\n2\n"
     );
     assert!(left_run.stderr.is_empty());
 
@@ -9913,7 +9932,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&right_run.stdout),
-        "fallback|tail\nstatic|branch\nfallback|tail\n#Bag([fallback, tail], right)\n#Bag([static, branch], static)\n2\n"
+        "fallback|tail\n[fallback, tail]\n2\n#Bag([fallback, tail], fallback)\n2\nstatic|branch\nfallback|tail\n#Bag([fallback, tail], right)\n#Bag([static, branch], static)\n2\n"
     );
     assert!(right_run.stderr.is_empty());
 }

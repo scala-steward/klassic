@@ -311,9 +311,10 @@ runtime-list accumulator `foldLeft`; skipped variable-length iterations
 preserve the previous accumulator storage.
 Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
-Dynamic `if` branches can merge fixed-shape runtime-list results, including
+Dynamic `if` branches can merge fixed-capacity runtime-list results, including
 compatible static-list branches and record fields that carry runtime-list
-values.
+values, and preserve selected runtime lengths when the branch output carries
+one.
 Annotated `List<String>` function parameters and returns can consume compatible
 runtime-list values by copying their string elements into fixed line-list
 buffers.

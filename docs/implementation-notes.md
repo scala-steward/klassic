@@ -378,8 +378,9 @@ accumulators for `foldLeft` also work over variable-length sources by copying
 the previous accumulator storage through skipped iterations.
 Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
-Dynamic `if` joins can merge fixed-shape runtime-list values and record fields
-that carry them by copying each branch into shared runtime-list element storage.
+Dynamic `if` joins can merge fixed-capacity runtime-list values and record
+fields that carry them by copying each branch into shared runtime-list element
+storage, preserving selected runtime lengths when the branch output carries one.
 Annotated `List<String>` function parameters and returns can consume compatible
 runtime-list values by copying their string elements into fixed line-list
 buffers, which also lets supported record returns carry runtime-list fields
