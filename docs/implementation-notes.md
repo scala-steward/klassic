@@ -353,7 +353,7 @@ to render supported element, key, and value displays into runtime strings, and
 the same formatter feeds printing, interpolation, and string concatenation.
 List/map/set literal equality and `assertResult` reuse the evaluated literal
 slots to compare runtime native elements, keys, and values against compatible
-literal expectations.
+literal expectations or static collection bindings.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`

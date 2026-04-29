@@ -8757,10 +8757,13 @@ fn builds_native_executable_for_runtime_collection_literal_equality() {
     let output_path =
         std::env::temp_dir().join(format!("klassic-native-runtime-literal-equality-{unique}"));
     fs::write(
-        &source_path,
-        format!(
-            r##"val path = FileInput#all("{}")
+	        &source_path,
+	        format!(
+	            r##"val path = FileInput#all("{}")
 val runtime = FileInput#all(path)
+val expectedList = ["a\nb", "tail"]
+val expectedMap = %["a\nb": "value"]
+val expectedSet = %("a\nb", "tail")
 mutable hits = 0
 val listOk = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}] == ["a\nb", "tail"]
 val listNe = [{{ hits += 1; runtime }}] != ["other"]
@@ -8768,12 +8771,24 @@ val mapOk = %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}] == %["a\nb": "
 val mapNe = %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}] != %["a\nb": "other"]
 val setOk = %({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}) == %("a\nb", "tail")
 val setNe = %({{ hits += 1; runtime }}) != %("other")
+val listStaticLhsOk = expectedList == [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val listStaticRhsOk = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}] == expectedList
+val mapStaticLhsOk = expectedMap == %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}]
+val mapStaticRhsOk = %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}] == expectedMap
+val setStaticLhsOk = expectedSet == %({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }})
+val setStaticRhsOk = %({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}) == expectedSet
 println(listOk)
 println(listNe)
 println(mapOk)
 println(mapNe)
 println(setOk)
 println(setNe)
+println(listStaticLhsOk)
+println(listStaticRhsOk)
+println(mapStaticLhsOk)
+println(mapStaticRhsOk)
+println(setStaticLhsOk)
+println(setStaticRhsOk)
 println(hits)
 assert(listOk)
 assert(listNe)
@@ -8781,14 +8796,20 @@ assert(mapOk)
 assert(mapNe)
 assert(setOk)
 assert(setNe)
-assertResult(["a\nb", "tail"])([{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}])
-assertResult(%["a\nb": "value"])(%[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}])
-assertResult(%("a\nb", "tail"))(%({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}))
-assertResult(18)(hits)
+assert(listStaticLhsOk)
+assert(listStaticRhsOk)
+assert(mapStaticLhsOk)
+assert(mapStaticRhsOk)
+assert(setStaticLhsOk)
+assert(setStaticRhsOk)
+assertResult(expectedList)([{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}])
+assertResult(expectedMap)(%[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}])
+assertResult(expectedSet)(%({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}))
+assertResult(32)(hits)
 "##,
-            path_holder.display()
-        ),
-    )
+	            path_holder.display()
+	        ),
+	    )
     .expect("source should write");
 
     let build = Command::new(klassic_bin())
@@ -8830,7 +8851,7 @@ assertResult(18)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\ntrue\ntrue\ntrue\ntrue\n11\n"
+        "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n25\n"
     );
     assert!(run.stderr.is_empty());
 }

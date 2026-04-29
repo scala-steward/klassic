@@ -6806,6 +6806,132 @@ impl NativeCodeGenerator {
                 let rhs = self.compile_literal_values(rhs_elements)?;
                 self.emit_compiled_literal_set_equality(&lhs, &rhs, span)?;
             }
+            (
+                Expr::ListLiteral {
+                    elements: lhs_elements,
+                    ..
+                },
+                rhs,
+            ) if self
+                .preview_static_value_after_effectful_eval(rhs)
+                .is_some_and(|value| self.static_list_values_from_value(&value).is_some()) =>
+            {
+                let lhs = self.compile_literal_values(lhs_elements)?;
+                let rhs = self.static_value_from_argument_preserving_effects(
+                    rhs,
+                    span,
+                    "native list equality rhs",
+                )?;
+                let rhs = self
+                    .compile_static_list_literal_values(&rhs)
+                    .ok_or_else(|| unsupported(span, "native list equality rhs"))?;
+                self.emit_compiled_literal_sequence_equality(&lhs, &rhs, span)?;
+            }
+            (
+                lhs,
+                Expr::ListLiteral {
+                    elements: rhs_elements,
+                    ..
+                },
+            ) if self
+                .preview_static_value_after_effectful_eval(lhs)
+                .is_some_and(|value| self.static_list_values_from_value(&value).is_some()) =>
+            {
+                let lhs = self.static_value_from_argument_preserving_effects(
+                    lhs,
+                    span,
+                    "native list equality lhs",
+                )?;
+                let lhs = self
+                    .compile_static_list_literal_values(&lhs)
+                    .ok_or_else(|| unsupported(span, "native list equality lhs"))?;
+                let rhs = self.compile_literal_values(rhs_elements)?;
+                self.emit_compiled_literal_sequence_equality(&lhs, &rhs, span)?;
+            }
+            (
+                Expr::MapLiteral {
+                    entries: lhs_entries,
+                    ..
+                },
+                rhs,
+            ) if self
+                .preview_static_value_after_effectful_eval(rhs)
+                .is_some_and(|value| matches!(value, StaticValue::StaticMap { .. })) =>
+            {
+                let lhs = self.compile_map_literal_entry_values(lhs_entries)?;
+                let rhs = self.static_value_from_argument_preserving_effects(
+                    rhs,
+                    span,
+                    "native map equality rhs",
+                )?;
+                let rhs = self
+                    .compile_static_map_literal_entry_values(&rhs)
+                    .ok_or_else(|| unsupported(span, "native map equality rhs"))?;
+                self.emit_compiled_literal_map_equality(&lhs, &rhs, span)?;
+            }
+            (
+                lhs,
+                Expr::MapLiteral {
+                    entries: rhs_entries,
+                    ..
+                },
+            ) if self
+                .preview_static_value_after_effectful_eval(lhs)
+                .is_some_and(|value| matches!(value, StaticValue::StaticMap { .. })) =>
+            {
+                let lhs = self.static_value_from_argument_preserving_effects(
+                    lhs,
+                    span,
+                    "native map equality lhs",
+                )?;
+                let lhs = self
+                    .compile_static_map_literal_entry_values(&lhs)
+                    .ok_or_else(|| unsupported(span, "native map equality lhs"))?;
+                let rhs = self.compile_map_literal_entry_values(rhs_entries)?;
+                self.emit_compiled_literal_map_equality(&lhs, &rhs, span)?;
+            }
+            (
+                Expr::SetLiteral {
+                    elements: lhs_elements,
+                    ..
+                },
+                rhs,
+            ) if self
+                .preview_static_value_after_effectful_eval(rhs)
+                .is_some_and(|value| matches!(value, StaticValue::StaticSet { .. })) =>
+            {
+                let lhs = self.compile_literal_values(lhs_elements)?;
+                let rhs = self.static_value_from_argument_preserving_effects(
+                    rhs,
+                    span,
+                    "native set equality rhs",
+                )?;
+                let rhs = self
+                    .compile_static_set_literal_values(&rhs)
+                    .ok_or_else(|| unsupported(span, "native set equality rhs"))?;
+                self.emit_compiled_literal_set_equality(&lhs, &rhs, span)?;
+            }
+            (
+                lhs,
+                Expr::SetLiteral {
+                    elements: rhs_elements,
+                    ..
+                },
+            ) if self
+                .preview_static_value_after_effectful_eval(lhs)
+                .is_some_and(|value| matches!(value, StaticValue::StaticSet { .. })) =>
+            {
+                let lhs = self.static_value_from_argument_preserving_effects(
+                    lhs,
+                    span,
+                    "native set equality lhs",
+                )?;
+                let lhs = self
+                    .compile_static_set_literal_values(&lhs)
+                    .ok_or_else(|| unsupported(span, "native set equality lhs"))?;
+                let rhs = self.compile_literal_values(rhs_elements)?;
+                self.emit_compiled_literal_set_equality(&lhs, &rhs, span)?;
+            }
             _ => return Ok(None),
         }
         if op == BinaryOp::NotEqual {
@@ -6814,6 +6940,67 @@ impl NativeCodeGenerator {
             self.asm.movzx_rax_al();
         }
         Ok(Some(NativeValue::Bool))
+    }
+
+    fn compile_static_list_literal_values(
+        &mut self,
+        value: &StaticValue,
+    ) -> Option<Vec<CompiledLiteralValue>> {
+        let values = self.static_list_values_from_value(value)?;
+        Some(self.compile_static_literal_values(&values))
+    }
+
+    fn compile_static_map_literal_entry_values(
+        &mut self,
+        value: &StaticValue,
+    ) -> Option<Vec<(CompiledLiteralValue, CompiledLiteralValue)>> {
+        let StaticValue::StaticMap { label } = value else {
+            return None;
+        };
+        let entries = self.static_maps.get(label.0)?.entries.clone();
+        Some(
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        self.compile_static_literal_value(key),
+                        self.compile_static_literal_value(value),
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    fn compile_static_set_literal_values(
+        &mut self,
+        value: &StaticValue,
+    ) -> Option<Vec<CompiledLiteralValue>> {
+        let StaticValue::StaticSet { label } = value else {
+            return None;
+        };
+        let values = self.static_sets.get(label.0)?.elements.clone();
+        Some(self.compile_static_literal_values(&values))
+    }
+
+    fn compile_static_literal_values(
+        &mut self,
+        values: &[StaticValue],
+    ) -> Vec<CompiledLiteralValue> {
+        values
+            .iter()
+            .map(|value| self.compile_static_literal_value(value))
+            .collect()
+    }
+
+    fn compile_static_literal_value(&mut self, value: &StaticValue) -> CompiledLiteralValue {
+        let value = self.emit_static_value(value);
+        if matches!(value, NativeValue::Int | NativeValue::Bool) {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            CompiledLiteralValue::Scalar { value, slot }
+        } else {
+            CompiledLiteralValue::Native(value)
+        }
     }
 
     fn emit_compiled_literal_sequence_equality(

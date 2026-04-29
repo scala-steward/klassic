@@ -282,7 +282,7 @@ the same path is available through printing, interpolation, and string
 concatenation.
 List/map/set literal equality and `assertResult` can also compare evaluated
 runtime native elements, keys, and values against compatible literal
-expectations.
+expectations or static collection bindings.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime
