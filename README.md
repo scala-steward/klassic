@@ -302,6 +302,11 @@ string concatenation, equality, `assertResult`, `head`, `tail`, `size`,
 `FileOutput#writeLines` support.
 Runtime-list `foldLeft` can also use compatible `List<String>` accumulators,
 including reducers that build a list with `cons`.
+When a runtime-list label carries a selected runtime length, the native helpers
+preserve that selected prefix through `contains`, `cons`, `foreach`, `map`,
+scalar/string/line-list/record `foldLeft`, display, printing, `toString`,
+`size`, `isEmpty`, `head`, `tail`, `join`, and runtime-list equality; list
+accumulators for runtime-list `foldLeft` remain fixed-shape only.
 Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
 Dynamic `if` branches can merge fixed-shape runtime-list results, including
@@ -319,9 +324,10 @@ Static maps can also return supported static records or non-string static lists
 from runtime string/int/bool keys by copying the selected entry into runtime
 record or runtime-list storage. Static-map lookups whose selected list length is
 not known until runtime track that length separately, so `print`, `toString`,
-`size`, `isEmpty`, `head`, `tail`, `join`, and equality only observe the selected
-prefix. Nested record fields can use the same variable-length runtime-list
-storage.
+`size`, `isEmpty`, `head`, `tail`, `contains`, `cons`, `foreach`, `map`,
+scalar/string/line-list/record `foldLeft`, `join`, and equality only observe the
+selected prefix. Nested record fields can use the same variable-length
+runtime-list storage.
 Map literal `Map#get` / `.get` can also select runtime native values,
 including variable-length runtime-list values, from static or runtime keys while
 preserving every entry's evaluation effects.

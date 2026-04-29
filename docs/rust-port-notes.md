@@ -165,7 +165,10 @@ the module layout is described in `docs/architecture-rust.md`.
   value, including callables. Non-string list entries may now have different
   static lengths; the selected length is stored with the runtime-list result,
   including nested record fields. Runtime record and runtime-list results from
-  those lookups can be queried through the normal native helper paths; runtime
+  those lookups can be queried through the normal native helper paths, with
+  helper iteration limited to the selected runtime-list prefix for `contains`,
+  `cons`, `foreach`, `map`, scalar/string/line-list/record `foldLeft`, `join`,
+  display, printing, and equality; runtime
   misses report a native diagnostic until the native path has dynamic tagged
   `null` values, but key types with no compatible static keys, and all-`null`
   compatible values, return static `null`.

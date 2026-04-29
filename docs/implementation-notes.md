@@ -334,7 +334,9 @@ Map literal `Map#get` / `.get` can return runtime native values, including
 supported runtime records and runtime-list values, from static or runtime keys
 after evaluating every map entry and the key in source order. Runtime-list
 outputs can keep a runtime-selected length, so display, `size`, `isEmpty`,
-`head`, `tail`, `join`, and equality ignore unused capacity slots.
+`head`, `tail`, `contains`, `cons`, `foreach`, `map`,
+scalar/string/line-list/record `foldLeft`, `join`, and equality ignore unused
+capacity slots.
 Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
 Direct `tail` over list literals can return runtime line-list values from
@@ -369,6 +371,9 @@ through `head`, `tail`, `size`, `isEmpty`, `contains`, `cons`, `foreach`,
 Runtime-list `foldLeft` can also update compatible `List<String>` accumulators,
 including reducers that produce a fresh list with `cons`; those reducer results
 are copied back through the same fixed line-list accumulator buffer.
+When a runtime-list label carries a selected runtime length, native helpers
+preserve that prefix and do not expose unused capacity slots. Runtime-list
+accumulators for `foldLeft` are still limited to fixed-shape source lists.
 Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
 Dynamic `if` joins can merge fixed-shape runtime-list values and record fields

@@ -9900,6 +9900,14 @@ val varied = Map#get(%[
   "live": [#Bag(xs, "live")],
   "static": [#Bag(["static"], "short"), #Bag(["branch"], "long")]
 ], key)
+mutable seen = 0
+foreach(item in varied) {{
+  seen += 1
+  println("seen " + item.label)
+}}
+val labels = map(varied)((item) => item.label)
+val foldedItems = foldLeft(varied)(0)((acc, item) => acc + size(item.items))
+val withHead = cons(#Bag(["head"], "head"))(varied)
 println(join(picked, "|"))
 println(picked)
 println(join(bag.items, "|"))
@@ -9909,6 +9917,11 @@ println(size(varied))
 println(head(varied).label)
 println(join(head(varied).items, "|"))
 println(tail(varied))
+println(labels)
+println(foldedItems)
+println(varied.contains(#Bag(["branch"], "long")))
+println(withHead)
+println(withHead == withHead)
 println(hits)
 if(key == "live") {{
   assertResult(["ab", "tail"])(picked)
@@ -9916,12 +9929,22 @@ if(key == "live") {{
   assertResult([#Bag(["ab", "tail"], "live")])(varied)
   assertResult(1)(size(varied))
   assertResult([])(tail(varied))
+  assertResult(["live"])(labels)
+  assertResult(2)(foldedItems)
+  assertResult(false)(varied.contains(#Bag(["branch"], "long")))
+  assertResult(1)(seen)
+  assertResult([#Bag(["head"], "head"), #Bag(["ab", "tail"], "live")])(withHead)
 }} else {{
   assertResult(["static", "branch"])(picked)
   assertResult(#Bag(["static", "branch"], "static"))(bag)
   assertResult([#Bag(["static"], "short"), #Bag(["branch"], "long")])(varied)
   assertResult(2)(size(varied))
   assertResult("long")(head(tail(varied)).label)
+  assertResult(["short", "long"])(labels)
+  assertResult(2)(foldedItems)
+  assertResult(true)(varied.contains(#Bag(["branch"], "long")))
+  assertResult(2)(seen)
+  assertResult([#Bag(["head"], "head"), #Bag(["static"], "short"), #Bag(["branch"], "long")])(withHead)
 }}
 assertResult(2)(hits)
 "##,
@@ -9974,7 +9997,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&live_run.stdout),
-        "ab|tail\n[ab, tail]\nab|tail\n#Bag([ab, tail], live)\n[#Bag([ab, tail], live)]\n1\nlive\nab|tail\n[]\n2\n"
+        "seen live\nab|tail\n[ab, tail]\nab|tail\n#Bag([ab, tail], live)\n[#Bag([ab, tail], live)]\n1\nlive\nab|tail\n[]\n[live]\n2\nfalse\n[#Bag([head], head), #Bag([ab, tail], live)]\ntrue\n2\n"
     );
     assert!(live_run.stderr.is_empty());
 
@@ -9986,9 +10009,62 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&static_run.stdout),
-        "static|branch\n[static, branch]\nstatic|branch\n#Bag([static, branch], static)\n[#Bag([static], short), #Bag([branch], long)]\n2\nshort\nstatic\n[#Bag([branch], long)]\n2\n"
+        "seen short\nseen long\nstatic|branch\n[static, branch]\nstatic|branch\n#Bag([static, branch], static)\n[#Bag([static], short), #Bag([branch], long)]\n2\nshort\nstatic\n[#Bag([branch], long)]\n[short, long]\n2\ntrue\n[#Bag([head], head), #Bag([static], short), #Bag([branch], long)]\ntrue\n2\n"
     );
     assert!(static_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn native_build_rejects_variable_runtime_list_fold_left_list_accumulator() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-fold-list-acc-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-fold-list-acc-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        r##"record Bag {
+  items: List<String>
+  label: String
+}
+val key = head(args())
+val varied = Map#get(%[
+  "live": [#Bag([key], "live")],
+  "static": [#Bag(["static"], "short"), #Bag(["branch"], "long")]
+], key)
+val folded = foldLeft(varied)([#Bag(["seed"], "seed")])((acc, item) => cons(item)(acc))
+println(folded)
+"##,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(!build.status.success());
+    assert!(build.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&build.stderr)
+            .contains("runtime-list accumulator over variable-length runtime list"),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

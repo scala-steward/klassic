@@ -3956,7 +3956,18 @@ impl NativeCodeGenerator {
             };
             let mut elements = self.runtime_list_elements(label).unwrap_or_default();
             elements.insert(0, head);
-            let label = self.intern_runtime_list(elements);
+            let label = if self.runtime_list_dynamic_len(label).is_some() {
+                let output_len = self.asm.data_label_with_i64s(&[0]);
+                self.emit_runtime_list_len_to_rax(label);
+                self.asm.inc_reg(Reg::Rax);
+                self.emit_store_rax_to_data_slot(output_len);
+                self.intern_runtime_list_with_length(
+                    elements,
+                    RuntimeListLength::Dynamic(output_len),
+                )
+            } else {
+                self.intern_runtime_list(elements)
+            };
             return Ok(NativeValue::RuntimeList { label });
         }
         let head = self.static_value_from_argument_preserving_effects(
@@ -4055,7 +4066,13 @@ impl NativeCodeGenerator {
             ),
             NativeValue::RuntimeList { label } => {
                 let elements = self.runtime_list_elements(label).unwrap_or_default();
-                self.compile_compiled_literal_values_map(elements, mapper, span, "runtime list")
+                self.compile_compiled_literal_values_map(
+                    elements,
+                    Some(label),
+                    mapper,
+                    span,
+                    "runtime list",
+                )
             }
             _ => Err(unsupported(span, "native map for non-static list")),
         }
@@ -4077,6 +4094,7 @@ impl NativeCodeGenerator {
         let elements = self.compile_literal_values(elements)?;
         Ok(Some(self.compile_compiled_literal_values_map(
             elements,
+            None,
             mapper,
             span,
             "list literal runtime values",
@@ -4086,6 +4104,7 @@ impl NativeCodeGenerator {
     fn compile_compiled_literal_values_map(
         &mut self,
         elements: Vec<CompiledLiteralValue>,
+        source_label: Option<RuntimeListLabel>,
         mapper: &Expr,
         span: Span,
         context: &str,
@@ -4111,12 +4130,20 @@ impl NativeCodeGenerator {
         };
 
         let mut mapped_values = Vec::with_capacity(elements.len());
-        for element in elements {
+        for (index, element) in elements.into_iter().enumerate() {
+            let skip = source_label
+                .and_then(|label| self.begin_runtime_list_dynamic_index_guard(label, index));
+            if skip.is_some() {
+                self.dynamic_control_depth += 1;
+            }
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&mapper);
             self.bind_compiled_literal_iteration_value(param, element);
             let mapped = self.compile_expr(&mapper.body);
             self.pop_scope();
+            if skip.is_some() {
+                self.dynamic_control_depth -= 1;
+            }
             let mapped = mapped?;
             let mapped = self.compiled_literal_value_from_native(mapped);
             mapped_values.push(self.stabilize_runtime_list_literal_value(
@@ -4124,20 +4151,39 @@ impl NativeCodeGenerator {
                 span,
                 "map result exceeds 65536 bytes",
             )?);
+            self.end_runtime_list_dynamic_index_guard(skip);
         }
-        let mapped_strings = mapped_values
-            .iter()
-            .map(|value| self.compiled_literal_string_ref(*value))
-            .collect::<Option<Vec<_>>>();
-        if let Some(mapped_strings) = mapped_strings {
-            return Ok(self.emit_compiled_literal_values_runtime_lines(
-                mapped_strings,
-                span,
-                "map result exceeds 65536 bytes",
-            ));
+        if source_label
+            .and_then(|label| self.runtime_list_dynamic_len(label))
+            .is_none()
+        {
+            let mapped_strings = mapped_values
+                .iter()
+                .map(|value| self.compiled_literal_string_ref(*value))
+                .collect::<Option<Vec<_>>>();
+            if let Some(mapped_strings) = mapped_strings {
+                return Ok(self.emit_compiled_literal_values_runtime_lines(
+                    mapped_strings,
+                    span,
+                    "map result exceeds 65536 bytes",
+                ));
+            }
         }
 
-        let label = self.intern_runtime_list(mapped_values);
+        let label = if source_label
+            .and_then(|label| self.runtime_list_dynamic_len(label))
+            .is_some()
+        {
+            let output_len = self.asm.data_label_with_i64s(&[0]);
+            self.emit_runtime_list_len_to_rax(source_label.expect("source label was checked"));
+            self.emit_store_rax_to_data_slot(output_len);
+            self.intern_runtime_list_with_length(
+                mapped_values,
+                RuntimeListLength::Dynamic(output_len),
+            )
+        } else {
+            self.intern_runtime_list(mapped_values)
+        };
         Ok(NativeValue::RuntimeList { label })
     }
 
@@ -4479,6 +4525,7 @@ impl NativeCodeGenerator {
                 let elements = self.runtime_list_elements(label).unwrap_or_default();
                 self.compile_compiled_literal_values_fold_left(
                     elements,
+                    Some(label),
                     &initial_arguments[0],
                     reducer,
                     span,
@@ -4506,6 +4553,7 @@ impl NativeCodeGenerator {
         let elements = self.compile_literal_values(elements)?;
         Ok(Some(self.compile_compiled_literal_values_fold_left(
             elements,
+            None,
             initial,
             reducer,
             span,
@@ -4516,6 +4564,7 @@ impl NativeCodeGenerator {
     fn compile_compiled_literal_values_fold_left(
         &mut self,
         elements: Vec<CompiledLiteralValue>,
+        source_label: Option<RuntimeListLabel>,
         initial: &Expr,
         reducer: &Expr,
         span: Span,
@@ -4596,6 +4645,18 @@ impl NativeCodeGenerator {
                 ),
             ));
         };
+        if source_label
+            .and_then(|label| self.runtime_list_dynamic_len(label))
+            .is_some()
+            && matches!(&accumulator, LiteralFoldAccumulator::RuntimeList { .. })
+        {
+            return Err(unsupported(
+                span,
+                &format!(
+                    "native foldLeft over {context} with runtime-list accumulator over variable-length runtime list"
+                ),
+            ));
+        }
 
         let reducer = self.compile_runtime_line_lambda(
             reducer,
@@ -4617,7 +4678,12 @@ impl NativeCodeGenerator {
             ));
         };
 
-        for element in elements {
+        for (index, element) in elements.into_iter().enumerate() {
+            let skip = source_label
+                .and_then(|label| self.begin_runtime_list_dynamic_index_guard(label, index));
+            if skip.is_some() {
+                self.dynamic_control_depth += 1;
+            }
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&reducer);
             match &accumulator {
@@ -4666,6 +4732,9 @@ impl NativeCodeGenerator {
             self.bind_compiled_literal_iteration_value(element_param, element);
             let next_acc = self.compile_expr(&reducer.body);
             self.pop_scope();
+            if skip.is_some() {
+                self.dynamic_control_depth -= 1;
+            }
             let next_acc = next_acc?;
             match &mut accumulator {
                 LiteralFoldAccumulator::Scalar {
@@ -4738,6 +4807,7 @@ impl NativeCodeGenerator {
                     );
                 }
             }
+            self.end_runtime_list_dynamic_index_guard(skip);
         }
 
         Ok(match accumulator {
@@ -6381,15 +6451,7 @@ impl NativeCodeGenerator {
         };
         self.emit_append_text_to_runtime_buffer(data, offset, "[", span, overflow_message);
         for (index, element) in elements.into_iter().enumerate() {
-            let skip = if self.runtime_list_dynamic_len(label).is_some() {
-                let skip = self.asm.create_text_label();
-                self.emit_runtime_list_len_to_rax(label);
-                self.asm.cmp_reg_imm32(Reg::Rax, index as i32);
-                self.asm.jcc_label(Condition::LessEqual, skip);
-                Some(skip)
-            } else {
-                None
-            };
+            let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
             if index > 0 {
                 self.emit_append_text_to_runtime_buffer(data, offset, ", ", span, overflow_message);
             }
@@ -6400,9 +6462,7 @@ impl NativeCodeGenerator {
                 span,
                 overflow_message,
             );
-            if let Some(skip) = skip {
-                self.asm.bind_text_label(skip);
-            }
+            self.end_runtime_list_dynamic_index_guard(skip);
         }
         self.emit_append_text_to_runtime_buffer(data, offset, "]", span, overflow_message);
     }
@@ -6466,15 +6526,7 @@ impl NativeCodeGenerator {
         let offset = self.asm.data_label_with_i64s(&[0]);
         self.emit_reset_runtime_buffer_offset_label(offset);
         for (index, element) in elements.into_iter().enumerate() {
-            let skip = if self.runtime_list_dynamic_len(label).is_some() {
-                let skip = self.asm.create_text_label();
-                self.emit_runtime_list_len_to_rax(label);
-                self.asm.cmp_reg_imm32(Reg::Rax, index as i32);
-                self.asm.jcc_label(Condition::LessEqual, skip);
-                Some(skip)
-            } else {
-                None
-            };
+            let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
             let value = self
                 .compiled_literal_native_value(element)
                 .and_then(|value| self.native_string_ref(value))
@@ -6497,9 +6549,7 @@ impl NativeCodeGenerator {
                 span,
                 "join runtime-list result exceeds 65536 bytes",
             );
-            if let Some(skip) = skip {
-                self.asm.bind_text_label(skip);
-            }
+            self.end_runtime_list_dynamic_index_guard(skip);
         }
         self.emit_store_runtime_string_len_from_offset(len, offset);
         Ok(output)
@@ -7185,7 +7235,11 @@ impl NativeCodeGenerator {
     ) -> Result<NativeValue, Diagnostic> {
         let elements = self.runtime_list_elements(label).unwrap_or_default();
         let needle = self.compile_literal_value(needle)?;
-        self.emit_compiled_literal_membership(&elements, needle, span)?;
+        if self.runtime_list_dynamic_len(label).is_some() {
+            self.emit_runtime_list_membership(label, &elements, needle, span)?;
+        } else {
+            self.emit_compiled_literal_membership(&elements, needle, span)?;
+        }
         Ok(NativeValue::Bool)
     }
 
@@ -7577,12 +7631,35 @@ impl NativeCodeGenerator {
     }
 
     fn emit_runtime_list_len_to_rax(&mut self, label: RuntimeListLabel) {
+        self.emit_runtime_list_len_to_reg(Reg::Rax, label);
+    }
+
+    fn emit_runtime_list_len_to_reg(&mut self, dst: Reg, label: RuntimeListLabel) {
         if let Some(len) = self.runtime_list_dynamic_len(label) {
             self.asm.mov_data_addr(Reg::R10, len);
-            self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+            self.asm.load_ptr_disp32(dst, Reg::R10, 0);
         } else {
             let len = self.runtime_list_capacity(label).unwrap_or_default();
-            self.asm.mov_imm64(Reg::Rax, len as u64);
+            self.asm.mov_imm64(dst, len as u64);
+        }
+    }
+
+    fn begin_runtime_list_dynamic_index_guard(
+        &mut self,
+        label: RuntimeListLabel,
+        index: usize,
+    ) -> Option<TextLabel> {
+        self.runtime_list_dynamic_len(label)?;
+        let skip = self.asm.create_text_label();
+        self.emit_runtime_list_len_to_rax(label);
+        self.asm.cmp_reg_imm32(Reg::Rax, index as i32);
+        self.asm.jcc_label(Condition::LessEqual, skip);
+        Some(skip)
+    }
+
+    fn end_runtime_list_dynamic_index_guard(&mut self, skip: Option<TextLabel>) {
+        if let Some(skip) = skip {
+            self.asm.bind_text_label(skip);
         }
     }
 
@@ -7990,6 +8067,17 @@ impl NativeCodeGenerator {
                     .runtime_list_elements(runtime_label)
                     .unwrap_or_default();
                 let actual = self.runtime_list_elements(actual_label).unwrap_or_default();
+                if self.runtime_list_dynamic_len(runtime_label).is_some()
+                    || self.runtime_list_dynamic_len(actual_label).is_some()
+                {
+                    return self.emit_runtime_lists_equal(
+                        runtime_label,
+                        &expected,
+                        actual_label,
+                        &actual,
+                        span,
+                    );
+                }
                 self.emit_compiled_literal_sequence_equality(&expected, &actual, span)
             }
             value if Self::native_value_is_static_list_like(value) => {
@@ -8019,6 +8107,41 @@ impl NativeCodeGenerator {
             self.asm.cmp_reg_imm8(Reg::Rax, 0);
             self.asm.jcc_label(Condition::Equal, not_equal);
         }
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_equal);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_runtime_lists_equal(
+        &mut self,
+        lhs_label: RuntimeListLabel,
+        lhs: &[CompiledLiteralValue],
+        rhs_label: RuntimeListLabel,
+        rhs: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let not_equal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.emit_runtime_list_len_to_reg(Reg::Rax, lhs_label);
+        self.emit_runtime_list_len_to_reg(Reg::Rcx, rhs_label);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rcx);
+        self.asm.jcc_label(Condition::NotEqual, not_equal);
+
+        for (index, (lhs, rhs)) in lhs.iter().zip(rhs.iter()).enumerate() {
+            let skip = if self.runtime_list_dynamic_len(lhs_label).is_some() {
+                self.begin_runtime_list_dynamic_index_guard(lhs_label, index)
+            } else {
+                self.begin_runtime_list_dynamic_index_guard(rhs_label, index)
+            };
+            self.emit_compiled_literal_values_equal(*lhs, *rhs, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, not_equal);
+            self.end_runtime_list_dynamic_index_guard(skip);
+        }
+
         self.asm.mov_imm64(Reg::Rax, 1);
         self.asm.jmp_label(done);
         self.asm.bind_text_label(not_equal);
@@ -8257,6 +8380,30 @@ impl NativeCodeGenerator {
             self.emit_compiled_literal_values_equal(needle, *element, span)?;
             self.asm.cmp_reg_imm8(Reg::Rax, 0);
             self.asm.jcc_label(Condition::NotEqual, found);
+        }
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(found);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_runtime_list_membership(
+        &mut self,
+        label: RuntimeListLabel,
+        elements: &[CompiledLiteralValue],
+        needle: CompiledLiteralValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for (index, element) in elements.iter().copied().enumerate() {
+            let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
+            self.emit_compiled_literal_values_equal(needle, element, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::NotEqual, found);
+            self.end_runtime_list_dynamic_index_guard(skip);
         }
         self.asm.mov_imm64(Reg::Rax, 0);
         self.asm.jmp_label(done);
@@ -19739,15 +19886,24 @@ impl NativeCodeGenerator {
             }
             NativeValue::RuntimeList { label } => {
                 let elements = self.runtime_list_elements(label).unwrap_or_default();
-                for element in elements {
+                for (index, element) in elements.into_iter().enumerate() {
+                    let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
+                    if skip.is_some() {
+                        self.dynamic_control_depth += 1;
+                    }
                     self.push_scope();
                     self.bind_compiled_literal_iteration_value(binding, element);
-                    self.compile_expr(body)?;
+                    let result = self.compile_expr(body);
                     if self.queued_threads_capture_current_scope() {
                         self.pop_scope_preserving_allocations();
                     } else {
                         self.pop_scope();
                     }
+                    if skip.is_some() {
+                        self.dynamic_control_depth -= 1;
+                    }
+                    result?;
+                    self.end_runtime_list_dynamic_index_guard(skip);
                 }
             }
             _ => return Err(unsupported(span, "native foreach over non-static list")),
@@ -20326,22 +20482,12 @@ impl NativeCodeGenerator {
         let elements = self.runtime_list_elements(label).unwrap_or_default();
         self.emit_write_data(fd, self.list_open, 1);
         for (index, element) in elements.into_iter().enumerate() {
-            let skip = if self.runtime_list_dynamic_len(label).is_some() {
-                let skip = self.asm.create_text_label();
-                self.emit_runtime_list_len_to_rax(label);
-                self.asm.cmp_reg_imm32(Reg::Rax, index as i32);
-                self.asm.jcc_label(Condition::LessEqual, skip);
-                Some(skip)
-            } else {
-                None
-            };
+            let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
             if index > 0 {
                 self.emit_write_data(fd, self.comma_space, 2);
             }
             self.emit_print_compiled_literal_value_fragment(fd, element);
-            if let Some(skip) = skip {
-                self.asm.bind_text_label(skip);
-            }
+            self.end_runtime_list_dynamic_index_guard(skip);
         }
         self.emit_write_data(fd, self.list_close, 1);
     }

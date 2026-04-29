@@ -202,7 +202,10 @@ cargo run -- -e "1 + 2"
   Map literal `Map#get` / `.get` can return runtime native values from static
   or runtime keys after preserving map-entry and key effects, including
   variable-length runtime-list results selected from static or map-literal
-  entries and nested record fields.
+  entries and nested record fields. Those variable-length labels keep helper
+  iteration on the selected prefix for `contains`, `cons`, `foreach`, `map`,
+  scalar/string/line-list/record `foldLeft`, `join`, display, printing, and
+  runtime-list equality.
   Static maps can lower `Map#get` / `.get` with runtime string/int/bool keys to
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, supported static record, non-string static-list,

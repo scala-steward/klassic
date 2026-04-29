@@ -95,7 +95,7 @@ The repository contains a Rust-native language implementation with:
   runtime record fields carrying runtime-list values through field access, display, and equality,
   straight-line mutable runtime-list rebinding through list-helper chains,
   list-literal `foreach` and scalar/string/line-list/runtime-list/record-accumulator `foldLeft` over runtime native values,
-  map-literal `Map#get` / `.get` returning runtime native values including variable-length runtime-list values from static or runtime keys,
+  map-literal `Map#get` / `.get` returning runtime native values including variable-length runtime-list values from static or runtime keys, with selected-prefix `contains`, `cons`, `foreach`, `map`, scalar/string/line-list/record `foldLeft`, `join`, display/printing, and runtime-list equality,
   direct or method-style static-list `head` lookups including `tail` and
   `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys plus runtime string/int/bool
