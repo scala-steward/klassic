@@ -8011,10 +8011,11 @@ impl NativeCodeGenerator {
         Ok(Some(self.intern_runtime_list_with_length(elements, length)))
     }
 
-    fn prepare_native_list_branch_output(
+    fn prepare_native_list_branch_output_with_min_capacity(
         &mut self,
         value: NativeValue,
         force_dynamic_len: bool,
+        min_capacity: Option<usize>,
         span: Span,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
         if !Self::native_value_can_copy_to_runtime_list(value) {
@@ -8024,14 +8025,62 @@ impl NativeCodeGenerator {
             || matches!(
                 value,
                 NativeValue::RuntimeList { label } if self.runtime_list_dynamic_len(label).is_some()
-            );
+            )
+            || min_capacity.is_some_and(|cap| cap > self.native_value_static_list_capacity(value));
         let elements = self.compiled_literal_values_from_list_native(
             value,
             span,
             "native if runtime-list branch value",
         )?;
+        let elements = match min_capacity {
+            Some(cap) if cap > elements.len() => self
+                .pad_runtime_list_branch_elements(elements, cap)
+                .ok_or_else(|| {
+                    unsupported(
+                        span,
+                        "native if runtime-list branches with incompatible list lengths",
+                    )
+                })?,
+            _ => elements,
+        };
         self.prepare_runtime_list_branch_output_from_elements(&elements, force_dynamic_len, span)
             .map(Some)
+    }
+
+    fn native_value_static_list_capacity(&self, value: NativeValue) -> usize {
+        match value {
+            NativeValue::StaticIntList { len, .. } => len,
+            NativeValue::StaticList { label } => self
+                .static_lists
+                .get(label.0)
+                .map(|list| list.elements.len())
+                .unwrap_or(0),
+            NativeValue::RuntimeList { label } => self.runtime_list_capacity(label).unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    fn pad_runtime_list_branch_elements(
+        &mut self,
+        mut elements: Vec<CompiledLiteralValue>,
+        capacity: usize,
+    ) -> Option<Vec<CompiledLiteralValue>> {
+        if elements.len() >= capacity {
+            return Some(elements);
+        }
+        let template = *elements.first()?;
+        let scalar_value = match template {
+            CompiledLiteralValue::Scalar { value, .. } => value,
+            CompiledLiteralValue::Native(_) => return None,
+        };
+        while elements.len() < capacity {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            elements.push(CompiledLiteralValue::Scalar {
+                value: scalar_value,
+                slot,
+            });
+        }
+        Some(elements)
     }
 
     fn prepare_mutable_runtime_list_output(
@@ -18626,6 +18675,46 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn expr_static_list_length_hint(&self, expr: &Expr) -> Option<usize> {
+        if let Some(value) = self.native_value_hint_for_expr(expr) {
+            if let Some(len) = self.native_value_list_length_hint(value) {
+                return Some(len);
+            }
+        }
+        match expr {
+            Expr::ListLiteral { elements, .. } => Some(elements.len()),
+            Expr::Identifier { name, .. } => self
+                .lookup_var(name)
+                .and_then(|slot| self.native_value_list_length_hint(slot.value)),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|expr| self.expr_static_list_length_hint(expr)),
+            Expr::Cleanup { body, .. } => self.expr_static_list_length_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let then = self.expr_static_list_length_hint(then_branch)?;
+                let other = self.expr_static_list_length_hint(else_branch)?;
+                Some(then.max(other))
+            }
+            _ => None,
+        }
+    }
+
+    fn native_value_list_length_hint(&self, value: NativeValue) -> Option<usize> {
+        match value {
+            NativeValue::StaticIntList { len, .. } => Some(len),
+            NativeValue::StaticList { label } => self
+                .static_lists
+                .get(label.0)
+                .map(|list| list.elements.len()),
+            NativeValue::RuntimeList { label } => self.runtime_list_capacity(label),
+            _ => None,
+        }
+    }
+
     fn expr_may_yield_static_list_like(&self, expr: &Expr) -> bool {
         if matches!(
             self.native_value_hint_for_expr(expr)
@@ -19703,9 +19792,22 @@ impl NativeCodeGenerator {
                 || (self.expr_may_yield_static_list_like(then_branch)
                     && self.expr_may_yield_static_list_like(else_branch));
             if branch_may_yield_list_like {
-                self.prepare_native_list_branch_output(
+                let then_len_hint = self
+                    .native_value_list_length_hint(then_value)
+                    .or_else(|| self.expr_static_list_length_hint(then_branch));
+                let else_len_hint = self.expr_static_list_length_hint(else_branch);
+                let lengths_differ = matches!(
+                    (then_len_hint, else_len_hint),
+                    (Some(then_len), Some(else_len)) if then_len != else_len
+                );
+                let min_capacity = match (then_len_hint, else_len_hint) {
+                    (Some(then_len), Some(else_len)) if else_len > then_len => Some(else_len),
+                    _ => None,
+                };
+                self.prepare_native_list_branch_output_with_min_capacity(
                     then_value,
-                    branch_may_yield_runtime_list,
+                    branch_may_yield_runtime_list || lengths_differ,
+                    min_capacity,
                     span,
                 )?
             } else {

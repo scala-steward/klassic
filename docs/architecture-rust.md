@@ -157,7 +157,10 @@ cargo run -- -e "1 + 2"
   branches through the same buffer. Divergent static list-like branches whose
   element types match (for example, two `Int` lists or two `String` lists of
   the same length) are also materialized through a runtime-list buffer so the
-  joined value flows past the join.
+  joined value flows past the join. Divergent integer-list branches with
+  different lengths share the same buffer with dynamic length tracking by
+  padding the shorter branch's slots, so `[1, 2]` and `[3, 4, 5]` can join
+  through one runtime list even though their lengths differ.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local
