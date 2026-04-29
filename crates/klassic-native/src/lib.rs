@@ -9411,6 +9411,16 @@ impl NativeCodeGenerator {
                 span,
             );
         }
+        if let Some(output) = self
+            .prepare_runtime_map_get_list_output(candidates.iter().map(|(_, value)| value), span)?
+        {
+            return self.compile_static_map_get_runtime_list_candidates(
+                candidates,
+                emit_match_condition,
+                output,
+                span,
+            );
+        }
         let value_kind =
             self.runtime_map_get_value_kind(candidates.iter().map(|(_, value)| value), span)?;
         let output = if matches!(
@@ -9574,6 +9584,59 @@ impl NativeCodeGenerator {
         Ok(NativeValue::RuntimeRecord {
             label: output.label,
         })
+    }
+
+    fn prepare_runtime_map_get_list_output<'a>(
+        &mut self,
+        values: impl IntoIterator<Item = &'a StaticValue>,
+        span: Span,
+    ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
+        let mut values = values.into_iter();
+        let Some(first) = values.next().cloned() else {
+            return Ok(None);
+        };
+        if self.static_string_list_content_from_value(&first).is_some()
+            || self.static_list_values_from_value(&first).is_none()
+        {
+            return Ok(None);
+        }
+        let first = self.emit_static_value(&first);
+        self.prepare_native_list_branch_output(first, span)
+    }
+
+    fn compile_static_map_get_runtime_list_candidates<K>(
+        &mut self,
+        candidates: Vec<(K, StaticValue)>,
+        mut emit_match_condition: impl FnMut(&mut Self, K) -> Condition,
+        output: RuntimeListLabel,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let done = self.asm.create_text_label();
+        let branches = candidates
+            .into_iter()
+            .map(|(entry_key, value)| {
+                let label = self.asm.create_text_label();
+                let condition = emit_match_condition(self, entry_key);
+                self.asm.jcc_label(condition, label);
+                (label, value)
+            })
+            .collect::<Vec<_>>();
+
+        self.emit_runtime_error(span, "Map#get runtime key was not found");
+        for (label, value) in branches {
+            self.asm.bind_text_label(label);
+            let value = self.emit_static_value(&value);
+            self.emit_copy_native_list_to_runtime_list_output(
+                value,
+                output,
+                span,
+                "Map#get runtime-list result exceeds 65536 bytes",
+            )?;
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+
+        Ok(NativeValue::RuntimeList { label: output })
     }
 
     fn runtime_map_get_value_kind<'a>(

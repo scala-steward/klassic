@@ -100,7 +100,7 @@ The repository contains a Rust-native language implementation with:
   `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys plus runtime string/int/bool
   `Map#get` / `.get` keys for static maps with uniform
-  string, string-list, int, boolean, supported static record, `null`, or `()` compatible values and
+  string, string-list, int, boolean, supported static record, non-string static-list, `null`, or `()` compatible values and
   equivalent static value compatible entries including callables, runtime record
   membership through static list/set `contains` and map `containsValue`,
   static-key map-literal lookups returning runtime native values, immediate
