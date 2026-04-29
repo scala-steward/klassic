@@ -1798,6 +1798,56 @@ impl NativeCodeGenerator {
             return Ok(NativeValue::Bool);
         }
         if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && let NativeValue::StaticRecord { label } = lhs_value
+        {
+            let rhs_value = self.compile_expr(rhs)?;
+            if let NativeValue::RuntimeRecord { label: rhs_label } = rhs_value {
+                self.emit_runtime_record_equal_static_record(rhs_label, label, span)?;
+                if op == BinaryOp::NotEqual {
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.setcc_al(Condition::Equal);
+                    self.asm.movzx_rax_al();
+                }
+                return Ok(NativeValue::Bool);
+            }
+            let Some(equal) =
+                self.static_values_equal_user(NativeValue::StaticRecord { label }, rhs_value)
+            else {
+                return Err(unsupported(
+                    span,
+                    "native equality for values with different types",
+                ));
+            };
+            self.asm
+                .mov_imm64(Reg::Rax, u64::from(equal == (op == BinaryOp::Equal)));
+            return Ok(NativeValue::Bool);
+        }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && let NativeValue::RuntimeRecord { label } = lhs_value
+        {
+            let rhs_value = self.compile_expr(rhs)?;
+            match rhs_value {
+                NativeValue::StaticRecord { label: rhs_label } => {
+                    self.emit_runtime_record_equal_static_record(label, rhs_label, span)?;
+                }
+                NativeValue::RuntimeRecord { label: rhs_label } => {
+                    self.emit_runtime_records_equal(label, rhs_label, span)?;
+                }
+                _ => {
+                    return Err(unsupported(
+                        span,
+                        "native equality for runtime record and this value type",
+                    ));
+                }
+            }
+            if op == BinaryOp::NotEqual {
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.setcc_al(Condition::Equal);
+                self.asm.movzx_rax_al();
+            }
+            return Ok(NativeValue::Bool);
+        }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
             && matches!(
                 lhs_value,
                 NativeValue::Null
@@ -3026,8 +3076,6 @@ impl NativeCodeGenerator {
             NativeValue::StaticFloat { .. }
             | NativeValue::StaticDouble { .. }
             | NativeValue::StaticIntList { .. }
-            | NativeValue::StaticRecord { .. }
-            | NativeValue::RuntimeRecord { .. }
             | NativeValue::StaticMap { .. }
             | NativeValue::StaticSet { .. }
             | NativeValue::StaticLambda { .. }
@@ -3044,6 +3092,60 @@ impl NativeCodeGenerator {
                 if !equal {
                     self.emit_assert_result_failed_static_native(span, expected, actual);
                 }
+                Ok(NativeValue::Unit)
+            }
+            NativeValue::StaticRecord { label } => {
+                let actual = self.compile_expr(&actual_arguments[0])?;
+                if let NativeValue::RuntimeRecord {
+                    label: actual_label,
+                } = actual
+                {
+                    self.emit_runtime_record_equal_static_record(actual_label, label, span)?;
+                    let ok = self.asm.create_text_label();
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.jcc_label(Condition::NotEqual, ok);
+                    self.emit_runtime_error(span, "assertResult failed");
+                    self.asm.bind_text_label(ok);
+                    return Ok(NativeValue::Unit);
+                }
+                let Some(equal) =
+                    self.static_values_equal_user(NativeValue::StaticRecord { label }, actual)
+                else {
+                    return Err(unsupported(
+                        span,
+                        "native assertResult for values with different types",
+                    ));
+                };
+                if !equal {
+                    self.emit_assert_result_failed_static_native(
+                        span,
+                        NativeValue::StaticRecord { label },
+                        actual,
+                    );
+                }
+                Ok(NativeValue::Unit)
+            }
+            NativeValue::RuntimeRecord { label } => {
+                let actual = self.compile_expr(&actual_arguments[0])?;
+                match actual {
+                    NativeValue::StaticRecord {
+                        label: actual_label,
+                    } => self.emit_runtime_record_equal_static_record(label, actual_label, span)?,
+                    NativeValue::RuntimeRecord {
+                        label: actual_label,
+                    } => self.emit_runtime_records_equal(label, actual_label, span)?,
+                    _ => {
+                        return Err(unsupported(
+                            span,
+                            "native assertResult for runtime record and this value type",
+                        ));
+                    }
+                }
+                let ok = self.asm.create_text_label();
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, ok);
+                self.emit_runtime_error(span, "assertResult failed");
+                self.asm.bind_text_label(ok);
                 Ok(NativeValue::Unit)
             }
             NativeValue::StaticList { label } => {
@@ -12230,6 +12332,319 @@ impl NativeCodeGenerator {
                     expected_name == actual_name && self.static_value_equal_user(expected, actual)
                 },
             )
+    }
+
+    fn emit_runtime_record_equal_static_record(
+        &mut self,
+        runtime_label: RuntimeRecordLabel,
+        static_label: RecordLabel,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Some(runtime_record) = self.runtime_records.get(runtime_label.0).cloned() else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        };
+        let Some(static_record) = self.static_records.get(static_label.0).cloned() else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        };
+        if runtime_record.name != static_record.name
+            || runtime_record.fields.len() != static_record.fields.len()
+            || runtime_record
+                .fields
+                .iter()
+                .zip(static_record.fields.iter())
+                .any(|((runtime_name, _), (static_name, _))| runtime_name != static_name)
+        {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        }
+
+        let not_equal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for ((_, runtime_field), (_, static_value)) in runtime_record
+            .fields
+            .iter()
+            .zip(static_record.fields.iter())
+        {
+            self.emit_runtime_record_field_equal_static(runtime_field, static_value, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, not_equal);
+        }
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_equal);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_runtime_records_equal(
+        &mut self,
+        expected_label: RuntimeRecordLabel,
+        actual_label: RuntimeRecordLabel,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Some(expected) = self.runtime_records.get(expected_label.0).cloned() else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        };
+        let Some(actual) = self.runtime_records.get(actual_label.0).cloned() else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        };
+        if expected.name != actual.name
+            || expected.fields.len() != actual.fields.len()
+            || expected
+                .fields
+                .iter()
+                .zip(actual.fields.iter())
+                .any(|((expected_name, _), (actual_name, _))| expected_name != actual_name)
+        {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        }
+
+        let not_equal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for ((_, expected_field), (_, actual_field)) in
+            expected.fields.iter().zip(actual.fields.iter())
+        {
+            self.emit_runtime_record_fields_equal(expected_field, actual_field, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, not_equal);
+        }
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_equal);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_runtime_record_fields_equal(
+        &mut self,
+        expected: &RuntimeRecordField,
+        actual: &RuntimeRecordField,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match (expected, actual) {
+            (RuntimeRecordField::Static(expected), RuntimeRecordField::Static(actual)) => {
+                self.asm.mov_imm64(
+                    Reg::Rax,
+                    u64::from(self.static_value_equal_user(expected, actual)),
+                );
+            }
+            (RuntimeRecordField::Runtime(expected), RuntimeRecordField::Runtime(actual)) => {
+                self.emit_native_values_equal_user(*expected, *actual, span)?;
+            }
+            (RuntimeRecordField::Runtime(expected), RuntimeRecordField::Static(actual))
+            | (RuntimeRecordField::Static(actual), RuntimeRecordField::Runtime(expected)) => {
+                self.emit_native_value_equal_static_user(*expected, actual, span)?;
+            }
+            (
+                RuntimeRecordField::Scalar { value, slot },
+                RuntimeRecordField::Static(static_value),
+            )
+            | (
+                RuntimeRecordField::Static(static_value),
+                RuntimeRecordField::Scalar { value, slot },
+            ) => self.emit_scalar_slot_equal_static(*value, *slot, static_value),
+            (
+                RuntimeRecordField::Scalar {
+                    value: expected_value,
+                    slot: expected_slot,
+                },
+                RuntimeRecordField::Scalar {
+                    value: actual_value,
+                    slot: actual_slot,
+                },
+            ) => self.emit_scalar_slots_equal(
+                *expected_value,
+                *expected_slot,
+                *actual_value,
+                *actual_slot,
+            ),
+            (RuntimeRecordField::Runtime(_), RuntimeRecordField::Scalar { .. })
+            | (RuntimeRecordField::Scalar { .. }, RuntimeRecordField::Runtime(_)) => {
+                self.asm.mov_imm64(Reg::Rax, 0);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_runtime_record_field_equal_static(
+        &mut self,
+        runtime_field: &RuntimeRecordField,
+        static_value: &StaticValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match runtime_field {
+            RuntimeRecordField::Static(value) => {
+                self.asm.mov_imm64(
+                    Reg::Rax,
+                    u64::from(self.static_value_equal_user(value, static_value)),
+                );
+            }
+            RuntimeRecordField::Runtime(value) => {
+                self.emit_native_value_equal_static_user(*value, static_value, span)?;
+            }
+            RuntimeRecordField::Scalar { value, slot } => {
+                self.emit_scalar_slot_equal_static(*value, *slot, static_value);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_native_values_equal_user(
+        &mut self,
+        expected: NativeValue,
+        actual: NativeValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if let (Some(expected), Some(actual)) = (
+            self.static_value_from_native(expected),
+            self.static_value_from_native(actual),
+        ) {
+            self.asm.mov_imm64(
+                Reg::Rax,
+                u64::from(self.static_value_equal_user(&expected, &actual)),
+            );
+            return Ok(());
+        }
+        if let (Some(expected), Some(actual)) = (
+            self.native_string_ref(expected),
+            self.native_string_ref(actual),
+        ) {
+            self.emit_native_string_equality(expected, actual);
+            return Ok(());
+        }
+        match (expected, actual) {
+            (
+                NativeValue::RuntimeLinesList { data, len },
+                NativeValue::RuntimeLinesList {
+                    data: actual_data,
+                    len: actual_len,
+                },
+            ) => self.emit_runtime_lines_equal_runtime_lines(
+                NativeStringRef {
+                    data,
+                    len: NativeStringLen::Runtime(len),
+                },
+                NativeStringRef {
+                    data: actual_data,
+                    len: NativeStringLen::Runtime(actual_len),
+                },
+            ),
+            (
+                NativeValue::RuntimeRecord { label },
+                NativeValue::RuntimeRecord {
+                    label: actual_label,
+                },
+            ) => self.emit_runtime_records_equal(label, actual_label, span)?,
+            _ => {
+                self.asm.mov_imm64(Reg::Rax, 0);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_native_value_equal_static_user(
+        &mut self,
+        value: NativeValue,
+        static_value: &StaticValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if let Some(value) = self.static_value_from_native(value) {
+            self.asm.mov_imm64(
+                Reg::Rax,
+                u64::from(self.static_value_equal_user(&value, static_value)),
+            );
+            return Ok(());
+        }
+        match (value, static_value) {
+            (
+                NativeValue::RuntimeString { data, len },
+                StaticValue::StaticString {
+                    label: expected,
+                    len: expected_len,
+                },
+            ) => self.emit_native_string_equality(
+                NativeStringRef {
+                    data,
+                    len: NativeStringLen::Runtime(len),
+                },
+                NativeStringRef {
+                    data: *expected,
+                    len: NativeStringLen::Immediate(*expected_len),
+                },
+            ),
+            (NativeValue::RuntimeLinesList { data, len }, StaticValue::StaticList { label }) => {
+                self.emit_runtime_lines_equal_static_list(
+                    NativeStringRef {
+                        data,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    *label,
+                    span,
+                )?;
+            }
+            (
+                NativeValue::RuntimeRecord { label },
+                StaticValue::StaticRecord {
+                    label: static_label,
+                },
+            ) => self.emit_runtime_record_equal_static_record(label, *static_label, span)?,
+            _ => {
+                self.asm.mov_imm64(Reg::Rax, 0);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_scalar_slot_equal_static(
+        &mut self,
+        value: NativeValue,
+        slot: DataLabel,
+        static_value: &StaticValue,
+    ) {
+        let expected = match (value, static_value) {
+            (NativeValue::Int, StaticValue::Int(value)) => Some(*value as u64),
+            (NativeValue::Bool, StaticValue::Bool(value)) => Some(u64::from(*value)),
+            _ => None,
+        };
+        let Some(expected) = expected else {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return;
+        };
+        self.asm.mov_data_addr(Reg::R10, slot);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.mov_imm64(Reg::Rcx, expected);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rcx);
+        self.asm.setcc_al(Condition::Equal);
+        self.asm.movzx_rax_al();
+    }
+
+    fn emit_scalar_slots_equal(
+        &mut self,
+        expected_value: NativeValue,
+        expected_slot: DataLabel,
+        actual_value: NativeValue,
+        actual_slot: DataLabel,
+    ) {
+        if expected_value != actual_value
+            || !matches!(expected_value, NativeValue::Int | NativeValue::Bool)
+        {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return;
+        }
+        self.asm.mov_data_addr(Reg::R10, expected_slot);
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, actual_slot);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::Rax);
+        self.asm.setcc_al(Condition::Equal);
+        self.asm.movzx_rax_al();
     }
 
     fn static_lists_equal(&self, expected: ListLabel, actual: ListLabel) -> bool {

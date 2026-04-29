@@ -77,10 +77,11 @@ cargo run -- -e "1 + 2"
   runtime `String` / `List<String>` parameters for scalar-returning recursive functions, including
   reentrant and self-calls staged before shared parameter buffers are updated,
   fixed-buffer annotated `String` / `List<String>` returns copied into call-site buffers, function
-  value aliases, static record fields, runtime `String` / `List<String>` record
-  fields, direct or method-style static-list `head` lookups including `tail` and
-  `cons` chains, static `Map#get` / `.get` lookups with literal or folded static
-  keys preserving those runtime return hints, and runtime string/int/bool key
+  value aliases, static record fields, runtime `String` / `List<String>` and
+  dynamic `Int` / `Boolean` record fields, direct or method-style static-list
+  `head` lookups including `tail` and `cons` chains, static `Map#get` / `.get`
+  lookups with literal or folded static keys preserving those runtime return
+  hints, and runtime string/int/bool key
   lookups from static maps when the
   compatible values are all strings, ints, or booleans, plus block, cleanup,
   and same-runtime-return conditional callees
@@ -284,7 +285,8 @@ cargo run -- -e "1 + 2"
   static map literals, and static set literals with static contents support
   construction, printing, nesting, static map/set helper calls, and equality
   through `assertResult`; records also support field selection, fixed-buffer
-  runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields, and static lambda method fields.
+  runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields,
+  dynamic/static record equality for those fields, and static lambda method fields.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

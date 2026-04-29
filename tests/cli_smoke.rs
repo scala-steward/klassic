@@ -8285,7 +8285,22 @@ val literal = record {{
   ok: text.contains("a"),
   label: "ok"
 }}
+val literalAgain = record {{
+  text: FileInput#all(path),
+  lines: FileInput#lines(path),
+  count: length(FileInput#all(path)),
+  ok: FileOutput#exists(path),
+  label: "ok"
+}}
 val constructed = #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), FileOutput#exists(path))
+val expectedLiteral = record {{
+  text: "a\nb",
+  lines: ["a", "b"],
+  count: 3,
+  ok: true,
+  label: "ok"
+}}
+val expectedConstructed = #Box("a\nb", ["a", "b"], 3, true)
 println(literal.text)
 println(join(literal.lines, "|"))
 println(literal.count)
@@ -8296,6 +8311,9 @@ println(join(constructed.lines, ":"))
 println(constructed.count)
 println("exists=" + constructed.ok)
 println(constructed)
+println(expectedLiteral == literal)
+println(constructed == expectedConstructed)
+println(literal == literalAgain)
 assertResult("a\nb")(literal.text)
 assertResult(["a", "b"])(literal.lines)
 assertResult(3)(literal.count)
@@ -8305,6 +8323,9 @@ assertResult("a\nb")(constructed.text)
 assertResult(["a", "b"])(constructed.lines)
 assertResult(3)(constructed.count)
 assertResult(true)(constructed.ok)
+assertResult(expectedLiteral)(literal)
+assertResult(expectedConstructed)(constructed)
+assert(literal == literalAgain)
 "#,
             path_holder.display()
         ),
@@ -8350,7 +8371,7 @@ assertResult(true)(constructed.ok)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\n"
     );
     assert!(run.stderr.is_empty());
 }

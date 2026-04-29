@@ -118,11 +118,12 @@ the module layout is described in `docs/architecture-rust.md`.
 - Annotated `String` / `List<String>` returns use fixed function return buffers
   that direct call sites copy into call-site-local buffers.
 - Function value aliases, static record fields, runtime `String` /
-  `List<String>` record fields, direct or method-style `head` lookups from
-  static lists including `tail` and `cons` chains, and static `Map#get` / `.get`
-  lookups with literal or folded static keys for such `def`s retain the runtime
-  return metadata for field access, string concatenation, and runtime line-list
-  helper dispatch.
+  `List<String>` plus dynamic `Int` / `Boolean` record fields, direct or
+  method-style `head` lookups from static lists including `tail` and `cons`
+  chains, and static `Map#get` / `.get` lookups with literal or folded static
+  keys for such `def`s retain the runtime return metadata for field access,
+  string concatenation, runtime line-list helper dispatch, and compatible record
+  equality.
 - Static maps can also lower runtime string/int/bool `Map#get` / `.get` keys
   when the compatible entries return uniformly string, string-list, int, or
   boolean, `null`, or `()` values, or when all compatible entries return the

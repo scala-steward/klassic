@@ -104,10 +104,11 @@ Annotated `String` and `List<String>` function returns use fixed return buffers
 that are copied into call-site buffers so adjacent calls do not overwrite each
 other.
 Function value aliases, static record fields, runtime `String` / `List<String>`
-record fields, direct or method-style `head` lookups from static lists including
-`tail` and `cons` chains, and static `Map#get` / `.get` lookups with literal or
-folded static keys for such `def`s preserve the runtime return metadata, so
-aliased calls can still participate in string concatenation and line-list helpers.
+and dynamic `Int` / `Boolean` record fields, direct or method-style `head`
+lookups from static lists including `tail` and `cons` chains, and static
+`Map#get` / `.get` lookups with literal or folded static keys for such `def`s
+preserve the runtime return metadata, so aliased calls can still participate in
+string concatenation and line-list helpers.
 Runtime string/int/bool-key lookups over static callable maps can be bound to
 immutable values, called later, and formatted with the selected callable display
 through printing, interpolation, string concatenation, or `toString`; equality
@@ -243,8 +244,9 @@ values. Static structural and nominal records, static
 map literals, and static set literals can also be bound, printed, nested, queried
 with static map/set helpers, and compared with `assertResult` when their
 contents are static native values. Record literals and constructors may also
-carry fixed-buffer runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields for field selection
-and printing. Static string-key maps, static string-valued maps, string sets,
+carry fixed-buffer runtime `String` / `List<String>` and dynamic `Int` /
+`Boolean` fields for field selection, printing, and equality against compatible
+static records. Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,
 ints, and booleans. Builtin
