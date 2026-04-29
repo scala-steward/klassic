@@ -5102,6 +5102,7 @@ val runtimeDecoratedLines = runtimeLines.map(decorateRuntime)
 val runtimeFoldedViaAlias = foldLeft(runtimeLines)("")((acc, line) => acc + runtimeLeft + line + right)
 val reversedLines = foldLeft(runtimeLines)([])((acc, line) => cons(line)(acc))
 val seededReversedLines = runtimeLines.foldLeft(["line-z"], (acc, line) => cons(line)(acc))
+val summary = foldLeft(runtimeLines)(record {{ count: 0, text: "", rows: [] }})((acc, line) => record {{ count: acc.count + 1, text: acc.text + "[" + line + "]", rows: cons(line)(acc.rows) }})
 println(shoutedLines)
 println(join(shoutedLines, "|"))
 println(upperLines)
@@ -5116,6 +5117,10 @@ println(runtimeDecoratedLines)
 println(runtimeFoldedViaAlias)
 println(reversedLines)
 println(seededReversedLines)
+println(summary)
+println(summary.count)
+println(summary.text)
+println(summary.rows)
 assertResult(["line-0", "line-a", "line-b"])(prefixedLines)
 assertResult(["line-a!", "line-b!"])(shoutedLines)
 assertResult(["LINE-A", "LINE-B"])(upperLines)
@@ -5130,6 +5135,7 @@ assertResult(["<line-a>", "<line-b>"])(runtimeDecoratedLines)
 assertResult("<line-a><line-b>")(runtimeFoldedViaAlias)
 assertResult(["line-b", "line-a"])(reversedLines)
 assertResult(["line-b", "line-a", "line-z"])(seededReversedLines)
+assertResult(record {{ count: 2, text: "[line-a][line-b]", rows: ["line-b", "line-a"] }})(summary)
 val visitResult = foldLeft(runtimeLines)(())((acc, line) => println("visit " + line))
 assertResult(())(visitResult)
 val nullFold = foldLeft(runtimeLines)(null)((acc, line) => null)
@@ -5200,7 +5206,7 @@ FileOutput#delete(rewrittenPath)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\n[line-b, line-a]\n[line-b, line-a, line-z]\nvisit line-a\nvisit line-b\nline-0\nline-a\nline-b\n"
+        "[line-0, line-a, line-b]\nline-0|line-a|line-b\n3\nline-0\n[line-a, line-b]\n[line-a!, line-b!]\nline-a!|line-b!\n[LINE-A, LINE-B]\n[line-a][line-b]\n12\n2\ntrue\ntrue\n[<line-a>, <line-b>]\n<line-a><line-b>\n[<line-a>, <line-b>]\n<line-a><line-b>\n[line-b, line-a]\n[line-b, line-a, line-z]\n#(2, [line-a][line-b], [line-b, line-a])\n2\n[line-a][line-b]\n[line-b, line-a]\nvisit line-a\nvisit line-b\nline-0\nline-a\nline-b\n"
     );
     assert!(run.stderr.is_empty());
 }

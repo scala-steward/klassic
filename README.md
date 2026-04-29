@@ -258,7 +258,8 @@ compatible runtime record branch results through shared runtime field storage.
 Mutable runtime record bindings reuse the same field storage for compatible
 record assignments, including supported static-record initializers. Annotated
 record function parameters and returns use compatible field storage across
-normal and recursive native calls.
+normal and recursive native calls. Runtime line-list `foldLeft` can use the
+same storage for record accumulators, including empty `List<String>` fields.
 Static maps can also return supported static records from runtime
 string/int/bool keys by copying the selected entry into runtime record storage.
 Those runtime record results can be passed back through static list/set

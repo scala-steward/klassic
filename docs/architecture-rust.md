@@ -294,7 +294,8 @@ cargo run -- -e "1 + 2"
   record fields, compatible record equality and runtime string display for those fields,
   dynamic `if` merging for compatible runtime record branch results, mutable
   runtime record assignments from runtime or supported static initializers,
-  annotated record function parameters/returns over the same field storage, and
+  annotated record function parameters/returns over the same field storage,
+  runtime line-list `foldLeft` record accumulators, and
   static lambda method fields.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`

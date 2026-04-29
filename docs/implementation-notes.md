@@ -310,7 +310,9 @@ concatenation. Dynamic `if` expressions can copy compatible runtime record branc
 results into shared runtime field storage, and mutable runtime record bindings
 reuse that field storage for compatible assignments from runtime or supported
 static-record initializers. Annotated record function parameters and returns
-reuse compatible field storage for normal and recursive native calls. Static map
+reuse compatible field storage for normal and recursive native calls. Runtime
+line-list `foldLeft` can update record accumulators through the same storage,
+including record fields initialized with an empty `List<String>`. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,

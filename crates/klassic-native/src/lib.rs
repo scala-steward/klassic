@@ -4185,7 +4185,7 @@ impl NativeCodeGenerator {
             ));
         };
 
-        #[derive(Clone, Copy)]
+        #[derive(Clone)]
         enum RuntimeLineFoldAccumulator {
             Constant {
                 value_kind: NativeValue,
@@ -4202,6 +4202,9 @@ impl NativeCodeGenerator {
                 data: DataLabel,
                 len: DataLabel,
             },
+            Record {
+                output: RuntimeRecordBranchOutput,
+            },
         }
 
         const RUNTIME_STRING_CAP: usize = 65_536;
@@ -4210,7 +4213,15 @@ impl NativeCodeGenerator {
         let cursor = self.asm.data_label_with_i64s(&[0]);
 
         let initial = self.compile_expr(initial)?;
-        let accumulator = if matches!(initial, NativeValue::Null | NativeValue::Unit) {
+        let accumulator = if let Some(output) = self.prepare_record_branch_output(initial, span)? {
+            self.emit_copy_record_value_to_branch_output(
+                initial,
+                &output,
+                span,
+                "foldLeft record accumulator exceeds 65536 bytes",
+            )?;
+            RuntimeLineFoldAccumulator::Record { output }
+        } else if matches!(initial, NativeValue::Null | NativeValue::Unit) {
             RuntimeLineFoldAccumulator::Constant {
                 value_kind: initial,
             }
@@ -4239,7 +4250,7 @@ impl NativeCodeGenerator {
             let Some(initial) = self.native_string_ref(initial) else {
                 return Err(unsupported(
                     span,
-                    "native foldLeft over runtime lines for non-string, non-list, non-Int, non-Bool, non-Null, or non-Unit initial value",
+                    "native foldLeft over runtime lines for non-string, non-list, non-record, non-Int, non-Bool, non-Null, or non-Unit initial value",
                 ));
             };
             let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
@@ -4326,24 +4337,41 @@ impl NativeCodeGenerator {
             self.dynamic_control_depth += 1;
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&reducer);
-            match accumulator {
+            match &accumulator {
                 RuntimeLineFoldAccumulator::Constant { value_kind } => {
-                    self.bind_constant(acc_param.clone(), value_kind);
+                    self.bind_constant(acc_param.clone(), *value_kind);
                 }
                 RuntimeLineFoldAccumulator::Scalar { value, value_kind } => {
-                    self.asm.mov_data_addr(Reg::Rax, value);
+                    self.asm.mov_data_addr(Reg::Rax, *value);
                     self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
-                    let slot = self.allocate_slot(acc_param.clone(), value_kind);
+                    let slot = self.allocate_slot(acc_param.clone(), *value_kind);
                     self.asm.store_rbp_slot(slot.offset, Reg::Rax);
                 }
                 RuntimeLineFoldAccumulator::Lines { data, len } => {
                     self.bind_constant(
                         acc_param.clone(),
-                        NativeValue::RuntimeLinesList { data, len },
+                        NativeValue::RuntimeLinesList {
+                            data: *data,
+                            len: *len,
+                        },
                     );
                 }
                 RuntimeLineFoldAccumulator::String { data, len } => {
-                    self.bind_constant(acc_param.clone(), NativeValue::RuntimeString { data, len });
+                    self.bind_constant(
+                        acc_param.clone(),
+                        NativeValue::RuntimeString {
+                            data: *data,
+                            len: *len,
+                        },
+                    );
+                }
+                RuntimeLineFoldAccumulator::Record { output } => {
+                    self.bind_constant(
+                        acc_param.clone(),
+                        NativeValue::RuntimeRecord {
+                            label: output.label,
+                        },
+                    );
                 }
             }
             self.bind_constant(
@@ -4357,9 +4385,9 @@ impl NativeCodeGenerator {
             self.pop_scope();
             self.dynamic_control_depth -= 1;
             let next_acc = next_acc?;
-            match accumulator {
+            match &accumulator {
                 RuntimeLineFoldAccumulator::Constant { value_kind } => {
-                    if next_acc != value_kind {
+                    if next_acc != *value_kind {
                         return Err(unsupported(
                             span,
                             "native foldLeft over runtime lines for reducer result with different constant type",
@@ -4367,13 +4395,13 @@ impl NativeCodeGenerator {
                     }
                 }
                 RuntimeLineFoldAccumulator::Scalar { value, value_kind } => {
-                    if next_acc != value_kind {
+                    if next_acc != *value_kind {
                         return Err(unsupported(
                             span,
                             "native foldLeft over runtime lines for reducer result with different scalar type",
                         ));
                     }
-                    self.asm.mov_data_addr(Reg::R10, value);
+                    self.asm.mov_data_addr(Reg::R10, *value);
                     self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
                 }
                 RuntimeLineFoldAccumulator::Lines { data, len } => {
@@ -4383,8 +4411,8 @@ impl NativeCodeGenerator {
                         "foldLeft line-list accumulator",
                     )?;
                     self.emit_copy_native_string_to_runtime_string_buffer(
-                        data,
-                        len,
+                        *data,
+                        *len,
                         next_acc,
                         span,
                         "foldLeft line-list accumulator exceeds 65536 bytes",
@@ -4398,12 +4426,20 @@ impl NativeCodeGenerator {
                         ));
                     };
                     self.emit_copy_native_string_to_runtime_string_buffer(
-                        data,
-                        len,
+                        *data,
+                        *len,
                         next_acc,
                         span,
                         "foldLeft accumulator exceeds 65536 bytes",
                     );
+                }
+                RuntimeLineFoldAccumulator::Record { output } => {
+                    self.emit_copy_record_value_to_branch_output(
+                        next_acc,
+                        output,
+                        span,
+                        "foldLeft record accumulator exceeds 65536 bytes",
+                    )?;
                 }
             }
             self.asm.jmp_label(loop_label);
@@ -4422,6 +4458,9 @@ impl NativeCodeGenerator {
                 RuntimeLineFoldAccumulator::String { data, len } => {
                     Ok(NativeValue::RuntimeString { data, len })
                 }
+                RuntimeLineFoldAccumulator::Record { output } => Ok(NativeValue::RuntimeRecord {
+                    label: output.label,
+                }),
             }
         })();
 
@@ -9399,7 +9438,7 @@ impl NativeCodeGenerator {
     fn static_value_can_use_runtime_record_storage(&self, value: &StaticValue) -> bool {
         match value {
             StaticValue::Int(_) | StaticValue::Bool(_) | StaticValue::StaticString { .. } => true,
-            StaticValue::StaticList { .. } => {
+            StaticValue::StaticIntList { .. } | StaticValue::StaticList { .. } => {
                 self.static_string_list_content_from_value(value).is_some()
             }
             StaticValue::StaticRecord { label } => {
@@ -9574,7 +9613,7 @@ impl NativeCodeGenerator {
                 let (data, len) = self.runtime_record_branch_string_buffer();
                 Ok(RuntimeRecordFieldBranchOutput::RuntimeString { data, len })
             }
-            StaticValue::StaticList { .. }
+            StaticValue::StaticIntList { .. } | StaticValue::StaticList { .. }
                 if self.static_string_list_content_from_value(value).is_some() =>
             {
                 let (data, len) = self.runtime_record_branch_string_buffer();
@@ -14707,6 +14746,102 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn native_value_hint_for_expr(&self, expr: &Expr) -> Option<NativeValue> {
+        match expr {
+            Expr::Identifier { name, .. } => self.lookup_var(name).map(|slot| slot.value),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|expr| self.native_value_hint_for_expr(expr)),
+            Expr::Cleanup { body, .. } => self.native_value_hint_for_expr(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let then_value = self.native_value_hint_for_expr(then_branch)?;
+                let else_value = self.native_value_hint_for_expr(else_branch)?;
+                if then_value == else_value
+                    || matches!(
+                        (then_value, else_value),
+                        (
+                            NativeValue::RuntimeString { .. },
+                            NativeValue::RuntimeString { .. }
+                        ) | (
+                            NativeValue::RuntimeLinesList { .. },
+                            NativeValue::RuntimeLinesList { .. }
+                        )
+                    )
+                {
+                    Some(then_value)
+                } else {
+                    None
+                }
+            }
+            Expr::FieldAccess { target, field, .. } => {
+                let target = self.native_value_hint_for_expr(target)?;
+                self.native_record_field_hint(target, field)
+            }
+            Expr::Call { callee, .. } => {
+                if let Expr::Identifier { name, .. } = callee.as_ref()
+                    && let Some(function) = self.functions.get(name)
+                {
+                    return Some(function.return_value);
+                }
+                self.callee_return_value_hint(callee)
+            }
+            _ => None,
+        }
+    }
+
+    fn native_record_field_hint(&self, target: NativeValue, field: &str) -> Option<NativeValue> {
+        match target {
+            NativeValue::RuntimeRecord { label } => self
+                .runtime_record_field(label, field)
+                .and_then(|field| match field {
+                    RuntimeRecordField::Runtime(value) => Some(value),
+                    RuntimeRecordField::Scalar { value, .. } => Some(value),
+                    RuntimeRecordField::Static(value) => {
+                        Self::native_value_hint_from_static_value(&value)
+                    }
+                }),
+            NativeValue::StaticRecord { label } => self
+                .static_record_field(label, field)
+                .and_then(|value| Self::native_value_hint_from_static_value(&value)),
+            _ => None,
+        }
+    }
+
+    fn native_value_hint_from_static_value(value: &StaticValue) -> Option<NativeValue> {
+        match value {
+            StaticValue::Int(_) => Some(NativeValue::Int),
+            StaticValue::Bool(_) => Some(NativeValue::Bool),
+            StaticValue::Float(bits) => Some(NativeValue::StaticFloat { bits: *bits }),
+            StaticValue::Double(bits) => Some(NativeValue::StaticDouble { bits: *bits }),
+            StaticValue::Null => Some(NativeValue::Null),
+            StaticValue::Unit => Some(NativeValue::Unit),
+            StaticValue::StaticString { label, len } => Some(NativeValue::StaticString {
+                label: *label,
+                len: *len,
+            }),
+            StaticValue::StaticIntList { label, len } => Some(NativeValue::StaticIntList {
+                label: *label,
+                len: *len,
+            }),
+            StaticValue::StaticList { label } => Some(NativeValue::StaticList { label: *label }),
+            StaticValue::StaticRecord { label } => {
+                Some(NativeValue::StaticRecord { label: *label })
+            }
+            StaticValue::StaticMap { label } => Some(NativeValue::StaticMap { label: *label }),
+            StaticValue::StaticSet { label } => Some(NativeValue::StaticSet { label: *label }),
+            StaticValue::StaticLambda { label } => {
+                Some(NativeValue::StaticLambda { label: *label })
+            }
+            StaticValue::BuiltinFunction { label } => {
+                Some(NativeValue::BuiltinFunction { label: *label })
+            }
+        }
+    }
+
     fn static_value_for_return_hint(&self, expr: &Expr) -> Option<StaticValue> {
         match expr {
             Expr::Identifier { name, .. } => self.lookup_static_value(name).or_else(|| {
@@ -14927,6 +15062,12 @@ impl NativeCodeGenerator {
     }
 
     fn expr_may_yield_runtime_string(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr),
+            Some(NativeValue::RuntimeString { .. })
+        ) {
+            return true;
+        }
         match expr {
             Expr::String { value, .. } if value.contains("#{") => true,
             Expr::Identifier { name, .. } => matches!(
@@ -15038,6 +15179,12 @@ impl NativeCodeGenerator {
     }
 
     fn expr_may_yield_runtime_lines_list(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr),
+            Some(NativeValue::RuntimeLinesList { .. })
+        ) {
+            return true;
+        }
         match expr {
             Expr::Identifier { name, .. } => matches!(
                 self.lookup_var(name).map(|slot| slot.value),
