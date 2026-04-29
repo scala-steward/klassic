@@ -8972,10 +8972,14 @@ mutable hits = 0
 val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
 val sizes = [{{ hits += 1; length(runtime) }}, 4]
 val flags = [{{ hits += 1; runtime == "a\nb" }}, false]
+val directSizeTail = tail([{{ hits += 1; length(runtime) }}, 4, 5])
 println(head(xs))
 println(xs.head())
 println(head(tail(xs)))
 println(tail(xs))
+println(directSizeTail)
+println(head(directSizeTail))
+println(directSizeTail.contains(5))
 println(size(xs))
 println(xs.size())
 println(isEmpty(xs))
@@ -8996,6 +9000,9 @@ println(hits)
 assertResult("a\nb")(head(xs))
 assertResult("tail")(head(tail(xs)))
 assertResult(["tail"])(tail(xs))
+assertResult([4, 5])(directSizeTail)
+assertResult(4)(head(directSizeTail))
+assert(directSizeTail.contains(5))
 assertResult(2)(size(xs))
 assertResult(2)(xs.size())
 assert(!isEmpty(xs))
@@ -9005,7 +9012,7 @@ assert(contains(xs)(runtime))
 assert(sizes.contains(4))
 assert(contains(flags)(true))
 assertResult(7)(total)
-assertResult(4)(hits)
+assertResult(5)(hits)
 "##,
             path_holder.display()
         ),
@@ -9051,7 +9058,7 @@ assertResult(4)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na\nb\ntail\n[tail]\n2\n2\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nitem=a\nb\nitem=tail\n7\n4\n"
+        "a\nb\na\nb\ntail\n[tail]\n[4, 5]\n4\ntrue\n2\n2\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nitem=a\nb\nitem=tail\n7\n5\n"
     );
     assert!(run.stderr.is_empty());
 }

@@ -263,7 +263,8 @@ same storage for record accumulators, including empty `List<String>` fields.
 Direct `head` over list literals can return runtime native values, including
 records, after preserving every element's evaluation effects.
 Direct `tail` over list literals can return runtime line-list values from
-runtime string elements on the same evaluated-elements path.
+runtime string elements, or runtime-list values for non-string tails, on the
+same evaluated-elements path.
 List/set literal `contains` and map literal `containsKey` / `containsValue` can
 compare runtime native values directly while preserving literal evaluation
 effects.

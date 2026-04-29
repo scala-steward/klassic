@@ -5106,17 +5106,45 @@ impl NativeCodeGenerator {
         };
 
         self.compile_expr(first)?;
+        let mut rest_values = Vec::with_capacity(rest.len());
+        for element in rest {
+            let value = self.compile_literal_value(element)?;
+            rest_values.push(self.stabilize_runtime_list_literal_value(
+                value,
+                span,
+                "tail list-literal runtime-list result exceeds 65536 bytes",
+            )?);
+        }
+        let rest_strings = rest_values
+            .iter()
+            .map(|value| self.compiled_literal_string_ref(*value))
+            .collect::<Option<Vec<_>>>();
+        if let Some(rest_strings) = rest_strings {
+            return Ok(Some(
+                self.emit_tail_list_literal_runtime_lines(rest_strings, span),
+            ));
+        }
+
+        let label = self.intern_runtime_list(rest_values);
+        Ok(Some(NativeValue::RuntimeList { label }))
+    }
+
+    fn compiled_literal_string_ref(&self, value: CompiledLiteralValue) -> Option<NativeStringRef> {
+        match value {
+            CompiledLiteralValue::Native(value) => self.native_string_ref(value),
+            CompiledLiteralValue::Scalar { .. } => None,
+        }
+    }
+
+    fn emit_tail_list_literal_runtime_lines(
+        &mut self,
+        values: Vec<NativeStringRef>,
+        span: Span,
+    ) -> NativeValue {
         let (data, len) = self.runtime_record_branch_string_buffer();
         let offset = self.asm.data_label_with_i64s(&[0]);
         self.emit_reset_runtime_buffer_offset_label(offset);
-        for element in rest {
-            let value = self.compile_expr(element)?;
-            let Some(value) = self.native_string_ref(value) else {
-                return Err(unsupported(
-                    span,
-                    "native tail over list literal runtime values for non-string element",
-                ));
-            };
+        for value in values {
             self.emit_append_newline_separator_to_runtime_buffer_offset_label(
                 data,
                 offset,
@@ -5132,7 +5160,7 @@ impl NativeCodeGenerator {
             );
         }
         self.emit_store_runtime_string_len_from_offset(len, offset);
-        Ok(Some(NativeValue::RuntimeLinesList { data, len }))
+        NativeValue::RuntimeLinesList { data, len }
     }
 
     fn compile_literal_value(&mut self, expr: &Expr) -> Result<CompiledLiteralValue, Diagnostic> {
