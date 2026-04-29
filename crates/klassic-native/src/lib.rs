@@ -417,6 +417,12 @@ enum RuntimeMapGetValueKind {
     Lines,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum CompiledHeadCandidateValue {
+    Native(NativeValue),
+    Scalar { value: NativeValue, slot: DataLabel },
+}
+
 #[derive(Clone, Debug)]
 struct DynamicBranchState {
     value: NativeValue,
@@ -4482,6 +4488,9 @@ impl NativeCodeGenerator {
                 format!("head expects 1 argument but got {}", arguments.len()),
             ));
         }
+        if let Some(value) = self.compile_list_literal_head(&arguments[0], span)? {
+            return Ok(value);
+        }
         let value = self.compile_expr(&arguments[0])?;
         match value {
             NativeValue::StaticIntList { label, len } => {
@@ -4513,6 +4522,53 @@ impl NativeCodeGenerator {
                 Ok(self.emit_runtime_lines_head(input, span))
             }
             _ => Err(unsupported(span, "native head for non-static list")),
+        }
+    }
+
+    fn compile_list_literal_head(
+        &mut self,
+        list: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = list else {
+            return Ok(None);
+        };
+        let Some((first, rest)) = elements.split_first() else {
+            self.emit_head_empty(span);
+            return Ok(Some(NativeValue::Unit));
+        };
+        let selected = self.compile_head_candidate_value(first)?;
+        for element in rest {
+            self.compile_expr(element)?;
+        }
+        Ok(Some(self.emit_compiled_head_candidate_value(selected)))
+    }
+
+    fn compile_head_candidate_value(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<CompiledHeadCandidateValue, Diagnostic> {
+        let value = self.compile_expr(expr)?;
+        if matches!(value, NativeValue::Int | NativeValue::Bool) {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            Ok(CompiledHeadCandidateValue::Scalar { value, slot })
+        } else {
+            Ok(CompiledHeadCandidateValue::Native(value))
+        }
+    }
+
+    fn emit_compiled_head_candidate_value(
+        &mut self,
+        value: CompiledHeadCandidateValue,
+    ) -> NativeValue {
+        match value {
+            CompiledHeadCandidateValue::Native(value) => value,
+            CompiledHeadCandidateValue::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                value
+            }
         }
     }
 

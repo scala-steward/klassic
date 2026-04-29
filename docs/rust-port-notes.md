@@ -124,6 +124,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - Runtime line-list `foldLeft` can use supported records as accumulators,
   copying each reducer result back into shared record field storage, including
   empty `List<String>` fields.
+- Direct `head` over list literals can return runtime native values, including
+  supported runtime records, while evaluating every list element in source
+  order.
 - Function value aliases, static record fields, runtime `String` /
   `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields, direct or
   method-style `head` lookups from static lists including `tail` and `cons`

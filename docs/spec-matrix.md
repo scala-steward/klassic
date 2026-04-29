@@ -77,7 +77,7 @@ The repository contains a Rust-native language implementation with:
   `String` / `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields with
   compatible equality/display, dynamic `if` branch merging, and mutable assignment
   from runtime or supported static initializers, runtime line-list `foldLeft`
-  record accumulators,
+  record accumulators, direct list-literal `head` returning runtime native values,
   direct or method-style static-list `head` lookups including `tail` and
   `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys plus runtime string/int/bool

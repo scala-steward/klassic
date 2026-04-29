@@ -260,6 +260,8 @@ record assignments, including supported static-record initializers. Annotated
 record function parameters and returns use compatible field storage across
 normal and recursive native calls. Runtime line-list `foldLeft` can use the
 same storage for record accumulators, including empty `List<String>` fields.
+Direct `head` over list literals can return runtime native values, including
+records, after preserving every element's evaluation effects.
 Static maps can also return supported static records from runtime
 string/int/bool keys by copying the selected entry into runtime record storage.
 Static-key `Map#get` / `.get` can also select from map literals whose values are

@@ -331,6 +331,8 @@ their effects are also compared through the static collection membership path.
 Static-key `Map#get` / `.get` over a map literal can return runtime native
 values, including supported runtime records, after evaluating every map entry
 and the key in source order.
+Direct `head` over list literals can likewise return runtime native values
+after evaluating every list element in source order.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or equivalent static values, including the

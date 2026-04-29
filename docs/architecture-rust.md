@@ -299,6 +299,8 @@ cargo run -- -e "1 + 2"
   annotated record function parameters/returns over the same field storage,
   runtime line-list `foldLeft` record accumulators, and
   static lambda method fields.
+  Direct `head` over list literals can return runtime native values while
+  preserving every list element's evaluation effects.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.
