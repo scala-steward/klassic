@@ -1,32 +1,32 @@
 # CLAUDE.md
 
-This file provides guidance for coding agents working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 Klassic is a statically typed object-functional programming language implemented
-as a native Rust workspace. The default developer path is Cargo-based and builds
-the `klassic` executable directly.
+as a Rust 2024 Cargo workspace. The default developer path is Cargo-based and
+builds the `klassic` executable. The language has Hindley-Milner inference,
+row-polymorphic records, type classes (incl. higher-kinded examples), and a
+lightweight theorem / trust / axiom surface.
 
-Core language areas:
-- Hindley-Milner style type inference
-- Row-polymorphic records
-- First-class functions and closures
-- Type classes, constrained polymorphism, and higher-kinded examples
-- Lightweight theorem / trust / axiom checking
-- Pure Rust runtime helpers for collections, strings, files, directories,
-  timing, and threads
-
-## Build Commands
+## Common Commands
 
 ```bash
-cargo build
-cargo build --release
-cargo test
-cargo test -p klassic-macro-peg
-cargo fmt --check
-cargo run -- -e "println(1 + 2)"
-cargo run -- path/to/program.kl
+cargo build                                          # debug build
+cargo build --release                                # release build
+cargo test                                           # full test suite
+cargo test --test cli_smoke <test_name>              # single integration test
+cargo test -p klassic-macro-peg                      # macro-PEG crate only
+cargo fmt --check                                    # formatting gate
+cargo clippy --all-targets --all-features -- -D warnings
+cargo run -- -e "1 + 2"                              # evaluate an expression
+cargo run -- path/to/program.kl                      # evaluate a file
+cargo run -- -f path/to/program.kl                   # equivalent to above
+cargo run                                            # REPL (`:history`, `:exit`)
+cargo run -- build path/to/program.kl -o program     # native build (Linux x86_64)
+cargo run -- --warn-trust path/to/program.kl         # report trusted proofs
+cargo run -- --deny-trust path/to/program.kl         # reject trusted proofs
 ```
 
 ## Architecture
@@ -34,61 +34,89 @@ cargo run -- path/to/program.kl
 ### Compiler Pipeline
 
 1. Source text
-2. `klassic-span`: source files, spans, and diagnostics
-3. `klassic-syntax`: lexer, parser, and AST
+2. `klassic-span`: source files, spans, diagnostics
+3. `klassic-syntax`: lexer, parser, untyped AST
 4. `klassic-rewrite`: placeholder desugaring and syntax normalization
-5. `klassic-types`: type inference, record typing, typeclass constraints, and proof checks
+5. `klassic-types`: HM inference, record typing, typeclass constraints, proof checks
 6. `klassic-eval`: evaluator, runtime builtins, modules, REPL/session state
-7. Root binary: CLI argument handling and diagnostic presentation
+7. `klassic-native`: Linux x86_64 native compiler — emits machine code and ELF64 directly (no `cc`/`as`/`ld`)
+8. Root `src/`: CLI argument handling and diagnostic presentation
+
+The evaluator (`klassic-eval`) is the reference implementation. The native
+compiler (`klassic-native`) reuses parse → rewrite → typecheck → proof analysis
+and lowers a growing subset of programs to ELF executables. When a construct is
+not yet supported by native codegen, it fails at build time with a
+source-located diagnostic — there is no fallback to the evaluator.
 
 ### Crates
 
-- `crates/klassic-span`: source location and diagnostic primitives
-- `crates/klassic-syntax`: parser and untyped syntax tree
-- `crates/klassic-rewrite`: rewrite passes
-- `crates/klassic-types`: static checking
-- `crates/klassic-eval`: runtime evaluator and builtins
-- `crates/klassic-runtime`: shared runtime crate scaffold
-- `crates/klassic-macro-peg`: standalone macro PEG parser/evaluator
-- `src/`: native CLI binary
+- `crates/klassic-span` — spans / diagnostics
+- `crates/klassic-syntax` — parser + AST
+- `crates/klassic-rewrite` — rewrite passes
+- `crates/klassic-types` — static checking
+- `crates/klassic-eval` — evaluator + builtins + REPL state
+- `crates/klassic-native` — native code generator + ELF writer
+- `crates/klassic-runtime` — shared runtime crate scaffold
+- `crates/klassic-macro-peg` — standalone macro PEG parser/evaluator
 
-## Testing Structure
+### Tests
 
-- Rust unit tests live inside crates.
-- Rust integration tests live under `tests/`.
-- Klassic sample programs live under `test-programs/` and are exercised by
-  the sample-program harness.
+- Rust unit tests live inside each crate.
+- Integration tests under `tests/`:
+  - `tests/cli_smoke.rs` — CLI + native build behavior (largest; one test per scenario, often with temp `.kl` source and ELF output).
+  - `tests/sample_programs.rs` — runs every program in `test-programs/` through both the evaluator and the native compiler when on Linux x86_64.
+  - `tests/language_regressions.rs` — language-level regression suite.
+- Klassic sample programs live under `test-programs/` (and `examples/`).
+- `klassic-native` integration tests are gated with `#[cfg(all(target_os = "linux", target_arch = "x86_64"))]`.
 
-Run the full suite before committing core behavior changes:
+## Native Compiler Development Pattern
 
-```bash
-cargo fmt --check
-cargo test
-```
+Most recent commit history is a long stream of small, focused additions to
+`klassic-native`, each titled "Support X" or "Cover X" with one new
+integration test in `tests/cli_smoke.rs` and a one-paragraph addendum to
+`docs/architecture-rust.md`. When extending native coverage:
 
-## Language Features
+1. Probe with a small `.kl` snippet through `cargo run -- build` to find a gap.
+2. Add the minimal native codegen change in `crates/klassic-native/src/lib.rs`.
+3. Add a focused integration test in `tests/cli_smoke.rs` that asserts the generated executable's stdout/stderr (use temp paths keyed on `SystemTime`).
+4. Update `docs/architecture-rust.md` with one or two sentences describing the new path.
+5. Run `cargo fmt --check` and `cargo test`.
 
-- Space-sensitive list/map/set literals: `[1 2 3]`, `%["a":1 "b":2]`, `%(1 2 3)`
-- String interpolation: `"Hello #{name}"`
-- Placeholder syntax for anonymous functions: `map([1 2 3])(_ + 1)`
-- Cleanup expressions for resource management
-- Modules and imports
-- Structural records and nominal record declarations
-- File, directory, string, numeric, list, map, set, assertion, timing, and thread helpers
+`crates/klassic-native/src/lib.rs` is intentionally a single very large file
+(~27k lines). Stay consistent with that organization rather than splitting it.
+Prefer `unsupported(span, "<feature>")` returning a `Diagnostic` for paths that
+remain unimplemented.
 
-## Development Workflow
+## Workflow For Language Changes
 
 When adding syntax or semantics:
+
 1. Update `klassic-syntax` for parsing and AST shape.
 2. Add or adjust rewrite behavior in `klassic-rewrite` when needed.
 3. Extend `klassic-types` for static behavior.
-4. Extend `klassic-eval` for runtime behavior.
-5. Add focused tests in the relevant crate and integration tests where the user-visible surface changes.
-6. Run `cargo fmt --check` and `cargo test`.
+4. Extend `klassic-eval` for evaluator behavior.
+5. Extend `klassic-native` for native codegen (or leave it unsupported with a clear diagnostic).
+6. Add focused tests in the relevant crate plus integration tests where the user-visible surface changes.
+7. `cargo fmt --check && cargo test`.
 
-## Important Notes
+## Conventions
 
-- Keep diagnostics source-span aware.
-- Keep tests hermetic; use temp directories for filesystem behavior.
-- Do not hardcode sample outputs in the evaluator.
-- Keep the default build and runtime path native Rust.
+- Rust 2024 edition. Avoid `unsafe` unless documented.
+- Keep diagnostics source-span aware end-to-end.
+- Tests must be hermetic; use temp directories for filesystem behavior. Do not hardcode sample outputs in the evaluator.
+- Default to ASCII in source and docs unless the file already justifies Unicode.
+- Prefer `rg` for source search.
+- The default build and runtime path is native Rust — keep it that way.
+- Commit subjects: imperative mood, under ~72 characters.
+
+## Language Surface (quick reference)
+
+- `val` (immutable) / `mutable` (reassignable) bindings.
+- `def f(x) = ...` and `(x) => ...` lambdas; placeholders like `_ + 1`.
+- Space- / comma- / newline-separated collection literals: `[1 2 3]`, `%["a":1 "b":2]`, `%(1 2 3)`.
+- String interpolation: `"Hello #{name}"`.
+- `cleanup { ... }` clauses run after the associated expression.
+- `module foo.bar { ... }` plus selective / aliased imports.
+- Structural records (`record { x = 1; y = 2 }`) and nominal record declarations (`record Point { x: Int; y: Int }`).
+- Type classes with constraints, including higher-kinded examples.
+- Proof surface: `axiom`, `theorem`, with `--warn-trust` / `--deny-trust` flags.
