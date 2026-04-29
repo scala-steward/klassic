@@ -153,9 +153,9 @@ the module layout is described in `docs/architecture-rust.md`.
   native diagnostic until the native path has dynamic tagged `null` values, but
   key types with no compatible static keys, and all-`null` compatible values,
   return static `null`.
-- Static-key `Map#get` / `.get` over a map literal can return runtime native
-  values, including supported runtime records, while preserving all map-entry
-  and key effects.
+- Map literal `Map#get` / `.get` can return runtime native values, including
+  supported runtime records, from static or runtime keys while preserving all
+  map-entry and key effects.
 - Static string-list entries in lists, sets, and map values can be matched by
   runtime line-list membership queries.
 - Static collection membership also handles effectful query expressions that

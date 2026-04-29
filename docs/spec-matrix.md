@@ -81,6 +81,7 @@ The repository contains a Rust-native language implementation with:
   literal `contains` / `containsKey` / `containsValue` over runtime native values,
   literal list/map `size` and list/map/set `isEmpty` selectors preserving effects,
   list-literal `foreach` and scalar/record-accumulator `foldLeft` over runtime native values,
+  map-literal `Map#get` / `.get` returning runtime native values from static or runtime keys,
   direct or method-style static-list `head` lookups including `tail` and
   `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys plus runtime string/int/bool

@@ -199,8 +199,8 @@ cargo run -- -e "1 + 2"
   Runtime record values copied from static map lookups can be compared
   structurally against static record entries through static list/set `contains`
   and map `containsValue`.
-  Static-key `Map#get` / `.get` over map literals can return runtime native
-  values after preserving map-entry and key effects.
+  Map literal `Map#get` / `.get` can return runtime native values from static
+  or runtime keys after preserving map-entry and key effects.
   Static maps can lower `Map#get` / `.get` with runtime string/int/bool keys to
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, supported static record, `null`, or `()`, or when
@@ -310,6 +310,8 @@ cargo run -- -e "1 + 2"
   all elements before the body.
   List literal `foldLeft` can reduce those values into native scalar or record
   accumulators.
+  Map literal `Map#get` / `.get` can select runtime native values from static or
+  runtime keys on the same evaluated-entry path.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

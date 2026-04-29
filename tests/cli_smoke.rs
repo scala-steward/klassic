@@ -8514,6 +8514,7 @@ val mapNonEmpty = Map#isEmpty(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBo
 val setNonEmpty = Set#isEmpty(%({{ hits += 1; runtimeBox }}))
 val keyHit = Map#containsKey(%[{{ hits += 1; FileInput#all(path) }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; runtimeBox }}], FileInput#all(path))
 val keyMiss = %[{{ hits += 1; "other" }}: {{ hits += 1; runtimeBox }}].containsKey(FileInput#all(path))
+val pickedRuntimeBox = Map#get(%[{{ hits += 1; FileInput#all(path) }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}], FileInput#all(path))
 mutable foreachHits = 0
 mutable foreachScore = 0
 foreach(box in [{{ foreachHits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}, {{ foreachHits += 1; #Box("other", ["other"], 5, false) }}]) {{
@@ -8540,6 +8541,9 @@ println(foldedCount)
 println(foldedSummary.count)
 println(foldedSummary.ok)
 println(foldedSummary.text)
+println(pickedRuntimeBox.count)
+println(pickedRuntimeBox.ok)
+println(pickedRuntimeBox.text)
 assert(listHit)
 assert(!listMiss)
 assert(setHit)
@@ -8551,11 +8555,12 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(29)(hits)
+assertResult(33)(hits)
 assertResult(2)(foreachHits)
 assertResult(35)(foreachScore)
 assertResult(8)(foldedCount)
 assertResult(#Summary("a\nbother", 8, false))(foldedSummary)
+assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
 "##,
             path_holder.display()
         ),
@@ -8601,7 +8606,7 @@ assertResult(#Summary("a\nbother", 8, false))(foldedSummary)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n29\n35\n8\n8\nfalse\na\nbother\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n33\n35\n8\n8\nfalse\na\nbother\n3\ntrue\na\nb\n"
     );
     assert!(run.stderr.is_empty());
 }

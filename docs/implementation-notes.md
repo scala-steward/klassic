@@ -328,9 +328,9 @@ structurally against static record entries through static list/set `contains`
 and map `containsValue`.
 Effectful query expressions that compile back to static values after preserving
 their effects are also compared through the static collection membership path.
-Static-key `Map#get` / `.get` over a map literal can return runtime native
-values, including supported runtime records, after evaluating every map entry
-and the key in source order.
+Map literal `Map#get` / `.get` can return runtime native values, including
+supported runtime records, from static or runtime keys after evaluating every
+map entry and the key in source order.
 Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
 List/set literal `contains` and map literal `containsKey` / `containsValue` can

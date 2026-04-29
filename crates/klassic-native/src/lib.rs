@@ -493,6 +493,15 @@ enum RuntimeRecordFieldBranchOutput {
     RuntimeRecord(RuntimeRecordBranchOutput),
 }
 
+#[derive(Clone, Debug)]
+enum CompiledLiteralMapGetOutput {
+    Static(StaticValue),
+    Scalar { value: NativeValue, slot: DataLabel },
+    RuntimeString { data: DataLabel, len: DataLabel },
+    RuntimeLinesList { data: DataLabel, len: DataLabel },
+    RuntimeRecord { output: RuntimeRecordBranchOutput },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StaticList {
     elements: Vec<StaticValue>,
@@ -6521,6 +6530,15 @@ impl NativeCodeGenerator {
                 "Map#get expects one map and one key",
             ));
         }
+        if self.map_literal_get_needs_runtime_path(&map_arguments[0], &key_arguments[0])
+            && let Some(value) = self.compile_map_literal_get_runtime_key(
+                &map_arguments[0],
+                &key_arguments[0],
+                span,
+            )?
+        {
+            return Ok(value);
+        }
         if let Some(value) =
             self.compile_map_literal_get_static_key(&map_arguments[0], &key_arguments[0], span)?
         {
@@ -6563,6 +6581,29 @@ impl NativeCodeGenerator {
         Ok(self.emit_static_value(&value))
     }
 
+    fn map_literal_get_needs_runtime_path(&mut self, map: &Expr, key: &Expr) -> bool {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return false;
+        };
+        let key_is_static = self.expr_previews_static_after_effectful_eval(key);
+        let mut has_non_static_key = false;
+        let mut has_non_static_value = false;
+        for (entry_key, entry_value) in entries {
+            has_non_static_key |= !self.expr_previews_static_after_effectful_eval(entry_key);
+            has_non_static_value |= !self.expr_previews_static_after_effectful_eval(entry_value);
+        }
+        has_non_static_key || (!key_is_static && has_non_static_value)
+    }
+
+    fn expr_previews_static_after_effectful_eval(&mut self, expr: &Expr) -> bool {
+        let before_static_scopes = self.static_scopes.clone();
+        let is_static = self
+            .preview_static_value_after_effectful_eval(expr)
+            .is_some();
+        self.static_scopes = before_static_scopes;
+        is_static
+    }
+
     fn compile_map_literal_get_static_key(
         &mut self,
         map: &Expr,
@@ -6577,6 +6618,12 @@ impl NativeCodeGenerator {
             .is_none()
         {
             return Ok(None);
+        }
+
+        for (entry_key, _) in entries {
+            if !self.expr_previews_static_after_effectful_eval(entry_key) {
+                return Ok(None);
+            }
         }
 
         let mut compiled_entries = Vec::with_capacity(entries.len());
@@ -6602,6 +6649,325 @@ impl NativeCodeGenerator {
             return Ok(Some(NativeValue::Null));
         };
         Ok(Some(self.emit_compiled_literal_value(value)))
+    }
+
+    fn compile_map_literal_get_runtime_key(
+        &mut self,
+        map: &Expr,
+        key: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return Ok(None);
+        };
+        let mut compiled_entries = Vec::with_capacity(entries.len());
+        for (entry_key, entry_value) in entries {
+            let entry_key = self.compile_literal_value(entry_key)?;
+            let entry_value = self.compile_literal_value(entry_value)?;
+            compiled_entries.push((entry_key, entry_value));
+        }
+        let key = self.compile_literal_value(key)?;
+        self.emit_map_literal_get_runtime_key(compiled_entries, key, span)
+            .map(Some)
+    }
+
+    fn emit_map_literal_get_runtime_key(
+        &mut self,
+        entries: Vec<(CompiledLiteralValue, CompiledLiteralValue)>,
+        key: CompiledLiteralValue,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if entries.is_empty() {
+            return Ok(NativeValue::Null);
+        }
+
+        let values = entries.iter().map(|(_, value)| *value).collect::<Vec<_>>();
+        let output = self.prepare_compiled_literal_map_get_output(&values, span)?;
+        if matches!(
+            &output,
+            CompiledLiteralMapGetOutput::Static(StaticValue::Null)
+        ) {
+            return Ok(NativeValue::Null);
+        }
+
+        let done = self.asm.create_text_label();
+        let branches = entries
+            .iter()
+            .map(|(entry_key, value)| {
+                let label = self.asm.create_text_label();
+                self.emit_compiled_literal_values_equal(key, *entry_key, span)?;
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, label);
+                Ok((label, *value))
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+
+        self.emit_runtime_error(span, "Map#get runtime key was not found");
+        for (label, value) in branches {
+            self.asm.bind_text_label(label);
+            self.emit_compiled_literal_map_get_value(value, &output, span)?;
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+
+        self.emit_compiled_literal_map_get_output(output)
+    }
+
+    fn prepare_compiled_literal_map_get_output(
+        &mut self,
+        values: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<CompiledLiteralMapGetOutput, Diagnostic> {
+        if let Some(value) = self.uniform_compiled_literal_static_value(values) {
+            return Ok(CompiledLiteralMapGetOutput::Static(value));
+        }
+        if let Some(output) = self.prepare_compiled_literal_record_output(values, span)? {
+            return Ok(CompiledLiteralMapGetOutput::RuntimeRecord { output });
+        }
+        if let Some(value) = Self::compiled_literal_scalar_value_kind(values, span)? {
+            return Ok(CompiledLiteralMapGetOutput::Scalar {
+                value,
+                slot: self.asm.data_label_with_i64s(&[0]),
+            });
+        }
+        if values.iter().all(|value| {
+            self.compiled_literal_native_value(*value)
+                .and_then(|value| self.native_string_ref(value))
+                .is_some()
+        }) {
+            let (data, len) = self.runtime_record_branch_string_buffer();
+            return Ok(CompiledLiteralMapGetOutput::RuntimeString { data, len });
+        }
+        if values.iter().all(|value| {
+            self.compiled_literal_native_value(*value)
+                .is_some_and(|value| self.native_value_is_lines_list_compatible(value))
+        }) {
+            let (data, len) = self.runtime_record_branch_string_buffer();
+            return Ok(CompiledLiteralMapGetOutput::RuntimeLinesList { data, len });
+        }
+        Err(unsupported(
+            span,
+            "native Map#get over map literal runtime values for this value type",
+        ))
+    }
+
+    fn uniform_compiled_literal_static_value(
+        &self,
+        values: &[CompiledLiteralValue],
+    ) -> Option<StaticValue> {
+        let first = self.compiled_literal_static_value(*values.first()?)?;
+        values
+            .iter()
+            .all(|value| {
+                self.compiled_literal_static_value(*value)
+                    .is_some_and(|value| self.static_value_equal(&first, &value))
+            })
+            .then_some(first)
+    }
+
+    fn compiled_literal_static_value(&self, value: CompiledLiteralValue) -> Option<StaticValue> {
+        self.compiled_literal_native_value(value)
+            .and_then(|value| self.static_value_from_native(value))
+    }
+
+    fn compiled_literal_native_value(&self, value: CompiledLiteralValue) -> Option<NativeValue> {
+        match value {
+            CompiledLiteralValue::Native(value) => Some(value),
+            CompiledLiteralValue::Scalar { .. } => None,
+        }
+    }
+
+    fn prepare_compiled_literal_record_output(
+        &mut self,
+        values: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<Option<RuntimeRecordBranchOutput>, Diagnostic> {
+        let Some(first) = values.first().and_then(|value| {
+            self.compiled_literal_native_value(*value).filter(|value| {
+                matches!(
+                    value,
+                    NativeValue::RuntimeRecord { .. } | NativeValue::StaticRecord { .. }
+                )
+            })
+        }) else {
+            return Ok(None);
+        };
+        let Some(output) = self.prepare_record_branch_output(first, span)? else {
+            return Ok(None);
+        };
+        for value in values {
+            let Some(value) = self.compiled_literal_native_value(*value) else {
+                return Err(unsupported(
+                    span,
+                    "native Map#get over map literal runtime values for mixed record values",
+                ));
+            };
+            if !self.record_value_matches_runtime_record_shape(value, output.label) {
+                return Err(unsupported(
+                    span,
+                    "native Map#get over map literal runtime values for mixed record values",
+                ));
+            }
+        }
+        Ok(Some(output))
+    }
+
+    fn compiled_literal_scalar_value_kind(
+        values: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Some(CompiledLiteralValue::Scalar { value: first, .. }) = values.first() else {
+            return Ok(None);
+        };
+        for compiled in values {
+            match compiled {
+                CompiledLiteralValue::Scalar { value, .. } if value == first => {}
+                CompiledLiteralValue::Scalar { .. } => {
+                    return Err(unsupported(
+                        span,
+                        "native Map#get over map literal runtime values for mixed scalar values",
+                    ));
+                }
+                CompiledLiteralValue::Native(_) => {
+                    return Err(unsupported(
+                        span,
+                        "native Map#get over map literal runtime values for mixed scalar values",
+                    ));
+                }
+            }
+        }
+        Ok(Some(*first))
+    }
+
+    fn emit_compiled_literal_map_get_value(
+        &mut self,
+        compiled_value: CompiledLiteralValue,
+        output: &CompiledLiteralMapGetOutput,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match output {
+            CompiledLiteralMapGetOutput::Static(expected) => {
+                let value = self
+                    .compiled_literal_static_value(compiled_value)
+                    .ok_or_else(|| {
+                        unsupported(
+                            span,
+                            "native Map#get over map literal runtime values for static value",
+                        )
+                    })?;
+                if self.static_value_equal(&value, expected) {
+                    Ok(())
+                } else {
+                    Err(unsupported(
+                        span,
+                        "native Map#get over map literal runtime values for mixed static values",
+                    ))
+                }
+            }
+            CompiledLiteralMapGetOutput::Scalar {
+                value: expected,
+                slot,
+            } => {
+                let CompiledLiteralValue::Scalar { value, .. } = compiled_value else {
+                    return Err(unsupported(
+                        span,
+                        "native Map#get over map literal runtime values for scalar value",
+                    ));
+                };
+                if value != *expected {
+                    return Err(unsupported(
+                        span,
+                        "native Map#get over map literal runtime values for mixed scalar values",
+                    ));
+                }
+                self.emit_compiled_literal_value(compiled_value);
+                self.emit_store_rax_to_data_slot(*slot);
+                Ok(())
+            }
+            CompiledLiteralMapGetOutput::RuntimeString { data, len } => {
+                let value = self
+                    .compiled_literal_native_value(compiled_value)
+                    .ok_or_else(|| {
+                        unsupported(
+                            span,
+                            "native Map#get over map literal runtime values for string value",
+                        )
+                    })?;
+                let input = self.native_string_ref(value).ok_or_else(|| {
+                    unsupported(
+                        span,
+                        "native Map#get over map literal runtime values for string value",
+                    )
+                })?;
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    "Map#get map-literal string result exceeds 65536 bytes",
+                );
+                Ok(())
+            }
+            CompiledLiteralMapGetOutput::RuntimeLinesList { data, len } => {
+                let value = self
+                    .compiled_literal_native_value(compiled_value)
+                    .ok_or_else(|| {
+                        unsupported(
+                            span,
+                            "native Map#get over map literal runtime values for line-list value",
+                        )
+                    })?;
+                let input =
+                    self.native_lines_ref_from_value(value, span, "Map#get map-literal value")?;
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    "Map#get map-literal line-list result exceeds 65536 bytes",
+                );
+                Ok(())
+            }
+            CompiledLiteralMapGetOutput::RuntimeRecord { output } => {
+                let value = self
+                    .compiled_literal_native_value(compiled_value)
+                    .ok_or_else(|| {
+                        unsupported(
+                            span,
+                            "native Map#get over map literal runtime values for record value",
+                        )
+                    })?;
+                self.emit_copy_record_value_to_branch_output(
+                    value,
+                    output,
+                    span,
+                    "Map#get map-literal record result exceeds 65536 bytes",
+                )
+            }
+        }
+    }
+
+    fn emit_compiled_literal_map_get_output(
+        &mut self,
+        output: CompiledLiteralMapGetOutput,
+    ) -> Result<NativeValue, Diagnostic> {
+        Ok(match output {
+            CompiledLiteralMapGetOutput::Static(value) => self.emit_static_value(&value),
+            CompiledLiteralMapGetOutput::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                value
+            }
+            CompiledLiteralMapGetOutput::RuntimeString { data, len } => {
+                NativeValue::RuntimeString { data, len }
+            }
+            CompiledLiteralMapGetOutput::RuntimeLinesList { data, len } => {
+                NativeValue::RuntimeLinesList { data, len }
+            }
+            CompiledLiteralMapGetOutput::RuntimeRecord { output } => NativeValue::RuntimeRecord {
+                label: output.label,
+            },
+        })
     }
 
     fn compile_static_map_get_runtime_string_callable_value(
