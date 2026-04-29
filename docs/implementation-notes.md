@@ -333,6 +333,8 @@ values, including supported runtime records, after evaluating every map entry
 and the key in source order.
 Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
+List/set literal `contains` and map literal `containsValue` can compare runtime
+native values directly after evaluating the literal and query in source order.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or equivalent static values, including the

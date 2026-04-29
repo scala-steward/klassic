@@ -8470,6 +8470,100 @@ assertResult(false)(mutableBox.ok)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_literal_runtime_record_membership() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-record-membership-{unique}.kl"
+    ));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-record-membership-path-{unique}.txt"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-record-membership-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-record-membership-{unique}"));
+    fs::write(
+        &source_path,
+        format!(
+            r##"record Box {{
+  text: String
+  lines: List<String>
+  count: Int
+  ok: Boolean
+}}
+val path = FileInput#all("{}")
+val runtimeBox = #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true)
+mutable hits = 0
+val listHit = [{{ hits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}, {{ hits += 1; #Box("miss", ["miss"], 4, false) }}].contains(runtimeBox)
+val listMiss = contains([{{ hits += 1; #Box("other", ["other"], 5, false) }}])(runtimeBox)
+val setHit = Set#contains(%({{ hits += 1; #Box("miss", ["miss"], 4, false) }}, {{ hits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}), runtimeBox)
+val mapHit = Map#containsValue(%[{{ hits += 1; "live" }}: {{ hits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}], runtimeBox)
+println(listHit)
+println(listMiss)
+println(setHit)
+println(mapHit)
+println(hits)
+assert(listHit)
+assert(!listMiss)
+assert(setHit)
+assert(mapHit)
+assertResult(9)(hits)
+"##,
+            path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime record membership build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "a\nb").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime record membership run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "true\nfalse\ntrue\ntrue\n9\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

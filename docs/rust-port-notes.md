@@ -127,6 +127,8 @@ the module layout is described in `docs/architecture-rust.md`.
 - Direct `head` over list literals can return runtime native values, including
   supported runtime records, while evaluating every list element in source
   order.
+- List/set literal `contains` and map literal `containsValue` can compare
+  runtime native values directly after preserving literal evaluation effects.
 - Function value aliases, static record fields, runtime `String` /
   `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields, direct or
   method-style `head` lookups from static lists including `tail` and `cons`

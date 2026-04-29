@@ -418,7 +418,7 @@ enum RuntimeMapGetValueKind {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum CompiledHeadCandidateValue {
+enum CompiledLiteralValue {
     Native(NativeValue),
     Scalar { value: NativeValue, slot: DataLabel },
 }
@@ -4537,34 +4537,28 @@ impl NativeCodeGenerator {
             self.emit_head_empty(span);
             return Ok(Some(NativeValue::Unit));
         };
-        let selected = self.compile_head_candidate_value(first)?;
+        let selected = self.compile_literal_value(first)?;
         for element in rest {
             self.compile_expr(element)?;
         }
-        Ok(Some(self.emit_compiled_head_candidate_value(selected)))
+        Ok(Some(self.emit_compiled_literal_value(selected)))
     }
 
-    fn compile_head_candidate_value(
-        &mut self,
-        expr: &Expr,
-    ) -> Result<CompiledHeadCandidateValue, Diagnostic> {
+    fn compile_literal_value(&mut self, expr: &Expr) -> Result<CompiledLiteralValue, Diagnostic> {
         let value = self.compile_expr(expr)?;
         if matches!(value, NativeValue::Int | NativeValue::Bool) {
             let slot = self.asm.data_label_with_i64s(&[0]);
             self.emit_store_rax_to_data_slot(slot);
-            Ok(CompiledHeadCandidateValue::Scalar { value, slot })
+            Ok(CompiledLiteralValue::Scalar { value, slot })
         } else {
-            Ok(CompiledHeadCandidateValue::Native(value))
+            Ok(CompiledLiteralValue::Native(value))
         }
     }
 
-    fn emit_compiled_head_candidate_value(
-        &mut self,
-        value: CompiledHeadCandidateValue,
-    ) -> NativeValue {
+    fn emit_compiled_literal_value(&mut self, value: CompiledLiteralValue) -> NativeValue {
         match value {
-            CompiledHeadCandidateValue::Native(value) => value,
-            CompiledHeadCandidateValue::Scalar { value, slot } => {
+            CompiledLiteralValue::Native(value) => value,
+            CompiledLiteralValue::Scalar { value, slot } => {
                 self.asm.mov_data_addr(Reg::R10, slot);
                 self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
                 value
@@ -5850,6 +5844,11 @@ impl NativeCodeGenerator {
                 format!("contains expects 2 arguments but got {}", arguments.len()),
             ));
         }
+        if let Some(value) =
+            self.compile_collection_literal_contains(&arguments[0], &arguments[1], span)?
+        {
+            return Ok(value);
+        }
         let value = self.compile_expr(&arguments[0])?;
         match value {
             NativeValue::StaticString { .. } | NativeValue::RuntimeString { .. } => {
@@ -5969,6 +5968,99 @@ impl NativeCodeGenerator {
             .any(|element| self.static_value_equal_user(element, &needle));
         self.asm.mov_imm64(Reg::Rax, u64::from(contains));
         Ok(NativeValue::Bool)
+    }
+
+    fn compile_collection_literal_contains(
+        &mut self,
+        collection: &Expr,
+        needle: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let elements = match collection {
+            Expr::ListLiteral { elements, .. } | Expr::SetLiteral { elements, .. } => elements,
+            _ => return Ok(None),
+        };
+        let compiled_elements = self.compile_literal_values(elements)?;
+        let needle = self.compile_literal_value(needle)?;
+        self.emit_compiled_literal_membership(&compiled_elements, needle, span)?;
+        Ok(Some(NativeValue::Bool))
+    }
+
+    fn compile_literal_values(
+        &mut self,
+        elements: &[Expr],
+    ) -> Result<Vec<CompiledLiteralValue>, Diagnostic> {
+        elements
+            .iter()
+            .map(|element| self.compile_literal_value(element))
+            .collect()
+    }
+
+    fn emit_compiled_literal_membership(
+        &mut self,
+        elements: &[CompiledLiteralValue],
+        needle: CompiledLiteralValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for element in elements {
+            self.emit_compiled_literal_values_equal(needle, *element, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::NotEqual, found);
+        }
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(found);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_compiled_literal_values_equal(
+        &mut self,
+        expected: CompiledLiteralValue,
+        actual: CompiledLiteralValue,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match (expected, actual) {
+            (CompiledLiteralValue::Native(expected), CompiledLiteralValue::Native(actual)) => {
+                self.emit_native_values_equal_user(expected, actual, span)
+            }
+            (
+                CompiledLiteralValue::Scalar {
+                    value: expected_value,
+                    slot: expected_slot,
+                },
+                CompiledLiteralValue::Scalar {
+                    value: actual_value,
+                    slot: actual_slot,
+                },
+            ) => {
+                self.emit_scalar_slots_equal(
+                    expected_value,
+                    expected_slot,
+                    actual_value,
+                    actual_slot,
+                );
+                Ok(())
+            }
+            (
+                CompiledLiteralValue::Scalar { value, slot },
+                CompiledLiteralValue::Native(static_value),
+            )
+            | (
+                CompiledLiteralValue::Native(static_value),
+                CompiledLiteralValue::Scalar { value, slot },
+            ) => {
+                if let Some(static_value) = self.static_value_from_native(static_value) {
+                    self.emit_scalar_slot_equal_static(value, slot, &static_value);
+                } else {
+                    self.asm.mov_imm64(Reg::Rax, 0);
+                }
+                Ok(())
+            }
+        }
     }
 
     fn compile_runtime_lines_contains_value(
@@ -6116,6 +6208,11 @@ impl NativeCodeGenerator {
                 "Map#containsValue expects one map and one value",
             ));
         }
+        if let Some(value) =
+            self.compile_map_literal_contains_value(&map_arguments[0], &value_arguments[0], span)?
+        {
+            return Ok(value);
+        }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
         let values = entries
             .into_iter()
@@ -6127,6 +6224,25 @@ impl NativeCodeGenerator {
             span,
             "native Map#containsValue for non-static value",
         )
+    }
+
+    fn compile_map_literal_contains_value(
+        &mut self,
+        map: &Expr,
+        needle: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return Ok(None);
+        };
+        let mut values = Vec::with_capacity(entries.len());
+        for (entry_key, entry_value) in entries {
+            self.compile_expr(entry_key)?;
+            values.push(self.compile_literal_value(entry_value)?);
+        }
+        let needle = self.compile_literal_value(needle)?;
+        self.emit_compiled_literal_membership(&values, needle, span)?;
+        Ok(Some(NativeValue::Bool))
     }
 
     fn compile_static_map_get_direct(
@@ -6217,11 +6333,6 @@ impl NativeCodeGenerator {
             return Ok(None);
         }
 
-        enum CompiledMapLiteralValue {
-            Native(NativeValue),
-            Scalar { value: NativeValue, slot: DataLabel },
-        }
-
         let mut compiled_entries = Vec::with_capacity(entries.len());
         for (entry_key, entry_value) in entries {
             let entry_key = self.static_value_from_argument_preserving_effects(
@@ -6229,17 +6340,7 @@ impl NativeCodeGenerator {
                 span,
                 "native map key with non-static value",
             )?;
-            let entry_value = self.compile_expr(entry_value)?;
-            let entry_value = if matches!(entry_value, NativeValue::Int | NativeValue::Bool) {
-                let slot = self.asm.data_label_with_i64s(&[0]);
-                self.emit_store_rax_to_data_slot(slot);
-                CompiledMapLiteralValue::Scalar {
-                    value: entry_value,
-                    slot,
-                }
-            } else {
-                CompiledMapLiteralValue::Native(entry_value)
-            };
+            let entry_value = self.compile_literal_value(entry_value)?;
             compiled_entries.push((entry_key, entry_value));
         }
 
@@ -6254,14 +6355,7 @@ impl NativeCodeGenerator {
         else {
             return Ok(Some(NativeValue::Null));
         };
-        match value {
-            CompiledMapLiteralValue::Native(value) => Ok(Some(value)),
-            CompiledMapLiteralValue::Scalar { value, slot } => {
-                self.asm.mov_data_addr(Reg::R10, slot);
-                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
-                Ok(Some(value))
-            }
-        }
+        Ok(Some(self.emit_compiled_literal_value(value)))
     }
 
     fn compile_static_map_get_runtime_string_callable_value(
@@ -7061,6 +7155,11 @@ impl NativeCodeGenerator {
                 span,
                 "Set#contains expects one set and one value",
             ));
+        }
+        if let Some(value) =
+            self.compile_collection_literal_contains(&set_arguments[0], &value_arguments[0], span)?
+        {
+            return Ok(value);
         }
         let collection = self.compile_expr(&set_arguments[0])?;
         match collection {
