@@ -17,6 +17,7 @@ fn sample_programs() -> Vec<&'static str> {
         "arrow-kind-test.kl",
         "block-comment.kl",
         "boolean-literal.kl",
+        "builtin_functions.kl",
         "builtin_functions-list.kl",
         "builtin_functions-thread.kl",
         "cleanup-expression.kl",
@@ -136,6 +137,7 @@ Proof/trust surface is verified\n",
 fn expected_stderr(program: &str) -> Option<&'static str> {
     match program {
         "builtin_functions-thread.kl" => Some(""),
+        "builtin_functions.kl" => Some("this param is displayed into standard error\n"),
         _ => Some(""),
     }
 }
