@@ -1410,10 +1410,16 @@ fn builds_native_executable_for_static_folded_recursive_list_function() {
         &source_path,
         "def sum(xs: List<Int>): Int = if(isEmpty(xs)) 0 else head(xs) + sum(tail(xs))\n\
 def joinLoop(xs: List<String>): String = if(isEmpty(xs)) \"\" else head(xs) + joinLoop(tail(xs))\n\
+def down(n: Int): List<Int> = if(n < 1) [] else cons(n)(down(n - 1))\n\
+def decorate(xs: List<String>): List<String> = if(isEmpty(xs)) [] else cons(head(xs) + \"!\")(decorate(tail(xs)))\n\
 println(sum([1, 2, 3, 4]))\n\
 println(joinLoop([\"a\", \"b\", \"c\"]))\n\
+println(down(3))\n\
+println(decorate([\"a\", \"b\"]))\n\
 assertResult(10)(sum([1, 2, 3, 4]))\n\
-assertResult(\"abc\")(joinLoop([\"a\", \"b\", \"c\"]))\n",
+assertResult(\"abc\")(joinLoop([\"a\", \"b\", \"c\"]))\n\
+assertResult([3, 2, 1])(down(3))\n\
+assertResult([\"a!\", \"b!\"])(decorate([\"a\", \"b\"]))\n",
     )
     .expect("source should write");
 
@@ -1449,7 +1455,10 @@ assertResult(\"abc\")(joinLoop([\"a\", \"b\", \"c\"]))\n",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "10\nabc\n");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "10\nabc\n[3, 2, 1]\n[a!, b!]\n"
+    );
     assert!(run.stderr.is_empty());
 }
 

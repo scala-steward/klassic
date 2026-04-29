@@ -215,9 +215,10 @@ the module layout is described in `docs/architecture-rust.md`.
   emitter.
 - Recursive functions that still need unsupported call-site inlining are first
   given a chance to fold when all call arguments are static, so pure recursive
-  helpers over static lists can still compile. Calls that cannot fold are
-  rejected with a compile diagnostic instead of recursively inlining until the
-  compiler stack overflows.
+  helpers over static lists can still compile, including helpers that return
+  static lists through curried `cons`. Calls that cannot fold are rejected with a
+  compile diagnostic instead of recursively inlining until the compiler stack
+  overflows.
 - `FileOutput#write` / `FileOutput#append` can write fixed-buffer runtime
   string content. Because the resulting contents are not known at native build
   time, the affected path is treated as unknown for later compile-time file

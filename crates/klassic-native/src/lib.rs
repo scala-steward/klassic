@@ -13404,6 +13404,11 @@ impl NativeCodeGenerator {
                     return None;
                 };
                 match name.as_str() {
+                    "cons" if initial_arguments.len() == 1 && arguments.len() == 1 => self
+                        .static_call_value_by_name(
+                            "cons",
+                            &[initial_arguments[0].clone(), arguments[0].clone()],
+                        ),
                     "map" if initial_arguments.len() == 1 && arguments.len() == 1 => self
                         .static_call_value_by_name(
                             "map",
@@ -13880,6 +13885,11 @@ impl NativeCodeGenerator {
         let builtin_name = self.builtin_name_for_identifier(name);
         let name = builtin_name.as_str();
         match name {
+            "cons" if arguments.len() == 2 => {
+                let head = self.static_value_from_pure_expr(&arguments[0])?;
+                let tail = self.static_value_from_pure_expr(&arguments[1])?;
+                self.static_cons_value(head, tail)
+            }
             "map" if arguments.len() == 2 => self.static_direct_map_value(arguments),
             "bind" if arguments.len() == 2 => {
                 self.static_direct_bind_value(&arguments[0], &arguments[1])
@@ -14078,6 +14088,9 @@ impl NativeCodeGenerator {
             return Some(value);
         }
         match name {
+            "cons" if arguments.len() == 2 => {
+                self.static_cons_value(arguments[0].clone(), arguments[1].clone())
+            }
             "unit" if arguments.len() == 1 => {
                 let label = self.intern_static_list(vec![arguments[0].clone()]);
                 Some(StaticValue::StaticList { label })
