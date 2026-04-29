@@ -163,8 +163,8 @@ Assignments to runtime integer/boolean locals inside dynamic control flow also
 clear stale static facts for those locals.
 Dynamic `while` loops that cannot be fully simulated also invalidate static
 facts for locals assigned in the loop condition or body before later expressions
-are folded, and fixed-shape runtime-list locals assigned in those loops are
-materialized into mutable runtime-list storage.
+are folded, and runtime-list locals assigned in those loops are materialized
+into mutable selected-length storage before the loop runs.
 Static binary folds use the same purity check before replacing numeric,
 equality, or string-concatenation expressions.
 Numeric Float/Double binary expressions can also preserve mutable block-prefix
@@ -318,7 +318,8 @@ Annotated `List<String>` function parameters and returns can consume compatible
 runtime-list values by copying their string elements into fixed line-list
 buffers.
 Mutable bindings can also rebind runtime-list values in straight-line native
-code and in dynamic `while` loops when the runtime-list shape stays fixed.
+code and in dynamic `while` loops when assigned lists fit the materialized
+runtime-list capacity; each assignment updates the selected list length.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, runtime-list, or record accumulators on the same
 evaluated-elements path.

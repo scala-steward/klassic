@@ -8197,7 +8197,7 @@ fn builds_native_executable_for_dynamic_while_runtime_list_assignment() {
     ));
     fs::write(
         &source_path,
-        "mutable xs = [1]\nmutable i = 0\nwhile(i < 2) {\n  xs = [i]\n  i += 1\n}\nprintln(xs)\nassertResult([1])(xs)\nmutable untouched = [7]\nwhile(stopwatch(() => 1) < 0) {\n  untouched = [8]\n}\nprintln(untouched)\nassertResult([7])(untouched)\n",
+        "mutable xs = [1]\nmutable i = 0\nwhile(i < 2) {\n  xs = [i]\n  i += 1\n}\nprintln(xs)\nassertResult([1])(xs)\nmutable shortened = [0, 1, 2]\nmutable j = 0\nwhile(j < 1) {\n  shortened = [j]\n  j += 1\n}\nprintln(shortened)\nassertResult([0])(shortened)\nmutable untouched = [7]\nwhile(stopwatch(() => 1) < 0) {\n  untouched = [8]\n}\nprintln(untouched)\nassertResult([7])(untouched)\n",
     )
     .expect("source should write");
 
@@ -8233,7 +8233,7 @@ fn builds_native_executable_for_dynamic_while_runtime_list_assignment() {
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "[1]\n[7]\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "[1]\n[0]\n[7]\n");
     assert!(run.stderr.is_empty());
 }
 

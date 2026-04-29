@@ -93,7 +93,7 @@ The repository contains a Rust-native language implementation with:
   fixed-shape dynamic `if` merges for runtime-list values and record fields carrying them,
   annotated `List<String>` function argument/return interop for compatible runtime-list values,
   runtime record fields carrying runtime-list values through field access, display, and equality,
-  straight-line mutable runtime-list rebinding through list-helper chains and fixed-shape dynamic `while` runtime-list assignment,
+  straight-line mutable runtime-list rebinding through list-helper chains and dynamic `while` runtime-list assignment with mutable selected-length storage,
   list-literal `foreach` and scalar/string/line-list/runtime-list/record-accumulator `foldLeft` over runtime native values,
   map-literal `Map#get` / `.get` returning runtime native values including variable-length runtime-list values from static or runtime keys, with selected-prefix `contains`, `cons`, `foreach`, `map`, scalar/string/line-list/record `foldLeft`, runtime-list accumulator `foldLeft`, `join`, display/printing, and runtime-list equality,
   direct or method-style static-list `head` lookups including `tail` and

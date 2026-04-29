@@ -7815,10 +7815,6 @@ impl NativeCodeGenerator {
         if !Self::native_value_can_copy_to_runtime_list(value) {
             return Ok(None);
         }
-        let source_has_dynamic_len = matches!(
-            value,
-            NativeValue::RuntimeList { label } if self.runtime_list_dynamic_len(label).is_some()
-        );
         let elements = self.compiled_literal_values_from_list_native(
             value,
             span,
@@ -7826,7 +7822,7 @@ impl NativeCodeGenerator {
         )?;
         self.prepare_runtime_list_output_from_candidate_elements(
             vec![elements],
-            source_has_dynamic_len,
+            true,
             span,
             "native mutable runtime-list binding",
         )

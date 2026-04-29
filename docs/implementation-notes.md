@@ -385,8 +385,9 @@ runtime-list values by copying their string elements into fixed line-list
 buffers, which also lets supported record returns carry runtime-list fields
 through the annotated record ABI.
 Mutable bindings can rebind runtime-list values in straight-line native code,
-including `cons` and `tail` chains, and fixed-shape runtime-list assignments can
-also run inside dynamic `while` bodies.
+including `cons` and `tail` chains. Dynamic `while` bodies materialize assigned
+runtime-list locals into mutable storage with a selected-length slot, so each
+assignment can update the visible list length within the materialized capacity.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, runtime-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`

@@ -286,8 +286,9 @@ cargo run -- -e "1 + 2"
   body, so unreachable native-unsupported constructs do not block compilation.
   Dynamic `while` loops that cannot be simulated to completion also invalidate
   static facts for locals assigned in their condition or body before later
-  native folds run. Fixed-shape runtime-list locals assigned in those loops are
-  copied into mutable runtime-list storage before the loop begins.
+  native folds run. Runtime-list locals assigned in those loops are copied into
+  mutable selected-length storage before the loop begins, allowing assignments
+  to update the visible list length within the materialized capacity.
   Static-list `map` and `foldLeft` can unroll lambdas with mutable prefix
   effects when their final result expression is still statically recoverable;
   method-style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same path.
