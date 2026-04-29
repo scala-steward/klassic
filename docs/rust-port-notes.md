@@ -131,8 +131,10 @@ the module layout is described in `docs/architecture-rust.md`.
   runtime record assignment from runtime or supported static initializers.
 - Static maps can also lower runtime string/int/bool `Map#get` / `.get` keys
   when the compatible entries return uniformly string, string-list, int, or
-  boolean, `null`, or `()` values, or when all compatible entries return the
-  same equivalent static value, including callables; runtime misses report a
+  boolean, supported static record, `null`, or `()` values, or when all
+  compatible entries return the same equivalent static value, including
+  callables; runtime record results from those lookups can be queried through
+  static list/set `contains` and map `containsValue`; runtime misses report a
   native diagnostic until the native path has dynamic tagged `null` values, but
   key types with no compatible static keys, and all-`null` compatible values,
   return static `null`.

@@ -5854,6 +5854,10 @@ impl NativeCodeGenerator {
                 );
                 return Ok(NativeValue::Bool);
             }
+            if matches!(needle, NativeValue::RuntimeRecord { .. }) {
+                self.emit_static_value_membership_for_runtime_value(needle, &elements, span)?;
+                return Ok(NativeValue::Bool);
+            }
             if let Some(needle) = self.static_value_from_native(needle) {
                 let contains = elements
                     .iter()
@@ -5915,6 +5919,27 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(found);
         self.asm.mov_imm64(Reg::Rax, 1);
         self.asm.bind_text_label(done);
+    }
+
+    fn emit_static_value_membership_for_runtime_value(
+        &mut self,
+        needle: NativeValue,
+        elements: &[StaticValue],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for element in elements {
+            self.emit_native_value_equal_static_user(needle, element, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::NotEqual, found);
+        }
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(found);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
+        Ok(())
     }
 
     fn compile_static_map_contains_key_direct(

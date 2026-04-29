@@ -196,6 +196,9 @@ cargo run -- -e "1 + 2"
   effectful value expressions. Runtime line-list values can also be compared
   against static string-list collection entries, and effectful query values that
   settle back to static values can still use static collection membership.
+  Runtime record values copied from static map lookups can be compared
+  structurally against static record entries through static list/set `contains`
+  and map `containsValue`.
   Static maps can lower `Map#get` / `.get` with runtime string/int/bool keys to
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, supported static record, `null`, or `()`, or when
