@@ -293,6 +293,9 @@ display, and equality against compatible static records.
 Dynamic `if` branches can merge fixed-shape runtime-list results, including
 compatible static-list branches and record fields that carry runtime-list
 values.
+Annotated `List<String>` function parameters and returns can consume compatible
+runtime-list values by copying their string elements into fixed line-list
+buffers.
 Mutable bindings can also rebind runtime-list values in straight-line native
 code.
 List literal `foldLeft` can reduce runtime native values into native scalar,

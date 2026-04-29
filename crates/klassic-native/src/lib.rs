@@ -3002,26 +3002,8 @@ impl NativeCodeGenerator {
                 continue;
             }
             if let NativeValue::RuntimeLinesList { data, len } = expected_value {
-                let input = if let NativeValue::RuntimeLinesList {
-                    data: input_data,
-                    len: input_len,
-                } = value
-                {
-                    NativeStringRef {
-                        data: input_data,
-                        len: NativeStringLen::Runtime(input_len),
-                    }
-                } else {
-                    let content = self.static_write_lines_content_from_native(
-                        value,
-                        span,
-                        "function line-list argument",
-                    )?;
-                    NativeStringRef {
-                        data: self.asm.data_label_with_bytes(content.as_bytes()),
-                        len: NativeStringLen::Immediate(content.len()),
-                    }
-                };
+                let input =
+                    self.native_lines_ref_from_value(value, span, "function line-list argument")?;
                 let staged = self.runtime_lines_list_scratch_value();
                 let NativeValue::RuntimeLinesList {
                     data: staged_data,
@@ -3762,20 +3744,12 @@ impl NativeCodeGenerator {
         &self,
         value: NativeValue,
         expected: NativeValue,
-        span: Span,
+        _span: Span,
     ) -> Result<bool, Diagnostic> {
         match expected {
             NativeValue::RuntimeString { .. } => Ok(self.native_string_ref(value).is_some()),
             NativeValue::RuntimeLinesList { .. } => {
-                if matches!(value, NativeValue::RuntimeLinesList { .. }) {
-                    return Ok(true);
-                }
-                self.static_write_lines_content_from_native(
-                    value,
-                    span,
-                    "inline function line-list return",
-                )
-                .map(|_| true)
+                Ok(self.native_value_is_lines_list_compatible(value))
             }
             NativeValue::RuntimeRecord { label } => {
                 Ok(self.record_value_matches_runtime_record_shape(value, label))
@@ -21332,6 +21306,16 @@ impl NativeCodeGenerator {
                 data,
                 len: NativeStringLen::Runtime(len),
             }),
+            NativeValue::RuntimeList { label } => {
+                let delimiter = NativeStringRef {
+                    data: self.asm.data_label_with_bytes(b"\n"),
+                    len: NativeStringLen::Immediate(1),
+                };
+                let value = self.emit_runtime_list_join(label, delimiter, span)?;
+                self.native_string_ref(value).ok_or_else(|| {
+                    unsupported(span, &format!("native {name} for runtime list value"))
+                })
+            }
             value => {
                 let content = self.static_write_lines_content_from_native(value, span, name)?;
                 Ok(NativeStringRef {
@@ -21345,10 +21329,21 @@ impl NativeCodeGenerator {
     fn native_value_is_lines_list_compatible(&self, value: NativeValue) -> bool {
         match value {
             NativeValue::RuntimeLinesList { .. } => true,
+            NativeValue::RuntimeList { label } => self.runtime_list_is_string_list(label),
             value => self
                 .static_value_from_native(value)
                 .is_some_and(|value| self.static_string_list_content_from_value(&value).is_some()),
         }
+    }
+
+    fn runtime_list_is_string_list(&self, label: RuntimeListLabel) -> bool {
+        self.runtime_list_elements(label).is_some_and(|elements| {
+            elements.iter().all(|value| {
+                self.compiled_literal_native_value(*value)
+                    .and_then(|value| self.native_string_ref(value))
+                    .is_some()
+            })
+        })
     }
 
     fn emit_load_native_string_len(&mut self, dst: Reg, len: NativeStringLen) {
@@ -23364,26 +23359,8 @@ impl NativeCodeGenerator {
                 if value == expected {
                     return Ok(());
                 }
-                let input = if let NativeValue::RuntimeLinesList {
-                    data: input_data,
-                    len: input_len,
-                } = value
-                {
-                    NativeStringRef {
-                        data: input_data,
-                        len: NativeStringLen::Runtime(input_len),
-                    }
-                } else {
-                    let content = self.static_write_lines_content_from_native(
-                        value,
-                        span,
-                        "function line-list return",
-                    )?;
-                    NativeStringRef {
-                        data: self.asm.data_label_with_bytes(content.as_bytes()),
-                        len: NativeStringLen::Immediate(content.len()),
-                    }
-                };
+                let input =
+                    self.native_lines_ref_from_value(value, span, "function line-list return")?;
                 self.emit_copy_native_string_to_runtime_string_buffer(
                     data,
                     len,

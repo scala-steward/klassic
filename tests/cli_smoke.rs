@@ -9759,6 +9759,103 @@ assertResult(2)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_list_literal_function_line_list_interop() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-function-lines-{unique}.kl"
+    ));
+    let path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-function-lines-path-{unique}.txt"
+    ));
+    let input_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-function-lines-{unique}.txt"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-list-function-lines-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        format!(
+            r##"record Bag {{
+  items: List<String>
+  label: String
+}}
+def lineCount(lines: List<String>): Int = lines.size()
+def echoLines(lines: List<String>): List<String> = lines
+val path = FileInput#all("{}")
+val runtime = FileInput#all(path)
+mutable hits = 0
+val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+def makeLines(): List<String> = [runtime, "tail"]
+def makeBag(): #Bag = #Bag([runtime, "tail"], "made")
+val echoed = echoLines(xs)
+val made = makeLines()
+val bag = makeBag()
+println(lineCount(xs))
+println(join(echoed, "|"))
+println(join(made, "|"))
+println(bag)
+println(hits)
+assertResult(2)(lineCount(xs))
+assertResult(["ab", "tail"])(echoed)
+assertResult(["ab", "tail"])(made)
+assertResult(#Bag(["ab", "tail"], "made"))(bag)
+assertResult(2)(hits)
+"##,
+            path_holder.display()
+        ),
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime list function line-list interop build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
+    fs::write(&input_path, "ab").expect("input should write after native build");
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(
+        run.status.success(),
+        "runtime list function line-list interop run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "2\nab|tail\nab|tail\n#Bag([ab, tail], made)\n2\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_literal_argument_side_effects() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
