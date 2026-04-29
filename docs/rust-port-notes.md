@@ -121,6 +121,9 @@ the module layout is described in `docs/architecture-rust.md`.
   storage too. Call sites stage record arguments before updating shared
   function-parameter storage and copy record returns into call-site-local
   storage, which allows recursive native functions to return runtime records.
+- Recursive native functions can capture immutable top-level runtime strings,
+  line lists, fixed-shape runtime lists, and runtime records by rebinding the
+  existing fixed storage inside the emitted function body.
 - Runtime line-list `foldLeft` can use supported records as accumulators,
   copying each reducer result back into shared record field storage, including
   empty `List<String>` fields.

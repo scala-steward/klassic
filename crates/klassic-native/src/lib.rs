@@ -1015,6 +1015,16 @@ impl NativeCodeGenerator {
         self.native_function_param_value(annotation)
     }
 
+    fn native_value_can_rebind_top_level_capture(value: NativeValue) -> bool {
+        matches!(
+            value,
+            NativeValue::RuntimeString { .. }
+                | NativeValue::RuntimeLinesList { .. }
+                | NativeValue::RuntimeList { .. }
+                | NativeValue::RuntimeRecord { .. }
+        )
+    }
+
     fn runtime_record_scratch_value_from_annotation(
         &mut self,
         annotation: &str,
@@ -23455,10 +23465,7 @@ impl NativeCodeGenerator {
             }
             if let Some(slot) = lookup_var_slot_in_scopes(&saved_scopes, name)
                 && slot.offset == 0
-                && matches!(
-                    slot.value,
-                    NativeValue::RuntimeString { .. } | NativeValue::RuntimeLinesList { .. }
-                )
+                && Self::native_value_can_rebind_top_level_capture(slot.value)
             {
                 self.bind_constant(name.clone(), slot.value);
                 continue;

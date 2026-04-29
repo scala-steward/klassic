@@ -235,8 +235,8 @@ cargo run -- -e "1 + 2"
   Non-recursive top-level `def` declarations that close over top-level bindings
   are call-site inlined; recursive `def` declarations can still capture immutable
   static top-level values, builtin aliases, static lambda values, and immutable
-  runtime string / line-list bindings by rebinding them inside the emitted
-  function frame. Direct calls and value aliases for
+  runtime string / line-list / fixed-shape runtime-list / runtime-record
+  bindings by rebinding them inside the emitted function frame. Direct calls and value aliases for
   user-defined functions shadow same-named native builtins.
   Immutable aliases to curried helpers such as `assertResult`, `cons`, `map`,
   and `foldLeft` resolve through the same native special-call paths as direct

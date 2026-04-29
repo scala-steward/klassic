@@ -109,6 +109,9 @@ same fixed field-storage model. Call sites stage record arguments before copying
 them into function-parameter storage and copy record returns into call-site
 storage, so recursive functions can return supported runtime records without
 call-site inlining.
+Recursive functions can also capture immutable top-level runtime strings,
+line lists, fixed-shape runtime lists, and runtime records by rebinding their
+existing fixed storage inside the emitted function frame.
 Function value aliases, static record fields, runtime `String` / `List<String>`,
 dynamic `Int` / `Boolean`, and nested runtime record fields, direct or method-style `head`
 lookups from static lists including `tail` and `cons` chains, and static
