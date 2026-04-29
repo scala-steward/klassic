@@ -78,7 +78,7 @@ The repository contains a Rust-native language implementation with:
   compatible equality/display, dynamic `if` branch merging, and mutable assignment
   from runtime or supported static initializers, runtime line-list `foldLeft`
   record accumulators, direct list-literal `head` returning runtime native values,
-  literal `contains` / `containsValue` over runtime native values,
+  literal `contains` / `containsKey` / `containsValue` over runtime native values,
   literal list/map `size` and list/map/set `isEmpty` selectors preserving effects,
   list-literal `foreach` over runtime native values,
   direct or method-style static-list `head` lookups including `tail` and

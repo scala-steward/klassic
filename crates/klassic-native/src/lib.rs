@@ -6233,6 +6233,11 @@ impl NativeCodeGenerator {
                 "Map#containsKey expects one map and one key",
             ));
         }
+        if let Some(value) =
+            self.compile_map_literal_contains_key(&map_arguments[0], &key_arguments[0], span)?
+        {
+            return Ok(value);
+        }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
         let keys = entries
             .into_iter()
@@ -6244,6 +6249,25 @@ impl NativeCodeGenerator {
             span,
             "native Map#containsKey for non-static key",
         )
+    }
+
+    fn compile_map_literal_contains_key(
+        &mut self,
+        map: &Expr,
+        needle: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return Ok(None);
+        };
+        let mut keys = Vec::with_capacity(entries.len());
+        for (entry_key, entry_value) in entries {
+            keys.push(self.compile_literal_value(entry_key)?);
+            self.compile_expr(entry_value)?;
+        }
+        let needle = self.compile_literal_value(needle)?;
+        self.emit_compiled_literal_membership(&keys, needle, span)?;
+        Ok(Some(NativeValue::Bool))
     }
 
     fn compile_static_map_contains_value_direct(

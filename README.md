@@ -262,8 +262,9 @@ normal and recursive native calls. Runtime line-list `foldLeft` can use the
 same storage for record accumulators, including empty `List<String>` fields.
 Direct `head` over list literals can return runtime native values, including
 records, after preserving every element's evaluation effects.
-List/set literal `contains` and map literal `containsValue` can compare runtime
-native values directly while preserving literal evaluation effects.
+List/set literal `contains` and map literal `containsKey` / `containsValue` can
+compare runtime native values directly while preserving literal evaluation
+effects.
 Literal list/map `size` and list/map/set `isEmpty` selectors can also answer
 after preserving effects, without requiring a first-class runtime collection.
 List literal `foreach` can unroll runtime native values after evaluating every

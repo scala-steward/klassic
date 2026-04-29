@@ -8507,6 +8507,8 @@ val listNonEmpty = isEmpty([{{ hits += 1; runtimeBox }}])
 val mapSize = Map#size(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}])
 val mapNonEmpty = Map#isEmpty(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}])
 val setNonEmpty = Set#isEmpty(%({{ hits += 1; runtimeBox }}))
+val keyHit = Map#containsKey(%[{{ hits += 1; FileInput#all(path) }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; runtimeBox }}], FileInput#all(path))
+val keyMiss = %[{{ hits += 1; "other" }}: {{ hits += 1; runtimeBox }}].containsKey(FileInput#all(path))
 mutable foreachHits = 0
 mutable foreachScore = 0
 foreach(box in [{{ foreachHits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}, {{ foreachHits += 1; #Box("other", ["other"], 5, false) }}]) {{
@@ -8523,6 +8525,8 @@ println(listNonEmpty)
 println(mapSize)
 println(mapNonEmpty)
 println(setNonEmpty)
+println(keyHit)
+println(keyMiss)
 println(hits)
 println(foreachScore)
 assert(listHit)
@@ -8534,7 +8538,9 @@ assert(!listNonEmpty)
 assertResult(2)(mapSize)
 assert(!mapNonEmpty)
 assert(!setNonEmpty)
-assertResult(19)(hits)
+assert(keyHit)
+assert(!keyMiss)
+assertResult(25)(hits)
 assertResult(2)(foreachHits)
 assertResult(35)(foreachScore)
 "##,
@@ -8582,7 +8588,7 @@ assertResult(35)(foreachScore)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n19\n35\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n25\n35\n"
     );
     assert!(run.stderr.is_empty());
 }

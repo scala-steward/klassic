@@ -127,8 +127,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - Direct `head` over list literals can return runtime native values, including
   supported runtime records, while evaluating every list element in source
   order.
-- List/set literal `contains` and map literal `containsValue` can compare
-  runtime native values directly after preserving literal evaluation effects.
+- List/set literal `contains` and map literal `containsKey` / `containsValue`
+  can compare runtime native values directly after preserving literal evaluation
+  effects.
 - Literal list/map `size` and list/map/set `isEmpty` selectors preserve effects
   and return known cardinality or emptiness without materializing runtime values.
 - List literal `foreach` can unroll over compiled runtime native values after
