@@ -162,14 +162,16 @@ the module layout is described in `docs/architecture-rust.md`.
   when the compatible entries return uniformly string, string-list, int, or
   boolean, supported static record, non-string static-list, `null`, or `()`
   values, or when all compatible entries return the same equivalent static
-  value, including callables; runtime record and runtime-list results from
+  value, including callables. Non-string list entries may now have different
+  static lengths; the selected length is stored with the runtime-list result,
+  including nested record fields. Runtime record and runtime-list results from
   those lookups can be queried through the normal native helper paths; runtime
   misses report a native diagnostic until the native path has dynamic tagged
   `null` values, but key types with no compatible static keys, and all-`null`
   compatible values, return static `null`.
 - Map literal `Map#get` / `.get` can return runtime native values, including
-  supported runtime records, from static or runtime keys while preserving all
-  map-entry and key effects.
+  supported runtime records and variable-length runtime-list values, from
+  static or runtime keys while preserving all map-entry and key effects.
 - Static string-list entries in lists, sets, and map values can be matched by
   runtime line-list membership queries.
 - Static collection membership also handles effectful query expressions that

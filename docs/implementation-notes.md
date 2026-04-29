@@ -332,7 +332,9 @@ Effectful query expressions that compile back to static values after preserving
 their effects are also compared through the static collection membership path.
 Map literal `Map#get` / `.get` can return runtime native values, including
 supported runtime records and runtime-list values, from static or runtime keys
-after evaluating every map entry and the key in source order.
+after evaluating every map entry and the key in source order. Runtime-list
+outputs can keep a runtime-selected length, so display, `size`, `isEmpty`,
+`head`, `tail`, `join`, and equality ignore unused capacity slots.
 Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
 Direct `tail` over list literals can return runtime line-list values from
@@ -383,8 +385,10 @@ Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all supported static records, all non-string static lists, all
 `null`, all `()`, or equivalent static values, including the same callable
-value; runtime misses fail with a source-located native diagnostic because the
-native path still has no dynamic tagged `null` value, but a runtime
+value. Non-string list values may have different static lengths; the selected
+length is copied into runtime-list storage, including nested record fields.
+Runtime misses fail with a source-located native diagnostic because the native
+path still has no dynamic tagged `null` value, but a runtime
 key whose type has no compatible static keys returns static `null`; all-`null`
 compatible values also return static `null` for both hits and misses. If the
 compatible entries are all callable values, immediate calls through that lookup

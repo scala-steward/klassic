@@ -9896,17 +9896,32 @@ val bag = Map#get(%[
   "live": #Bag(xs, "live"),
   "static": #Bag(["static", "branch"], "static")
 ], key)
+val varied = Map#get(%[
+  "live": [#Bag(xs, "live")],
+  "static": [#Bag(["static"], "short"), #Bag(["branch"], "long")]
+], key)
 println(join(picked, "|"))
 println(picked)
 println(join(bag.items, "|"))
 println(bag)
+println(varied)
+println(size(varied))
+println(head(varied).label)
+println(join(head(varied).items, "|"))
+println(tail(varied))
 println(hits)
 if(key == "live") {{
   assertResult(["ab", "tail"])(picked)
   assertResult(#Bag(["ab", "tail"], "live"))(bag)
+  assertResult([#Bag(["ab", "tail"], "live")])(varied)
+  assertResult(1)(size(varied))
+  assertResult([])(tail(varied))
 }} else {{
   assertResult(["static", "branch"])(picked)
   assertResult(#Bag(["static", "branch"], "static"))(bag)
+  assertResult([#Bag(["static"], "short"), #Bag(["branch"], "long")])(varied)
+  assertResult(2)(size(varied))
+  assertResult("long")(head(tail(varied)).label)
 }}
 assertResult(2)(hits)
 "##,
@@ -9959,7 +9974,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&live_run.stdout),
-        "ab|tail\n[ab, tail]\nab|tail\n#Bag([ab, tail], live)\n2\n"
+        "ab|tail\n[ab, tail]\nab|tail\n#Bag([ab, tail], live)\n[#Bag([ab, tail], live)]\n1\nlive\nab|tail\n[]\n2\n"
     );
     assert!(live_run.stderr.is_empty());
 
@@ -9971,7 +9986,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&static_run.stdout),
-        "static|branch\n[static, branch]\nstatic|branch\n#Bag([static, branch], static)\n2\n"
+        "static|branch\n[static, branch]\nstatic|branch\n#Bag([static, branch], static)\n[#Bag([static], short), #Bag([branch], long)]\n2\nshort\nstatic\n[#Bag([branch], long)]\n2\n"
     );
     assert!(static_run.stderr.is_empty());
 }

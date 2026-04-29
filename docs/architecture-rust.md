@@ -200,7 +200,9 @@ cargo run -- -e "1 + 2"
   structurally against static record entries through static list/set `contains`
   and map `containsValue`.
   Map literal `Map#get` / `.get` can return runtime native values from static
-  or runtime keys after preserving map-entry and key effects.
+  or runtime keys after preserving map-entry and key effects, including
+  variable-length runtime-list results selected from static or map-literal
+  entries and nested record fields.
   Static maps can lower `Map#get` / `.get` with runtime string/int/bool keys to
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, supported static record, non-string static-list,
@@ -329,7 +331,8 @@ cargo run -- -e "1 + 2"
   List literal `foldLeft` can reduce those values into native scalar, string,
   line-list, runtime-list, or record accumulators.
   Map literal `Map#get` / `.get` can select runtime native values from static or
-  runtime keys on the same evaluated-entry path.
+  runtime keys on the same evaluated-entry path, including runtime-list results
+  whose selected length is tracked at runtime.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

@@ -317,10 +317,14 @@ string, line-list, runtime-list, or record accumulators on the same
 evaluated-elements path.
 Static maps can also return supported static records or non-string static lists
 from runtime string/int/bool keys by copying the selected entry into runtime
-record or runtime-list storage.
+record or runtime-list storage. Static-map lookups whose selected list length is
+not known until runtime track that length separately, so `print`, `toString`,
+`size`, `isEmpty`, `head`, `tail`, `join`, and equality only observe the selected
+prefix. Nested record fields can use the same variable-length runtime-list
+storage.
 Map literal `Map#get` / `.get` can also select runtime native values,
-including runtime-list values, from static or runtime keys while preserving
-every entry's evaluation effects.
+including variable-length runtime-list values, from static or runtime keys while
+preserving every entry's evaluation effects.
 Those runtime record results can be passed back through static list/set
 `contains` and map `containsValue` helpers for structural record membership.
 Static string-key maps, static string-valued maps, string sets,
