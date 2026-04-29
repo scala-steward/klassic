@@ -8527,6 +8527,7 @@ val foldedSummary = foldLeft([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("o
 val foldedText = foldLeft([{{ hits += 1; runtimeBox.text }}, {{ hits += 1; "!" }}])("")((acc, text) => acc + text)
 val foldedLines = foldLeft([{{ hits += 1; substring(runtimeBox.text, 0, 1) }}, {{ hits += 1; "z" }}])([])((acc, text) => text #cons acc)
 val literalTail = tail([{{ hits += 1; runtimeBox.text }}, {{ hits += 1; "tail" }}])
+val mappedTexts = map([{{ hits += 1; substring(runtimeBox.text, 0, 1) }}, {{ hits += 1; "tail" }}])((text) => text + "!")
 println(listHit)
 println(listMiss)
 println(setHit)
@@ -8547,6 +8548,7 @@ println(foldedSummary.text)
 println(foldedText)
 println(join(foldedLines, "|"))
 println(join(literalTail, "|"))
+println(join(mappedTexts, "|"))
 println(pickedRuntimeBox.count)
 println(pickedRuntimeBox.ok)
 println(pickedRuntimeBox.text)
@@ -8561,7 +8563,7 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(39)(hits)
+assertResult(41)(hits)
 assertResult(2)(foreachHits)
 assertResult(35)(foreachScore)
 assertResult(8)(foldedCount)
@@ -8569,6 +8571,7 @@ assertResult(#Summary("a\nbother", 8, false))(foldedSummary)
 assertResult("a\nb!")(foldedText)
 assertResult(["z", "a"])(foldedLines)
 assertResult(["tail"])(literalTail)
+assertResult(["a!", "tail!"])(mappedTexts)
 assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
 "##,
             path_holder.display()
@@ -8615,7 +8618,7 @@ assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n39\n35\n8\n8\nfalse\na\nbother\na\nb!\nz|a\ntail\n3\ntrue\na\nb\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n41\n35\n8\n8\nfalse\na\nbother\na\nb!\nz|a\ntail\na!|tail!\n3\ntrue\na\nb\n"
     );
     assert!(run.stderr.is_empty());
 }

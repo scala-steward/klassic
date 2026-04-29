@@ -136,6 +136,8 @@ the module layout is described in `docs/architecture-rust.md`.
   and return known cardinality or emptiness without materializing runtime values.
 - List literal `foreach` can unroll over compiled runtime native values after
   evaluating every element before the loop body.
+- List literal `map` can unroll over compiled runtime native values into
+  runtime line-list results when the mapper returns strings.
 - List literal `foldLeft` can reduce compiled runtime native values into
   supported scalar, string, line-list, or record accumulators.
 - Function value aliases, static record fields, runtime `String` /

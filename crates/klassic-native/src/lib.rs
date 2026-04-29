@@ -3791,6 +3791,11 @@ impl NativeCodeGenerator {
                 "map expects one list and one mapper function",
             ));
         }
+        if let Some(value) =
+            self.compile_list_literal_map(&list_arguments[0], &mapper_arguments[0], span)?
+        {
+            return Ok(value);
+        }
         let list = self.compile_expr(&list_arguments[0])?;
         let mapper = &mapper_arguments[0];
         match list {
@@ -3854,6 +3859,77 @@ impl NativeCodeGenerator {
             ),
             _ => Err(unsupported(span, "native map for non-static list")),
         }
+    }
+
+    fn compile_list_literal_map(
+        &mut self,
+        list: &Expr,
+        mapper: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = list else {
+            return Ok(None);
+        };
+        if !self.list_literal_has_runtime_values(elements) {
+            return Ok(None);
+        }
+
+        let elements = self.compile_literal_values(elements)?;
+        let mapper = self.compile_runtime_line_lambda(
+            mapper,
+            1,
+            span,
+            "native map over list literal runtime values for non-lambda mapper",
+            "native map over list literal runtime values for this mapper arity",
+        )?;
+        if mapper.contains_thread_call {
+            return Err(unsupported(
+                span,
+                "native map over list literal runtime values with thread mapper",
+            ));
+        }
+        let [param] = mapper.params.as_slice() else {
+            return Err(unsupported(
+                span,
+                "native map over list literal runtime values for this mapper arity",
+            ));
+        };
+
+        let (output, output_len) = self.runtime_record_branch_string_buffer();
+        let output_offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(output_offset);
+        for element in elements {
+            self.push_scope();
+            self.bind_runtime_line_lambda_captures(&mapper);
+            self.bind_compiled_literal_iteration_value(param, element);
+            let mapped = self.compile_expr(&mapper.body);
+            self.pop_scope();
+            let mapped = mapped?;
+            let Some(mapped) = self.native_string_ref(mapped) else {
+                return Err(unsupported(
+                    span,
+                    "native map over list literal runtime values for non-string mapper result",
+                ));
+            };
+            self.emit_append_newline_separator_to_runtime_buffer_offset_label(
+                output,
+                output_offset,
+                span,
+                "map list-literal result exceeds 65536 bytes",
+            );
+            self.emit_append_native_string_to_runtime_buffer_offset_label(
+                output,
+                output_offset,
+                mapped,
+                span,
+                "map list-literal result exceeds 65536 bytes",
+            );
+        }
+        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
+        Ok(Some(NativeValue::RuntimeLinesList {
+            data: output,
+            len: output_len,
+        }))
     }
 
     fn compile_runtime_lines_map(
