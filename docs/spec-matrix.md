@@ -85,6 +85,7 @@ The repository contains a Rust-native language implementation with:
   list-literal `join` over runtime string values into runtime string results,
   list/map/set-literal display / `toString` / printing / interpolation /
   string concatenation over runtime native values into runtime strings,
+  list/map-literal equality / `assertResult` over runtime native values,
   list-literal `foreach` and scalar/string/line-list/record-accumulator `foldLeft` over runtime native values,
   map-literal `Map#get` / `.get` returning runtime native values from static or runtime keys,
   direct or method-style static-list `head` lookups including `tail` and

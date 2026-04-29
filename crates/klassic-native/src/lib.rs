@@ -1877,6 +1877,11 @@ impl NativeCodeGenerator {
                 .mov_imm64(Reg::Rax, u64::from(equal == (op == BinaryOp::Equal)));
             return Ok(NativeValue::Bool);
         }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && let Some(value) = self.compile_collection_literal_equality(lhs, rhs, op, span)?
+        {
+            return Ok(value);
+        }
         if let Some(value) = self.static_numeric_binary_from_exprs(lhs, op, rhs) {
             return Ok(self.emit_static_value(&value));
         }
@@ -3286,6 +3291,22 @@ impl NativeCodeGenerator {
             if !self.static_value_equal_user(&expected, &actual) {
                 self.emit_assert_result_failed_static(span, &expected, &actual);
             }
+            return Ok(NativeValue::Unit);
+        }
+        if let Some(value) = self.compile_collection_literal_equality(
+            &expected_arguments[0],
+            &actual_arguments[0],
+            BinaryOp::Equal,
+            span,
+        )? {
+            let NativeValue::Bool = value else {
+                unreachable!("collection literal equality should produce Bool")
+            };
+            let ok = self.asm.create_text_label();
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::NotEqual, ok);
+            self.emit_runtime_error(span, "assertResult failed");
+            self.asm.bind_text_label(ok);
             return Ok(NativeValue::Unit);
         }
         let expected = self.compile_expr(&expected_arguments[0])?;
@@ -6712,6 +6733,120 @@ impl NativeCodeGenerator {
             .iter()
             .map(|element| self.compile_literal_value(element))
             .collect()
+    }
+
+    fn compile_map_literal_entry_values(
+        &mut self,
+        entries: &[(Expr, Expr)],
+    ) -> Result<Vec<(CompiledLiteralValue, CompiledLiteralValue)>, Diagnostic> {
+        entries
+            .iter()
+            .map(|(key, value)| {
+                Ok((
+                    self.compile_literal_value(key)?,
+                    self.compile_literal_value(value)?,
+                ))
+            })
+            .collect()
+    }
+
+    fn compile_collection_literal_equality(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        op: BinaryOp,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        match (lhs, rhs) {
+            (
+                Expr::ListLiteral {
+                    elements: lhs_elements,
+                    ..
+                },
+                Expr::ListLiteral {
+                    elements: rhs_elements,
+                    ..
+                },
+            ) => {
+                let lhs = self.compile_literal_values(lhs_elements)?;
+                let rhs = self.compile_literal_values(rhs_elements)?;
+                self.emit_compiled_literal_sequence_equality(&lhs, &rhs, span)?;
+            }
+            (
+                Expr::MapLiteral {
+                    entries: lhs_entries,
+                    ..
+                },
+                Expr::MapLiteral {
+                    entries: rhs_entries,
+                    ..
+                },
+            ) => {
+                let lhs = self.compile_map_literal_entry_values(lhs_entries)?;
+                let rhs = self.compile_map_literal_entry_values(rhs_entries)?;
+                self.emit_compiled_literal_map_equality(&lhs, &rhs, span)?;
+            }
+            _ => return Ok(None),
+        }
+        if op == BinaryOp::NotEqual {
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.setcc_al(Condition::Equal);
+            self.asm.movzx_rax_al();
+        }
+        Ok(Some(NativeValue::Bool))
+    }
+
+    fn emit_compiled_literal_sequence_equality(
+        &mut self,
+        lhs: &[CompiledLiteralValue],
+        rhs: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if lhs.len() != rhs.len() {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        }
+        let not_equal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for (lhs, rhs) in lhs.iter().zip(rhs.iter()) {
+            self.emit_compiled_literal_values_equal(*lhs, *rhs, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, not_equal);
+        }
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_equal);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_compiled_literal_map_equality(
+        &mut self,
+        lhs: &[(CompiledLiteralValue, CompiledLiteralValue)],
+        rhs: &[(CompiledLiteralValue, CompiledLiteralValue)],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if lhs.len() != rhs.len() {
+            self.asm.mov_imm64(Reg::Rax, 0);
+            return Ok(());
+        }
+        let not_equal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        for ((lhs_key, lhs_value), (rhs_key, rhs_value)) in lhs.iter().zip(rhs.iter()) {
+            self.emit_compiled_literal_values_equal(*lhs_key, *rhs_key, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, not_equal);
+            self.emit_compiled_literal_values_equal(*lhs_value, *rhs_value, span)?;
+            self.asm.cmp_reg_imm8(Reg::Rax, 0);
+            self.asm.jcc_label(Condition::Equal, not_equal);
+        }
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_equal);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(())
     }
 
     fn compile_literal_size_or_is_empty(
