@@ -1452,6 +1452,27 @@ impl NativeCodeGenerator {
                         self.bind_constant(name.clone(), mutable);
                         Ok(NativeValue::Unit)
                     }
+                    NativeValue::StaticRecord { label }
+                        if *mutable && self.static_record_can_use_runtime_storage(label) =>
+                    {
+                        let value = NativeValue::StaticRecord { label };
+                        let output = self
+                            .prepare_record_branch_output(value, *span)?
+                            .expect("static record should prepare record output");
+                        self.emit_copy_record_value_to_branch_output(
+                            value,
+                            &output,
+                            *span,
+                            "mutable record binding exceeds 65536 bytes",
+                        )?;
+                        self.bind_constant(
+                            name.clone(),
+                            NativeValue::RuntimeRecord {
+                                label: output.label,
+                            },
+                        );
+                        Ok(NativeValue::Unit)
+                    }
                     NativeValue::RuntimeRecord { label } if *mutable => {
                         let value = NativeValue::RuntimeRecord { label };
                         let output = self
@@ -9092,6 +9113,28 @@ impl NativeCodeGenerator {
                 .prepare_static_record_branch_output(label, span)
                 .map(Some),
             _ => Ok(None),
+        }
+    }
+
+    fn static_record_can_use_runtime_storage(&self, label: RecordLabel) -> bool {
+        self.static_records.get(label.0).is_some_and(|record| {
+            record
+                .fields
+                .iter()
+                .all(|(_, value)| self.static_value_can_use_runtime_record_storage(value))
+        })
+    }
+
+    fn static_value_can_use_runtime_record_storage(&self, value: &StaticValue) -> bool {
+        match value {
+            StaticValue::Int(_) | StaticValue::Bool(_) | StaticValue::StaticString { .. } => true,
+            StaticValue::StaticList { .. } => {
+                self.static_string_list_content_from_value(value).is_some()
+            }
+            StaticValue::StaticRecord { label } => {
+                self.static_record_can_use_runtime_storage(*label)
+            }
+            _ => false,
         }
     }
 

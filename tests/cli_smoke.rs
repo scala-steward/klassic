@@ -8315,7 +8315,8 @@ val made = identityBox(makeBox())
 val missing = path + ".missing"
 val pickedExisting = if(FileOutput#exists(path)) #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) else #Box("missing", ["missing"], 7, false)
 val pickedFallback = if(FileOutput#exists(missing)) #Box(FileInput#all(missing), FileInput#lines(missing), length(FileInput#all(missing)), true) else #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), false)
-mutable mutableBox = constructed
+mutable mutableBox = #Box("start", ["start"], 5, false)
+mutableBox = constructed
 mutableBox = #Box("mut", ["mut"], 3, false)
 val literalText = "literal=" + literal
 val constructedText = "constructed=#{{constructed}}"

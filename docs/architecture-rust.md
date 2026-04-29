@@ -288,7 +288,8 @@ cargo run -- -e "1 + 2"
   runtime `String` / `List<String>`, dynamic `Int` / `Boolean`, and nested runtime
   record fields, compatible record equality and runtime string display for those fields,
   dynamic `if` merging for compatible runtime record branch results, mutable
-  runtime record assignments, and static lambda method fields.
+  runtime record assignments from runtime or supported static initializers, and
+  static lambda method fields.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

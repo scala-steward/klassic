@@ -250,7 +250,7 @@ equality against compatible records, and can be formatted through `toString`,
 interpolation, and string concatenation. Dynamic `if` expressions can merge
 compatible runtime record branch results through shared runtime field storage.
 Mutable runtime record bindings reuse the same field storage for compatible
-record assignments.
+record assignments, including supported static-record initializers.
 Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,

@@ -306,7 +306,8 @@ nested runtime record fields for field selection, printing, and equality against
 records, plus runtime string display through `toString`, interpolation, and
 concatenation. Dynamic `if` expressions can copy compatible runtime record branch
 results into shared runtime field storage, and mutable runtime record bindings
-reuse that field storage for compatible assignments. Static map
+reuse that field storage for compatible assignments from runtime or supported
+static-record initializers. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,
