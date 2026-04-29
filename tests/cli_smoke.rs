@@ -8512,6 +8512,7 @@ val listNonEmpty = isEmpty([{{ hits += 1; runtimeBox }}])
 val mapSize = Map#size(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}])
 val mapNonEmpty = Map#isEmpty(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}])
 val setNonEmpty = Set#isEmpty(%({{ hits += 1; runtimeBox }}))
+val setRuntimeSize = Set#size(%({{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}, {{ hits += 1; runtimeBox }}))
 val keyHit = Map#containsKey(%[{{ hits += 1; FileInput#all(path) }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; runtimeBox }}], FileInput#all(path))
 val keyMiss = %[{{ hits += 1; "other" }}: {{ hits += 1; runtimeBox }}].containsKey(FileInput#all(path))
 val pickedRuntimeBox = Map#get(%[{{ hits += 1; FileInput#all(path) }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}], FileInput#all(path))
@@ -8537,6 +8538,7 @@ println(listNonEmpty)
 println(mapSize)
 println(mapNonEmpty)
 println(setNonEmpty)
+println(setRuntimeSize)
 println(keyHit)
 println(keyMiss)
 println(hits)
@@ -8563,8 +8565,9 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(41)(hits)
+assertResult(44)(hits)
 assertResult(2)(foreachHits)
+assertResult(2)(setRuntimeSize)
 assertResult(35)(foreachScore)
 assertResult(8)(foldedCount)
 assertResult(#Summary("a\nbother", 8, false))(foldedSummary)
@@ -8618,7 +8621,7 @@ assertResult(#Box("a\nb", ["a", "b"], 3, true))(pickedRuntimeBox)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n41\n35\n8\n8\nfalse\na\nbother\na\nb!\nz|a\ntail\na!|tail!\n3\ntrue\na\nb\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n2\ntrue\nfalse\n44\n35\n8\n8\nfalse\na\nbother\na\nb!\nz|a\ntail\na!|tail!\n3\ntrue\na\nb\n"
     );
     assert!(run.stderr.is_empty());
 }

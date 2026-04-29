@@ -6380,7 +6380,7 @@ impl NativeCodeGenerator {
         &mut self,
         name: &str,
         collection: &Expr,
-        _span: Span,
+        span: Span,
     ) -> Result<Option<NativeValue>, Diagnostic> {
         match (name, collection) {
             ("size", Expr::ListLiteral { elements, .. }) => {
@@ -6413,6 +6413,10 @@ impl NativeCodeGenerator {
                 self.asm.mov_imm64(Reg::Rax, u64::from(elements.is_empty()));
                 Ok(Some(NativeValue::Bool))
             }
+            ("size" | "Set#size", Expr::SetLiteral { elements, .. }) => {
+                self.compile_set_literal_size(elements, span)?;
+                Ok(Some(NativeValue::Int))
+            }
             ("isEmpty" | "Set#isEmpty", Expr::SetLiteral { elements, .. }) => {
                 self.compile_list_literal_effects(elements)?;
                 self.asm.mov_imm64(Reg::Rax, u64::from(elements.is_empty()));
@@ -6434,6 +6438,40 @@ impl NativeCodeGenerator {
             self.compile_expr(key)?;
             self.compile_expr(value)?;
         }
+        Ok(())
+    }
+
+    fn compile_set_literal_size(
+        &mut self,
+        elements: &[Expr],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let count_slot = self.asm.data_label_with_i64s(&[0]);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.emit_store_rax_to_data_slot(count_slot);
+
+        let mut previous_values = Vec::with_capacity(elements.len());
+        for element in elements {
+            let value = self.compile_literal_value(element)?;
+            let duplicate = self.asm.create_text_label();
+            let done = self.asm.create_text_label();
+            for previous in &previous_values {
+                self.emit_compiled_literal_values_equal(value, *previous, span)?;
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, duplicate);
+            }
+            self.asm.mov_data_addr(Reg::R10, count_slot);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+            self.asm.inc_reg(Reg::Rax);
+            self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+            self.asm.jmp_label(done);
+            self.asm.bind_text_label(duplicate);
+            self.asm.bind_text_label(done);
+            previous_values.push(value);
+        }
+
+        self.asm.mov_data_addr(Reg::R10, count_slot);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
         Ok(())
     }
 

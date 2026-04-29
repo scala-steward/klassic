@@ -306,8 +306,9 @@ cargo run -- -e "1 + 2"
   Literal `contains` / `containsKey` / `containsValue` selectors can compare
   runtime native values directly without materializing a first-class runtime
   collection.
-  Literal list/map `size` and list/map/set `isEmpty` selectors preserve effects
-  and return known collection cardinality or emptiness on the same path.
+  Literal list/map/set `size` and list/map/set `isEmpty` selectors preserve
+  effects and return collection cardinality or emptiness on the same path;
+  set literal `size` counts only distinct runtime values.
   List literal `foreach` can unroll over runtime native values after evaluating
   all elements before the body.
   List literal `map` can unroll over runtime native values into runtime

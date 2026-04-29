@@ -267,8 +267,9 @@ runtime string elements on the same evaluated-elements path.
 List/set literal `contains` and map literal `containsKey` / `containsValue` can
 compare runtime native values directly while preserving literal evaluation
 effects.
-Literal list/map `size` and list/map/set `isEmpty` selectors can also answer
-after preserving effects, without requiring a first-class runtime collection.
+Literal list/map/set `size` and list/map/set `isEmpty` selectors can also
+answer after preserving effects, without requiring a first-class runtime
+collection; set literal `size` counts only distinct runtime values.
 List literal `foreach` can unroll runtime native values after evaluating every
 element before the loop body.
 List literal `map` can unroll runtime native values into runtime line-list

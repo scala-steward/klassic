@@ -132,8 +132,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - List/set literal `contains` and map literal `containsKey` / `containsValue`
   can compare runtime native values directly after preserving literal evaluation
   effects.
-- Literal list/map `size` and list/map/set `isEmpty` selectors preserve effects
-  and return known cardinality or emptiness without materializing runtime values.
+- Literal list/map/set `size` and list/map/set `isEmpty` selectors preserve
+  effects and return cardinality or emptiness without materializing runtime
+  values; set literal `size` counts only distinct runtime values.
 - List literal `foreach` can unroll over compiled runtime native values after
   evaluating every element before the loop body.
 - List literal `map` can unroll over compiled runtime native values into

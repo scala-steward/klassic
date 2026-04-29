@@ -338,9 +338,10 @@ runtime string elements after evaluating every list element in source order.
 List/set literal `contains` and map literal `containsKey` / `containsValue` can
 compare runtime native values directly after evaluating the literal and query
 in source order.
-Literal list/map `size` and list/map/set `isEmpty` selectors likewise preserve
-literal effects and return the known cardinality or emptiness without
-materializing runtime values.
+Literal list/map/set `size` and list/map/set `isEmpty` selectors likewise
+preserve literal effects and return cardinality or emptiness without
+materializing runtime values; set literal `size` counts only distinct runtime
+values.
 List literal `foreach` evaluates every element first, then unrolls the loop body
 over the compiled native values.
 List literal `map` uses the same evaluated native values to produce runtime

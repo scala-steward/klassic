@@ -80,7 +80,7 @@ The repository contains a Rust-native language implementation with:
   record accumulators, direct list-literal `head` returning runtime native values,
   direct list-literal `tail` returning runtime line-list values,
   literal `contains` / `containsKey` / `containsValue` over runtime native values,
-  literal list/map `size` and list/map/set `isEmpty` selectors preserving effects,
+  literal list/map/set `size` and list/map/set `isEmpty` selectors preserving effects,
   list-literal `map` over runtime native values into runtime line-list results,
   list-literal `foreach` and scalar/string/line-list/record-accumulator `foldLeft` over runtime native values,
   map-literal `Map#get` / `.get` returning runtime native values from static or runtime keys,
