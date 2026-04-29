@@ -91,7 +91,7 @@ The repository contains a Rust-native language implementation with:
   and static collection bindings,
   immutable runtime list-literal bindings with display, equality, list-helper, `cons`, `map`, `foldLeft` including list-building accumulators, `join`, and `FileOutput#writeLines` support,
   fixed-capacity dynamic `if` merges for runtime-list values and record fields carrying them, with selected-length preservation whenever a runtime-list branch participates,
-  annotated `List<String>` function argument/return interop for compatible runtime-list values,
+  annotated `List<String>` function argument/return interop for compatible runtime-list selected prefixes,
   runtime record fields carrying runtime-list values through field access, display, and equality,
   straight-line mutable runtime-list rebinding through list-helper chains and dynamic `while` runtime-list assignment with mutable selected-length storage,
   list-literal `foreach` and scalar/string/line-list/runtime-list/record-accumulator `foldLeft` over runtime native values,

@@ -383,9 +383,9 @@ fields that carry them by copying each branch into shared runtime-list element
 storage, preserving selected runtime lengths whenever a runtime-list branch
 participates in the merge.
 Annotated `List<String>` function parameters and returns can consume compatible
-runtime-list values by copying their string elements into fixed line-list
-buffers, which also lets supported record returns carry runtime-list fields
-through the annotated record ABI.
+runtime-list values by copying the selected string-element prefix into fixed
+line-list buffers, which also lets supported record returns carry runtime-list
+fields through the annotated record ABI.
 Mutable bindings can rebind runtime-list values in straight-line native code,
 including `cons` and `tail` chains. Dynamic `while` bodies materialize assigned
 runtime-list locals into mutable storage with a selected-length slot, so each

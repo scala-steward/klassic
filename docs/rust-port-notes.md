@@ -112,9 +112,9 @@ the module layout is described in `docs/architecture-rust.md`.
 - Scalar-returning recursive native functions can accept annotated `String` and
   `List<String>` parameters by staging the argument into fresh runtime buffers
   before fixed function-parameter buffers are updated and scalar register/stack
-  arguments are passed. `List<String>` accepts both static string lists and
-  runtime line lists, and reentrant/self-recursive calls keep left-to-right
-  argument evaluation intact.
+  arguments are passed. `List<String>` accepts static string lists, runtime
+  line lists, and compatible runtime-list selected prefixes, and
+  reentrant/self-recursive calls keep left-to-right argument evaluation intact.
 - Annotated `String` / `List<String>` returns use fixed function return buffers
   that direct call sites copy into call-site-local buffers.
 - Annotated supported record parameters and returns use fixed runtime field

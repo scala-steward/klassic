@@ -10223,19 +10223,33 @@ val path = FileInput#all("{}")
 val runtime = FileInput#all(path)
 mutable hits = 0
 val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
+val selectedKey = if(length(runtime) == 2) "short" else "long"
+val selected = Map#get(%[
+  "short": [runtime],
+  "long": [runtime, "tail"]
+], selectedKey)
 def makeLines(): List<String> = [runtime, "tail"]
+def makeSelected(): List<String> = selected
 def makeBag(): #Bag = #Bag([runtime, "tail"], "made")
 val echoed = echoLines(xs)
+val selectedEchoed = echoLines(selected)
 val made = makeLines()
+val selectedMade = makeSelected()
 val bag = makeBag()
 println(lineCount(xs))
 println(join(echoed, "|"))
 println(join(made, "|"))
 println(bag)
+println(lineCount(selected))
+println(join(selectedEchoed, "|"))
+println(join(selectedMade, "|"))
 println(hits)
 assertResult(2)(lineCount(xs))
+assertResult(1)(lineCount(selected))
 assertResult(["ab", "tail"])(echoed)
+assertResult(["ab"])(selectedEchoed)
 assertResult(["ab", "tail"])(made)
+assertResult(["ab"])(selectedMade)
 assertResult(#Bag(["ab", "tail"], "made"))(bag)
 assertResult(2)(hits)
 "##,
@@ -10283,7 +10297,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\nab|tail\nab|tail\n#Bag([ab, tail], made)\n2\n"
+        "2\nab|tail\nab|tail\n#Bag([ab, tail], made)\n1\nab\nab\n2\n"
     );
     assert!(run.stderr.is_empty());
 }

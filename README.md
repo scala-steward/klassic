@@ -316,8 +316,8 @@ compatible static-list branches and record fields that carry runtime-list
 values, and preserve selected runtime lengths whenever a runtime-list branch
 participates in the merge.
 Annotated `List<String>` function parameters and returns can consume compatible
-runtime-list values by copying their string elements into fixed line-list
-buffers.
+runtime-list values by copying the selected string-element prefix into fixed
+line-list buffers.
 Mutable bindings can also rebind runtime-list values in straight-line native
 code and in dynamic `while` loops when assigned lists fit the materialized
 runtime-list capacity; each assignment updates the selected list length.
