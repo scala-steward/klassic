@@ -16307,6 +16307,9 @@ impl NativeCodeGenerator {
         body: &Expr,
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
+        if let Some(value) = self.compile_list_literal_foreach(binding, iterable, body)? {
+            return Ok(value);
+        }
         let iterable_value = self.compile_expr(iterable)?;
         match iterable_value {
             NativeValue::StaticIntList { label, len } => {
@@ -16445,6 +16448,47 @@ impl NativeCodeGenerator {
             _ => return Err(unsupported(span, "native foreach over non-static list")),
         }
         Ok(NativeValue::Unit)
+    }
+
+    fn compile_list_literal_foreach(
+        &mut self,
+        binding: &str,
+        iterable: &Expr,
+        body: &Expr,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = iterable else {
+            return Ok(None);
+        };
+        let elements = self.compile_literal_values(elements)?;
+        for element in elements {
+            self.push_scope();
+            self.bind_compiled_literal_iteration_value(binding, element);
+            self.compile_expr(body)?;
+            if self.queued_threads_capture_current_scope() {
+                self.pop_scope_preserving_allocations();
+            } else {
+                self.pop_scope();
+            }
+        }
+        Ok(Some(NativeValue::Unit))
+    }
+
+    fn bind_compiled_literal_iteration_value(
+        &mut self,
+        binding: &str,
+        value: CompiledLiteralValue,
+    ) {
+        match value {
+            CompiledLiteralValue::Native(value) => {
+                self.bind_constant(binding.to_string(), value);
+            }
+            CompiledLiteralValue::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                let slot = self.allocate_slot(binding.to_string(), value);
+                self.asm.store_rbp_slot(slot.offset, Reg::Rax);
+            }
+        }
     }
 
     fn bind_static_iteration_value(&mut self, binding: &str, value: &StaticValue) {

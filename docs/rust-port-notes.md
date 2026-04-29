@@ -131,6 +131,8 @@ the module layout is described in `docs/architecture-rust.md`.
   runtime native values directly after preserving literal evaluation effects.
 - Literal list/map `size` and list/map/set `isEmpty` selectors preserve effects
   and return known cardinality or emptiness without materializing runtime values.
+- List literal `foreach` can unroll over compiled runtime native values after
+  evaluating every element before the loop body.
 - Function value aliases, static record fields, runtime `String` /
   `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields, direct or
   method-style `head` lookups from static lists including `tail` and `cons`

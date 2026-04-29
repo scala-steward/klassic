@@ -305,6 +305,8 @@ cargo run -- -e "1 + 2"
   values directly without materializing a first-class runtime collection.
   Literal list/map `size` and list/map/set `isEmpty` selectors preserve effects
   and return known collection cardinality or emptiness on the same path.
+  List literal `foreach` can unroll over runtime native values after evaluating
+  all elements before the body.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

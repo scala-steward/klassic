@@ -8507,6 +8507,13 @@ val listNonEmpty = isEmpty([{{ hits += 1; runtimeBox }}])
 val mapSize = Map#size(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}])
 val mapNonEmpty = Map#isEmpty(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}])
 val setNonEmpty = Set#isEmpty(%({{ hits += 1; runtimeBox }}))
+mutable foreachHits = 0
+mutable foreachScore = 0
+foreach(box in [{{ foreachHits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}, {{ foreachHits += 1; #Box("other", ["other"], 5, false) }}]) {{
+  println(foreachHits)
+  println(box.count)
+  foreachScore = foreachScore * 10 + box.count
+}}
 println(listHit)
 println(listMiss)
 println(setHit)
@@ -8517,6 +8524,7 @@ println(mapSize)
 println(mapNonEmpty)
 println(setNonEmpty)
 println(hits)
+println(foreachScore)
 assert(listHit)
 assert(!listMiss)
 assert(setHit)
@@ -8527,6 +8535,8 @@ assertResult(2)(mapSize)
 assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assertResult(19)(hits)
+assertResult(2)(foreachHits)
+assertResult(35)(foreachScore)
 "##,
             path_holder.display()
         ),
@@ -8572,7 +8582,7 @@ assertResult(19)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n19\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n19\n35\n"
     );
     assert!(run.stderr.is_empty());
 }

@@ -266,6 +266,8 @@ List/set literal `contains` and map literal `containsValue` can compare runtime
 native values directly while preserving literal evaluation effects.
 Literal list/map `size` and list/map/set `isEmpty` selectors can also answer
 after preserving effects, without requiring a first-class runtime collection.
+List literal `foreach` can unroll runtime native values after evaluating every
+element before the loop body.
 Static maps can also return supported static records from runtime
 string/int/bool keys by copying the selected entry into runtime record storage.
 Static-key `Map#get` / `.get` can also select from map literals whose values are
