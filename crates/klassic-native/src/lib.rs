@@ -4460,13 +4460,18 @@ impl NativeCodeGenerator {
                 data: DataLabel,
                 len: DataLabel,
             },
+            RuntimeList {
+                label: RuntimeListLabel,
+            },
             Record {
                 output: RuntimeRecordBranchOutput,
             },
         }
 
         let initial = self.compile_expr(initial)?;
-        let accumulator = if let Some(output) = self.prepare_record_branch_output(initial, span)? {
+        let mut accumulator = if let Some(output) =
+            self.prepare_record_branch_output(initial, span)?
+        {
             self.emit_copy_record_value_to_branch_output(
                 initial,
                 &output,
@@ -4491,6 +4496,12 @@ impl NativeCodeGenerator {
                 "foldLeft string accumulator exceeds 65536 bytes",
             );
             LiteralFoldAccumulator::String { data, len }
+        } else if let Some(label) = self.stabilize_native_list_to_runtime_list_label(
+            initial,
+            span,
+            "foldLeft runtime-list accumulator exceeds 65536 bytes",
+        )? {
+            LiteralFoldAccumulator::RuntimeList { label }
         } else if self.native_value_is_lines_list_compatible(initial) {
             let initial =
                 self.native_lines_ref_from_value(initial, span, "foldLeft line-list accumulator")?;
@@ -4507,7 +4518,7 @@ impl NativeCodeGenerator {
             return Err(unsupported(
                 span,
                 &format!(
-                    "native foldLeft over {context} for non-Int, non-Bool, non-String, non-List<String>, or non-record initial value"
+                    "native foldLeft over {context} for non-Int, non-Bool, non-String, non-list, or non-record initial value"
                 ),
             ));
         };
@@ -4562,6 +4573,12 @@ impl NativeCodeGenerator {
                         },
                     );
                 }
+                LiteralFoldAccumulator::RuntimeList { label } => {
+                    self.bind_constant(
+                        acc_param.clone(),
+                        NativeValue::RuntimeList { label: *label },
+                    );
+                }
                 LiteralFoldAccumulator::Lines { data, len } => {
                     self.bind_constant(
                         acc_param.clone(),
@@ -4576,7 +4593,7 @@ impl NativeCodeGenerator {
             let next_acc = self.compile_expr(&reducer.body);
             self.pop_scope();
             let next_acc = next_acc?;
-            match &accumulator {
+            match &mut accumulator {
                 LiteralFoldAccumulator::Scalar {
                     storage,
                     value_kind,
@@ -4616,6 +4633,22 @@ impl NativeCodeGenerator {
                         "foldLeft string accumulator exceeds 65536 bytes",
                     );
                 }
+                LiteralFoldAccumulator::RuntimeList { label } => {
+                    *label = self
+                        .stabilize_native_list_to_runtime_list_label(
+                            next_acc,
+                            span,
+                            "foldLeft runtime-list accumulator exceeds 65536 bytes",
+                        )?
+                        .ok_or_else(|| {
+                            unsupported(
+                                span,
+                                &format!(
+                                    "native foldLeft over {context} for non-list reducer result"
+                                ),
+                            )
+                        })?;
+                }
                 LiteralFoldAccumulator::Lines { data, len } => {
                     let next_acc = self.native_lines_ref_from_value(
                         next_acc,
@@ -4648,6 +4681,7 @@ impl NativeCodeGenerator {
             LiteralFoldAccumulator::String { data, len } => {
                 NativeValue::RuntimeString { data, len }
             }
+            LiteralFoldAccumulator::RuntimeList { label } => NativeValue::RuntimeList { label },
             LiteralFoldAccumulator::Lines { data, len } => {
                 NativeValue::RuntimeLinesList { data, len }
             }
@@ -7439,6 +7473,27 @@ impl NativeCodeGenerator {
     fn native_value_can_copy_to_runtime_list(value: NativeValue) -> bool {
         matches!(value, NativeValue::RuntimeList { .. })
             || Self::native_value_is_static_list_like(value)
+    }
+
+    fn stabilize_native_list_to_runtime_list_label(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
+        if !Self::native_value_can_copy_to_runtime_list(value) {
+            return Ok(None);
+        }
+        let elements = self.compiled_literal_values_from_list_native(
+            value,
+            span,
+            "native runtime list value",
+        )?;
+        let elements = elements
+            .into_iter()
+            .map(|value| self.stabilize_runtime_list_literal_value(value, span, overflow_message))
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        Ok(Some(self.intern_runtime_list(elements)))
     }
 
     fn prepare_native_list_branch_output(

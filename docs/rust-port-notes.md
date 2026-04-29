@@ -146,7 +146,7 @@ the module layout is described in `docs/architecture-rust.md`.
 - List literal display / `toString` can render compiled runtime native values
   into a runtime string for supported element types.
 - List literal `foldLeft` can reduce compiled runtime native values into
-  supported scalar, string, line-list, or record accumulators.
+  supported scalar, string, line-list, runtime-list, or record accumulators.
 - Function value aliases, static record fields, runtime `String` /
   `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields, direct or
   method-style `head` lookups from static lists including `tail` and `cons`

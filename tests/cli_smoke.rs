@@ -9098,6 +9098,9 @@ val foldedText = xs.foldLeft("", (acc, x) => acc + "[" + x + "]")
 val total = foldLeft(sizes)(0)((acc, n) => acc + n)
 val allPositive = sizes.foldLeft(true, (acc, n) => acc && n > 0)
 val reversed = xs.foldLeft([], (acc, x) => cons(x)(acc))
+val reversedSizes = sizes.foldLeft([], (acc, n) => cons(n)(acc))
+val seededSizes = sizes.foldLeft([99], (acc, n) => cons(n)(acc))
+val directReversedSizes = [{{ hits += 1; length(runtime) }}, 9].foldLeft([], (acc, n) => cons(n)(acc))
 println(mapped)
 println(join(mapped, "|"))
 println(mappedViaFunction)
@@ -9109,6 +9112,9 @@ println(foldedText)
 println(total)
 println(allPositive)
 println(join(reversed, "|"))
+println(reversedSizes)
+println(seededSizes)
+println(directReversedSizes)
 println(hits)
 assertResult(["ab!", "tail!"])(mapped)
 assertResult(["[ab]", "[tail]"])(mappedViaFunction)
@@ -9119,7 +9125,10 @@ assertResult("[ab][tail]")(foldedText)
 assertResult(6)(total)
 assert(allPositive)
 assertResult(["tail", "ab"])(reversed)
-assertResult(4)(hits)
+assertResult([4, 2])(reversedSizes)
+assertResult([4, 2, 99])(seededSizes)
+assertResult([9, 2])(directReversedSizes)
+assertResult(5)(hits)
 "##,
             path_holder.display()
         ),
@@ -9165,7 +9174,7 @@ assertResult(4)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[ab!, tail!]\nab!|tail!\n[[ab], [tail]]\n[ab]|[tail]\n[3, 5]\n3\n[3, 10]\n[ab][tail]\n6\ntrue\ntail|ab\n4\n"
+        "[ab!, tail!]\nab!|tail!\n[[ab], [tail]]\n[ab]|[tail]\n[3, 5]\n3\n[3, 10]\n[ab][tail]\n6\ntrue\ntail|ab\n[4, 2]\n[4, 2, 99]\n[9, 2]\n5\n"
     );
     assert!(run.stderr.is_empty());
 }

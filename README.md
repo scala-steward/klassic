@@ -303,7 +303,8 @@ buffers.
 Mutable bindings can also rebind runtime-list values in straight-line native
 code.
 List literal `foldLeft` can reduce runtime native values into native scalar,
-string, line-list, or record accumulators on the same evaluated-elements path.
+string, line-list, runtime-list, or record accumulators on the same
+evaluated-elements path.
 Static maps can also return supported static records from runtime
 string/int/bool keys by copying the selected entry into runtime record storage.
 Map literal `Map#get` / `.get` can also select runtime native values,

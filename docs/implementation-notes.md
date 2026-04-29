@@ -378,7 +378,7 @@ through the annotated record ABI.
 Mutable bindings can rebind runtime-list values in straight-line native code,
 including `cons` and `tail` chains.
 List literal `foldLeft` uses the same evaluated native values to reduce into
-supported scalar, string, line-list, or record accumulators.
+supported scalar, string, line-list, runtime-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or equivalent static values, including the

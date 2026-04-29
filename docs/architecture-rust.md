@@ -320,7 +320,7 @@ cargo run -- -e "1 + 2"
   List literal display / `toString` can render supported runtime native values
   into a runtime string.
   List literal `foldLeft` can reduce those values into native scalar, string,
-  line-list, or record accumulators.
+  line-list, runtime-list, or record accumulators.
   Map literal `Map#get` / `.get` can select runtime native values from static or
   runtime keys on the same evaluated-entry path.
   Static file input/output helpers for static paths are supported
