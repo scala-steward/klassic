@@ -8315,6 +8315,8 @@ val made = identityBox(makeBox())
 val missing = path + ".missing"
 val pickedExisting = if(FileOutput#exists(path)) #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) else #Box("missing", ["missing"], 7, false)
 val pickedFallback = if(FileOutput#exists(missing)) #Box(FileInput#all(missing), FileInput#lines(missing), length(FileInput#all(missing)), true) else #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), false)
+mutable mutableBox = constructed
+mutableBox = #Box("mut", ["mut"], 3, false)
 val literalText = "literal=" + literal
 val constructedText = "constructed=#{{constructed}}"
 val againText = toString(literalAgain)
@@ -8348,6 +8350,9 @@ println(nested == expectedNested)
 println(pickedExisting)
 println(pickedFallback)
 println(pickedFallback.ok)
+println(mutableBox)
+println(mutableBox.text)
+println(mutableBox.ok)
 assertResult("a\nb")(literal.text)
 assertResult(["a", "b"])(literal.lines)
 assertResult(3)(literal.count)
@@ -8377,6 +8382,9 @@ assertResult(expectedConstructed)(pickedExisting)
 assertResult(#Box("a\nb", ["a", "b"], 3, false))(pickedFallback)
 assertResult("a\nb")(pickedExisting.text)
 assertResult(false)(pickedFallback.ok)
+assertResult(#Box("mut", ["mut"], 3, false))(mutableBox)
+assertResult("mut")(mutableBox.text)
+assertResult(false)(mutableBox.ok)
 "##,
             path_holder.display()
         ),
@@ -8422,7 +8430,7 @@ assertResult(false)(pickedFallback.ok)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n#Box(a\nb, [a, b], 3, true)\n#Box(a\nb, [a, b], 3, false)\nfalse\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n#Box(a\nb, [a, b], 3, true)\n#Box(a\nb, [a, b], 3, false)\nfalse\n#Box(mut, [mut], 3, false)\nmut\nfalse\n"
     );
     assert!(run.stderr.is_empty());
 }

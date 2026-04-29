@@ -1452,6 +1452,25 @@ impl NativeCodeGenerator {
                         self.bind_constant(name.clone(), mutable);
                         Ok(NativeValue::Unit)
                     }
+                    NativeValue::RuntimeRecord { label } if *mutable => {
+                        let value = NativeValue::RuntimeRecord { label };
+                        let output = self
+                            .prepare_record_branch_output(value, *span)?
+                            .expect("runtime record should prepare record output");
+                        self.emit_copy_record_value_to_branch_output(
+                            value,
+                            &output,
+                            *span,
+                            "mutable record binding exceeds 65536 bytes",
+                        )?;
+                        self.bind_constant(
+                            name.clone(),
+                            NativeValue::RuntimeRecord {
+                                label: output.label,
+                            },
+                        );
+                        Ok(NativeValue::Unit)
+                    }
                     value if *mutable && self.native_string_ref(value).is_some() => {
                         let mutable = self.runtime_string_scratch_value();
                         let NativeValue::RuntimeString { data, len } = mutable else {
@@ -1575,6 +1594,19 @@ impl NativeCodeGenerator {
                             *span,
                             "line-list assignment exceeds 65536 bytes",
                         );
+                        self.remove_static_value(name);
+                        return Ok(slot.value);
+                    }
+                    NativeValue::RuntimeRecord { label } => {
+                        let compiled = self.compile_expr(value)?;
+                        let output =
+                            self.runtime_record_branch_output_from_existing(label, *span)?;
+                        self.emit_copy_record_value_to_branch_output(
+                            compiled,
+                            &output,
+                            *span,
+                            "record assignment exceeds 65536 bytes",
+                        )?;
                         self.remove_static_value(name);
                         return Ok(slot.value);
                     }
@@ -9060,6 +9092,62 @@ impl NativeCodeGenerator {
                 .prepare_static_record_branch_output(label, span)
                 .map(Some),
             _ => Ok(None),
+        }
+    }
+
+    fn runtime_record_branch_output_from_existing(
+        &self,
+        label: RuntimeRecordLabel,
+        span: Span,
+    ) -> Result<RuntimeRecordBranchOutput, Diagnostic> {
+        let record = self
+            .runtime_records
+            .get(label.0)
+            .ok_or_else(|| unsupported(span, "native runtime record assignment target"))?;
+        let fields = record
+            .fields
+            .iter()
+            .map(|(_, field)| self.runtime_record_field_branch_output_from_existing(field, span))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(RuntimeRecordBranchOutput { label, fields })
+    }
+
+    fn runtime_record_field_branch_output_from_existing(
+        &self,
+        field: &RuntimeRecordField,
+        span: Span,
+    ) -> Result<RuntimeRecordFieldBranchOutput, Diagnostic> {
+        match field {
+            RuntimeRecordField::Static(value) => {
+                Ok(RuntimeRecordFieldBranchOutput::Static(value.clone()))
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeString { data, len }) => {
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeString {
+                    data: *data,
+                    len: *len,
+                })
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeLinesList { data, len }) => {
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeLinesList {
+                    data: *data,
+                    len: *len,
+                })
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeRecord { label }) => {
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeRecord(
+                    self.runtime_record_branch_output_from_existing(*label, span)?,
+                ))
+            }
+            RuntimeRecordField::Runtime(_) => Err(unsupported(
+                span,
+                "native runtime record assignment field value",
+            )),
+            RuntimeRecordField::Scalar { value, slot } => {
+                Ok(RuntimeRecordFieldBranchOutput::Scalar {
+                    value: *value,
+                    slot: *slot,
+                })
+            }
         }
     }
 

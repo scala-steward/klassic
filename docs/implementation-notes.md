@@ -305,7 +305,8 @@ fixed-buffer runtime `String` / `List<String>`, dynamic `Int` / `Boolean`, and
 nested runtime record fields for field selection, printing, and equality against compatible
 records, plus runtime string display through `toString`, interpolation, and
 concatenation. Dynamic `if` expressions can copy compatible runtime record branch
-results into shared runtime field storage. Static map
+results into shared runtime field storage, and mutable runtime record bindings
+reuse that field storage for compatible assignments. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,
