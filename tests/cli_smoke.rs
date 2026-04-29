@@ -8270,7 +8270,7 @@ fn builds_native_executable_for_runtime_record_fields() {
     fs::write(
         &source_path,
         format!(
-            r#"record Box {{
+            r##"record Box {{
   text: String
   lines: List<String>
   count: Int
@@ -8301,6 +8301,9 @@ val expectedLiteral = record {{
   label: "ok"
 }}
 val expectedConstructed = #Box("a\nb", ["a", "b"], 3, true)
+val literalText = "literal=" + literal
+val constructedText = "constructed=#{{constructed}}"
+val againText = toString(literalAgain)
 println(literal.text)
 println(join(literal.lines, "|"))
 println(literal.count)
@@ -8314,6 +8317,9 @@ println(constructed)
 println(expectedLiteral == literal)
 println(constructed == expectedConstructed)
 println(literal == literalAgain)
+println(literalText)
+println(constructedText)
+println(againText)
 assertResult("a\nb")(literal.text)
 assertResult(["a", "b"])(literal.lines)
 assertResult(3)(literal.count)
@@ -8326,7 +8332,10 @@ assertResult(true)(constructed.ok)
 assertResult(expectedLiteral)(literal)
 assertResult(expectedConstructed)(constructed)
 assert(literal == literalAgain)
-"#,
+assertResult("literal=#(a\nb, [a, b], 3, true, ok)")(literalText)
+assertResult("constructed=#Box(a\nb, [a, b], 3, true)")(constructedText)
+assertResult("#(a\nb, [a, b], 3, true, ok)")(againText)
+"##,
             path_holder.display()
         ),
     )
@@ -8371,7 +8380,7 @@ assert(literal == literalAgain)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\n"
     );
     assert!(run.stderr.is_empty());
 }

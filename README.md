@@ -108,7 +108,7 @@ and dynamic `Int` / `Boolean` record fields, direct or method-style `head`
 lookups from static lists including `tail` and `cons` chains, and static
 `Map#get` / `.get` lookups with literal or folded static keys for such `def`s
 preserve the runtime return metadata, so aliased calls can still participate in
-string concatenation and line-list helpers.
+string concatenation, line-list helpers, and compatible record display.
 Runtime string/int/bool-key lookups over static callable maps can be bound to
 immutable values, called later, and formatted with the selected callable display
 through printing, interpolation, string concatenation, or `toString`; equality
@@ -246,7 +246,8 @@ with static map/set helpers, and compared with `assertResult` when their
 contents are static native values. Record literals and constructors may also
 carry fixed-buffer runtime `String` / `List<String>` and dynamic `Int` /
 `Boolean` fields for field selection, printing, and equality against compatible
-static records. Static string-key maps, static string-valued maps, string sets,
+static records, and can be formatted through `toString`, interpolation, and
+string concatenation. Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,
 ints, and booleans. Builtin

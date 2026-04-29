@@ -58,7 +58,8 @@ strings or dynamic native `Int` / `Boolean` values,
 compile-time folded static string helpers including `split` / `join`, static
 string concatenation for immutable values, static record fields, and runtime
 `String` / `List<String>` plus dynamic `Int` / `Boolean` record fields,
-runtime string concatenation that formats dynamic native `Int` / `Boolean` operands,
+runtime string concatenation that formats dynamic native `Int` / `Boolean` and
+runtime record operands,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
 and method-style `parts.size()`, runtime-key `Map#get` selection from static maps
 when the key is a runtime string/int/bool and the selected values are strings,
@@ -302,7 +303,8 @@ construction, field selection, printing, static lambda method fields, and
 `assertResult` equality. Record literals and constructors can also carry
 fixed-buffer runtime `String` / `List<String>` and dynamic `Int` / `Boolean`
 fields for field selection, printing, and equality against compatible static
-records. Static map
+records, plus runtime string display through `toString`, interpolation, and
+concatenation. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,

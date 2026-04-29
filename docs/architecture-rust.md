@@ -81,7 +81,7 @@ cargo run -- -e "1 + 2"
   dynamic `Int` / `Boolean` record fields, direct or method-style static-list
   `head` lookups including `tail` and `cons` chains, static `Map#get` / `.get`
   lookups with literal or folded static keys preserving those runtime return
-  hints, and runtime string/int/bool key
+  hints and record display paths, and runtime string/int/bool key
   lookups from static maps when the
   compatible values are all strings, ints, or booleans, plus block, cleanup,
   and same-runtime-return conditional callees
@@ -286,7 +286,8 @@ cargo run -- -e "1 + 2"
   construction, printing, nesting, static map/set helper calls, and equality
   through `assertResult`; records also support field selection, fixed-buffer
   runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields,
-  dynamic/static record equality for those fields, and static lambda method fields.
+  dynamic/static record equality and runtime string display for those fields,
+  and static lambda method fields.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

@@ -7047,6 +7047,13 @@ impl NativeCodeGenerator {
                 span,
             ));
         }
+        if let NativeValue::RuntimeRecord { label } = value {
+            return Ok(self.emit_runtime_record_display_runtime_string(
+                label,
+                span,
+                "toString result exceeds 65536 bytes",
+            ));
+        }
         if let Some(value) = self.static_value_from_native(value) {
             if self.static_value_has_conditional_builtin_display(&value) {
                 return Ok(self.emit_static_value_display_runtime_string(&value, span));
@@ -11164,6 +11171,204 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(done);
     }
 
+    fn emit_runtime_record_display_runtime_string(
+        &mut self,
+        label: RuntimeRecordLabel,
+        span: Span,
+        overflow_message: &str,
+    ) -> NativeValue {
+        let output = self.runtime_string_scratch_value();
+        let NativeValue::RuntimeString { data, len } = output else {
+            unreachable!("runtime string scratch should be a runtime string")
+        };
+        let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(offset);
+        self.emit_append_runtime_record_display_to_runtime_buffer(
+            data,
+            offset,
+            label,
+            span,
+            overflow_message,
+        );
+        self.emit_store_runtime_string_len_from_offset(len, offset);
+        output
+    }
+
+    fn emit_append_runtime_record_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        label: RuntimeRecordLabel,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        let Some(record) = self.runtime_records.get(label.0).cloned() else {
+            self.emit_append_text_to_runtime_buffer(data, offset, "#()", span, overflow_message);
+            return;
+        };
+        self.emit_append_text_to_runtime_buffer(data, offset, "#", span, overflow_message);
+        if !record.name.is_empty() {
+            self.emit_append_text_to_runtime_buffer(
+                data,
+                offset,
+                &record.name,
+                span,
+                overflow_message,
+            );
+        }
+        self.emit_append_text_to_runtime_buffer(data, offset, "(", span, overflow_message);
+        for (index, (_, field)) in record.fields.iter().enumerate() {
+            if index > 0 {
+                self.emit_append_text_to_runtime_buffer(data, offset, ", ", span, overflow_message);
+            }
+            self.emit_append_runtime_record_field_display_to_runtime_buffer(
+                data,
+                offset,
+                field,
+                span,
+                overflow_message,
+            );
+        }
+        self.emit_append_text_to_runtime_buffer(data, offset, ")", span, overflow_message);
+    }
+
+    fn emit_append_runtime_record_field_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        field: &RuntimeRecordField,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        match field {
+            RuntimeRecordField::Static(value) => {
+                self.emit_append_static_value_display_to_runtime_buffer(data, offset, value, span);
+            }
+            RuntimeRecordField::Runtime(value) => {
+                self.emit_append_native_value_display_to_runtime_buffer(
+                    data,
+                    offset,
+                    *value,
+                    span,
+                    overflow_message,
+                );
+            }
+            RuntimeRecordField::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, *slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                match value {
+                    NativeValue::Int => self.emit_append_i64_rax_to_runtime_buffer_offset_label(
+                        data,
+                        offset,
+                        span,
+                        overflow_message,
+                    ),
+                    NativeValue::Bool => self.emit_append_bool_rax_to_runtime_buffer_offset_label(
+                        data,
+                        offset,
+                        span,
+                        overflow_message,
+                    ),
+                    _ => self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        "null",
+                        span,
+                        overflow_message,
+                    ),
+                }
+            }
+        }
+    }
+
+    fn emit_append_native_value_display_to_runtime_buffer(
+        &mut self,
+        data: DataLabel,
+        offset: DataLabel,
+        value: NativeValue,
+        span: Span,
+        overflow_message: &str,
+    ) {
+        if let Some(value) = self.native_string_ref(value) {
+            self.emit_append_native_string_to_runtime_buffer_offset_label(
+                data,
+                offset,
+                value,
+                span,
+                overflow_message,
+            );
+            return;
+        }
+        match value {
+            NativeValue::Int => self.emit_append_i64_rax_to_runtime_buffer_offset_label(
+                data,
+                offset,
+                span,
+                overflow_message,
+            ),
+            NativeValue::Bool => self.emit_append_bool_rax_to_runtime_buffer_offset_label(
+                data,
+                offset,
+                span,
+                overflow_message,
+            ),
+            NativeValue::RuntimeLinesList { data: lines, len } => {
+                let rendered = self.emit_runtime_lines_list_to_runtime_string(
+                    NativeStringRef {
+                        data: lines,
+                        len: NativeStringLen::Runtime(len),
+                    },
+                    span,
+                );
+                if let Some(rendered) = self.native_string_ref(rendered) {
+                    self.emit_append_native_string_to_runtime_buffer_offset_label(
+                        data,
+                        offset,
+                        rendered,
+                        span,
+                        overflow_message,
+                    );
+                }
+            }
+            NativeValue::RuntimeRecord { label } => {
+                self.emit_append_runtime_record_display_to_runtime_buffer(
+                    data,
+                    offset,
+                    label,
+                    span,
+                    overflow_message,
+                );
+            }
+            NativeValue::RuntimeMapCallableDispatch(label) => {
+                self.emit_append_runtime_map_callable_dispatch_display_to_runtime_buffer(
+                    data,
+                    offset,
+                    label,
+                    span,
+                    overflow_message,
+                );
+            }
+            _ => {
+                if let Some(static_value) = self.static_value_from_native(value) {
+                    self.emit_append_static_value_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        &static_value,
+                        span,
+                    );
+                } else {
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        "null",
+                        span,
+                        overflow_message,
+                    );
+                }
+            }
+        }
+    }
+
     fn emit_append_callable_value_display_to_runtime_buffer(
         &mut self,
         data: DataLabel,
@@ -13343,6 +13548,16 @@ impl NativeCodeGenerator {
                 .native_string_ref(rendered)
                 .ok_or_else(|| unsupported(span, "native string concatenation"));
         }
+        if let NativeValue::RuntimeRecord { label } = value {
+            let rendered = self.emit_runtime_record_display_runtime_string(
+                label,
+                span,
+                "string concatenation result exceeds 65536 bytes",
+            );
+            return self
+                .native_string_ref(rendered)
+                .ok_or_else(|| unsupported(span, "native string concatenation"));
+        }
         if let Some(static_value) = self.static_value_from_native(value) {
             if self.static_value_has_conditional_builtin_display(&static_value) {
                 let rendered = self.emit_static_value_display_runtime_string(&static_value, span);
@@ -15064,6 +15279,14 @@ impl NativeCodeGenerator {
                     );
                 } else if let NativeValue::RuntimeMapCallableDispatch(label) = fragment {
                     self.emit_append_runtime_map_callable_dispatch_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        label,
+                        span,
+                        "string interpolation result exceeds 65536 bytes",
+                    );
+                } else if let NativeValue::RuntimeRecord { label } = fragment {
+                    self.emit_append_runtime_record_display_to_runtime_buffer(
                         data,
                         offset,
                         label,
