@@ -537,9 +537,9 @@ Recursive functions that still require call-site inlining, such as recursive
 functions with unsupported flexible native parameter or return representations,
 are first given a chance to fold when all call arguments are static, so pure
 recursive helpers over static lists can still compile, including helpers that
-return static lists through curried `cons`. Calls that cannot fold are rejected
-with a normal compile diagnostic instead of recursively inlining until the
-compiler stack overflows.
+return static lists through curried `cons` and helpers that take static callable
+arguments. Calls that cannot fold are rejected with a normal compile diagnostic
+instead of recursively inlining until the compiler stack overflows.
 Unsupported constructs fail with compile diagnostics; they do not silently fall
 back to the evaluator.
 

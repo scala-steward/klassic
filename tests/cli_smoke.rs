@@ -1412,14 +1412,25 @@ fn builds_native_executable_for_static_folded_recursive_list_function() {
 def joinLoop(xs: List<String>): String = if(isEmpty(xs)) \"\" else head(xs) + joinLoop(tail(xs))\n\
 def down(n: Int): List<Int> = if(n < 1) [] else cons(n)(down(n - 1))\n\
 def decorate(xs: List<String>): List<String> = if(isEmpty(xs)) [] else cons(head(xs) + \"!\")(decorate(tail(xs)))\n\
+def myMap(xs, f) = if(isEmpty(xs)) [] else cons(f(head(xs)))(myMap(tail(xs), f))\n\
+def bump(x: Int): Int = x + 1\n\
+val addTen = (x: Int) => x + 10\n\
 println(sum([1, 2, 3, 4]))\n\
 println(joinLoop([\"a\", \"b\", \"c\"]))\n\
 println(down(3))\n\
 println(decorate([\"a\", \"b\"]))\n\
+println(myMap([1, 2, 3], (x) => x + 1))\n\
+println(myMap([1, 2, 3], bump))\n\
+println(myMap([1, 2], addTen))\n\
+println(myMap([\"a\", \"b\"], toUpperCase))\n\
 assertResult(10)(sum([1, 2, 3, 4]))\n\
 assertResult(\"abc\")(joinLoop([\"a\", \"b\", \"c\"]))\n\
 assertResult([3, 2, 1])(down(3))\n\
-assertResult([\"a!\", \"b!\"])(decorate([\"a\", \"b\"]))\n",
+assertResult([\"a!\", \"b!\"])(decorate([\"a\", \"b\"]))\n\
+assertResult([2, 3, 4])(myMap([1, 2, 3], (x) => x + 1))\n\
+assertResult([2, 3, 4])(myMap([1, 2, 3], bump))\n\
+assertResult([11, 12])(myMap([1, 2], addTen))\n\
+assertResult([\"A\", \"B\"])(myMap([\"a\", \"b\"], toUpperCase))\n",
     )
     .expect("source should write");
 
@@ -1457,7 +1468,7 @@ assertResult([\"a!\", \"b!\"])(decorate([\"a\", \"b\"]))\n",
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "10\nabc\n[3, 2, 1]\n[a!, b!]\n"
+        "10\nabc\n[3, 2, 1]\n[a!, b!]\n[2, 3, 4]\n[2, 3, 4]\n[11, 12]\n[A, B]\n"
     );
     assert!(run.stderr.is_empty());
 }

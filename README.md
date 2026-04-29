@@ -111,8 +111,9 @@ storage, so recursive functions can return supported runtime records without
 call-site inlining.
 Recursive functions that would otherwise need unsupported call-site inlining are
 still folded when all call arguments are static, so pure helpers over static
-lists can compile, including helpers that build static lists with `cons`, without
-entering the emitted recursive ABI path.
+lists can compile, including helpers that build static lists with `cons` and
+helpers that take static callable arguments, without entering the emitted
+recursive ABI path.
 Recursive functions can also capture immutable top-level runtime strings,
 line lists, fixed-shape runtime lists, and runtime records by rebinding their
 existing fixed storage inside the emitted function frame.

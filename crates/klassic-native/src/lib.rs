@@ -13385,6 +13385,19 @@ impl NativeCodeGenerator {
     ) -> Option<StaticValue> {
         match callee {
             Expr::Identifier { name, .. } => {
+                if matches!(
+                    self.lookup_static_value(name),
+                    Some(StaticValue::StaticLambda { .. } | StaticValue::BuiltinFunction { .. })
+                ) && !arguments.is_empty()
+                {
+                    let argument_values = arguments
+                        .iter()
+                        .map(|argument| self.static_value_from_pure_expr(argument))
+                        .collect::<Option<Vec<_>>>()?;
+                    if let Some(value) = self.static_apply_callable_value(callee, argument_values) {
+                        return Some(value);
+                    }
+                }
                 if let Some(StaticValue::StaticLambda { label }) = self.lookup_static_value(name)
                     && self
                         .static_lambdas
