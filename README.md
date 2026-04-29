@@ -274,6 +274,8 @@ List literal `foreach` can unroll runtime native values after evaluating every
 element before the loop body.
 List literal `map` can unroll runtime native values into runtime line-list
 results when the mapper returns strings.
+List literal `join` can likewise join runtime string elements into a runtime
+string without materializing a first-class runtime list.
 List literal `foldLeft` can reduce runtime native values into native scalar,
 string, line-list, or record accumulators on the same evaluated-elements path.
 Static maps can also return supported static records from runtime

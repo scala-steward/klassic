@@ -139,6 +139,8 @@ the module layout is described in `docs/architecture-rust.md`.
   evaluating every element before the loop body.
 - List literal `map` can unroll over compiled runtime native values into
   runtime line-list results when the mapper returns strings.
+- List literal `join` can unroll over compiled runtime string values into a
+  runtime string result.
 - List literal `foldLeft` can reduce compiled runtime native values into
   supported scalar, string, line-list, or record accumulators.
 - Function value aliases, static record fields, runtime `String` /

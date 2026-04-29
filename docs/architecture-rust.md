@@ -313,6 +313,8 @@ cargo run -- -e "1 + 2"
   all elements before the body.
   List literal `map` can unroll over runtime native values into runtime
   line-list results when the mapper returns strings.
+  List literal `join` can join runtime string values into a runtime string on
+  the same evaluated-elements path.
   List literal `foldLeft` can reduce those values into native scalar, string,
   line-list, or record accumulators.
   Map literal `Map#get` / `.get` can select runtime native values from static or

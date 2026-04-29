@@ -346,6 +346,8 @@ List literal `foreach` evaluates every element first, then unrolls the loop body
 over the compiled native values.
 List literal `map` uses the same evaluated native values to produce runtime
 line-list results from string-returning mappers.
+List literal `join` uses the same evaluated native values to join runtime
+string elements into a runtime string.
 List literal `foldLeft` uses the same evaluated native values to reduce into
 supported scalar, string, line-list, or record accumulators.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`

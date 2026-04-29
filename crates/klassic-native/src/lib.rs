@@ -5571,6 +5571,9 @@ impl NativeCodeGenerator {
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
         self.expect_static_arity("join", arguments, 2, span)?;
+        if let Some(value) = self.compile_list_literal_join(&arguments[0], &arguments[1], span)? {
+            return Ok(value);
+        }
         let list = self.compile_expr(&arguments[0])?;
         if let NativeValue::RuntimeLinesList { data, len } = list {
             if self.expr_may_yield_runtime_string(&arguments[1]) {
@@ -5635,6 +5638,62 @@ impl NativeCodeGenerator {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(self.emit_static_string(parts.join(&delimiter)))
+    }
+
+    fn compile_list_literal_join(
+        &mut self,
+        list: &Expr,
+        delimiter: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::ListLiteral { elements, .. } = list else {
+            return Ok(None);
+        };
+        if !self.list_literal_has_runtime_values(elements) {
+            return Ok(None);
+        }
+
+        let elements = self.compile_literal_values(elements)?;
+        let delimiter = self.compile_expr(delimiter)?;
+        let Some(delimiter) = self.native_string_ref(delimiter) else {
+            return Err(unsupported(span, "native join for non-string delimiter"));
+        };
+
+        let (output, output_len) = self.runtime_record_branch_string_buffer();
+        let output_offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(output_offset);
+        for (index, element) in elements.into_iter().enumerate() {
+            let value = self
+                .compiled_literal_native_value(element)
+                .and_then(|value| self.native_string_ref(value))
+                .ok_or_else(|| {
+                    unsupported(
+                        span,
+                        "native join over list literal runtime values for non-string element",
+                    )
+                })?;
+            if index > 0 {
+                self.emit_append_native_string_to_runtime_buffer_offset_label(
+                    output,
+                    output_offset,
+                    delimiter,
+                    span,
+                    "join list-literal result exceeds 65536 bytes",
+                );
+            }
+            self.emit_append_native_string_to_runtime_buffer_offset_label(
+                output,
+                output_offset,
+                value,
+                span,
+                "join list-literal result exceeds 65536 bytes",
+            );
+        }
+        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
+        Ok(Some(NativeValue::RuntimeString {
+            data: output,
+            len: output_len,
+        }))
     }
 
     fn emit_static_string_list_join_runtime_delimiter(
