@@ -274,7 +274,8 @@ collection; set literal `size` counts only distinct runtime values.
 List literal `foreach` can unroll runtime native values after evaluating every
 element before the loop body.
 List literal `map` can unroll runtime native values into runtime line-list
-results when the mapper returns strings.
+results when every mapper result is string-compatible, or runtime-list results
+for non-string mapper outputs.
 List literal `join` can likewise join runtime string elements into a runtime
 string without materializing a first-class runtime list.
 List/map/set literal display / `toString` can render evaluated runtime native

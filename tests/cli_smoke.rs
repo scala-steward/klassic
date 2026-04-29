@@ -9092,6 +9092,8 @@ val xs = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}]
 val sizes = [{{ hits += 1; length(runtime) }}, 4]
 val mapped = xs.map((x) => x + "!")
 val mappedViaFunction = map(xs)((x) => "[" + x + "]")
+val bumped = sizes.map((n) => n + 1)
+val directBumped = [{{ hits += 1; length(runtime) }}, 9].map((n) => n + 1)
 val foldedText = xs.foldLeft("", (acc, x) => acc + "[" + x + "]")
 val total = foldLeft(sizes)(0)((acc, n) => acc + n)
 val allPositive = sizes.foldLeft(true, (acc, n) => acc && n > 0)
@@ -9100,6 +9102,9 @@ println(mapped)
 println(join(mapped, "|"))
 println(mappedViaFunction)
 println(join(mappedViaFunction, "|"))
+println(bumped)
+println(head(bumped))
+println(directBumped)
 println(foldedText)
 println(total)
 println(allPositive)
@@ -9107,11 +9112,14 @@ println(join(reversed, "|"))
 println(hits)
 assertResult(["ab!", "tail!"])(mapped)
 assertResult(["[ab]", "[tail]"])(mappedViaFunction)
+assertResult([3, 5])(bumped)
+assertResult(3)(head(bumped))
+assertResult([3, 10])(directBumped)
 assertResult("[ab][tail]")(foldedText)
 assertResult(6)(total)
 assert(allPositive)
 assertResult(["tail", "ab"])(reversed)
-assertResult(3)(hits)
+assertResult(4)(hits)
 "##,
             path_holder.display()
         ),
@@ -9157,7 +9165,7 @@ assertResult(3)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "[ab!, tail!]\nab!|tail!\n[[ab], [tail]]\n[ab]|[tail]\n[ab][tail]\n6\ntrue\ntail|ab\n3\n"
+        "[ab!, tail!]\nab!|tail!\n[[ab], [tail]]\n[ab]|[tail]\n[3, 5]\n3\n[3, 10]\n[ab][tail]\n6\ntrue\ntail|ab\n4\n"
     );
     assert!(run.stderr.is_empty());
 }

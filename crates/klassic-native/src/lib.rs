@@ -4036,9 +4036,7 @@ impl NativeCodeGenerator {
             ));
         };
 
-        let (output, output_len) = self.runtime_record_branch_string_buffer();
-        let output_offset = self.asm.data_label_with_i64s(&[0]);
-        self.emit_reset_runtime_buffer_offset_label(output_offset);
+        let mut mapped_values = Vec::with_capacity(elements.len());
         for element in elements {
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&mapper);
@@ -4046,31 +4044,27 @@ impl NativeCodeGenerator {
             let mapped = self.compile_expr(&mapper.body);
             self.pop_scope();
             let mapped = mapped?;
-            let Some(mapped) = self.native_string_ref(mapped) else {
-                return Err(unsupported(
-                    span,
-                    &format!("native map over {context} for non-string mapper result"),
-                ));
-            };
-            self.emit_append_newline_separator_to_runtime_buffer_offset_label(
-                output,
-                output_offset,
-                span,
-                "map result exceeds 65536 bytes",
-            );
-            self.emit_append_native_string_to_runtime_buffer_offset_label(
-                output,
-                output_offset,
+            let mapped = self.compiled_literal_value_from_native(mapped);
+            mapped_values.push(self.stabilize_runtime_list_literal_value(
                 mapped,
                 span,
                 "map result exceeds 65536 bytes",
-            );
+            )?);
         }
-        self.emit_store_runtime_string_len_from_offset(output_len, output_offset);
-        Ok(NativeValue::RuntimeLinesList {
-            data: output,
-            len: output_len,
-        })
+        let mapped_strings = mapped_values
+            .iter()
+            .map(|value| self.compiled_literal_string_ref(*value))
+            .collect::<Option<Vec<_>>>();
+        if let Some(mapped_strings) = mapped_strings {
+            return Ok(self.emit_compiled_literal_values_runtime_lines(
+                mapped_strings,
+                span,
+                "map result exceeds 65536 bytes",
+            ));
+        }
+
+        let label = self.intern_runtime_list(mapped_values);
+        Ok(NativeValue::RuntimeList { label })
     }
 
     fn compile_runtime_lines_map(
@@ -5136,10 +5130,33 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn compiled_literal_value_from_native(&mut self, value: NativeValue) -> CompiledLiteralValue {
+        if matches!(value, NativeValue::Int | NativeValue::Bool) {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            CompiledLiteralValue::Scalar { value, slot }
+        } else {
+            CompiledLiteralValue::Native(value)
+        }
+    }
+
     fn emit_tail_list_literal_runtime_lines(
         &mut self,
         values: Vec<NativeStringRef>,
         span: Span,
+    ) -> NativeValue {
+        self.emit_compiled_literal_values_runtime_lines(
+            values,
+            span,
+            "tail list-literal line-list result exceeds 65536 bytes",
+        )
+    }
+
+    fn emit_compiled_literal_values_runtime_lines(
+        &mut self,
+        values: Vec<NativeStringRef>,
+        span: Span,
+        overflow_message: &str,
     ) -> NativeValue {
         let (data, len) = self.runtime_record_branch_string_buffer();
         let offset = self.asm.data_label_with_i64s(&[0]);
@@ -5149,14 +5166,14 @@ impl NativeCodeGenerator {
                 data,
                 offset,
                 span,
-                "tail list-literal line-list result exceeds 65536 bytes",
+                overflow_message,
             );
             self.emit_append_native_string_to_runtime_buffer_offset_label(
                 data,
                 offset,
                 value,
                 span,
-                "tail list-literal line-list result exceeds 65536 bytes",
+                overflow_message,
             );
         }
         self.emit_store_runtime_string_len_from_offset(len, offset);
@@ -5165,13 +5182,7 @@ impl NativeCodeGenerator {
 
     fn compile_literal_value(&mut self, expr: &Expr) -> Result<CompiledLiteralValue, Diagnostic> {
         let value = self.compile_expr(expr)?;
-        if matches!(value, NativeValue::Int | NativeValue::Bool) {
-            let slot = self.asm.data_label_with_i64s(&[0]);
-            self.emit_store_rax_to_data_slot(slot);
-            Ok(CompiledLiteralValue::Scalar { value, slot })
-        } else {
-            Ok(CompiledLiteralValue::Native(value))
-        }
+        Ok(self.compiled_literal_value_from_native(value))
     }
 
     fn emit_compiled_literal_value(&mut self, value: CompiledLiteralValue) -> NativeValue {

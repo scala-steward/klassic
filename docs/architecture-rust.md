@@ -313,7 +313,8 @@ cargo run -- -e "1 + 2"
   List literal `foreach` can unroll over runtime native values after evaluating
   all elements before the body.
   List literal `map` can unroll over runtime native values into runtime
-  line-list results when the mapper returns strings.
+  line-list results when every mapper result is string-compatible, or
+  runtime-list results for non-string mapper outputs.
   List literal `join` can join runtime string values into a runtime string on
   the same evaluated-elements path.
   List literal display / `toString` can render supported runtime native values

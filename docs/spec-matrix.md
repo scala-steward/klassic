@@ -82,7 +82,8 @@ The repository contains a Rust-native language implementation with:
   values for non-string tails,
   literal `contains` / `containsKey` / `containsValue` over runtime native values,
   literal list/map/set `size` and list/map/set `isEmpty` selectors preserving effects,
-  list-literal `map` over runtime native values into runtime line-list results,
+  list-literal `map` over runtime native values into runtime line-list or
+  runtime-list results,
   list-literal `join` over runtime string values into runtime string results,
   list/map/set-literal display / `toString` / printing / interpolation /
   string concatenation over runtime native values into runtime strings,

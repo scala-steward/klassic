@@ -139,7 +139,8 @@ the module layout is described in `docs/architecture-rust.md`.
 - List literal `foreach` can unroll over compiled runtime native values after
   evaluating every element before the loop body.
 - List literal `map` can unroll over compiled runtime native values into
-  runtime line-list results when the mapper returns strings.
+  runtime line-list results when every mapper result is string-compatible, or
+  runtime-list results for non-string mapper outputs.
 - List literal `join` can unroll over compiled runtime string values into a
   runtime string result.
 - List literal display / `toString` can render compiled runtime native values

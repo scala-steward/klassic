@@ -348,7 +348,8 @@ values.
 List literal `foreach` evaluates every element first, then unrolls the loop body
 over the compiled native values.
 List literal `map` uses the same evaluated native values to produce runtime
-line-list results from string-returning mappers.
+line-list results when every mapper result is string-compatible, or runtime-list
+results for non-string mapper outputs.
 List literal `join` uses the same evaluated native values to join runtime
 string elements into a runtime string.
 List/map/set literal display / `toString` uses the same evaluated native values
