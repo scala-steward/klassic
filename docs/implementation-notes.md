@@ -374,7 +374,8 @@ including reducers that produce a fresh list with `cons`; those reducer results
 are copied back through the same fixed line-list accumulator buffer.
 When a runtime-list label carries a selected runtime length, native helpers
 preserve that prefix and do not expose unused capacity slots. Runtime-list
-accumulators for `foldLeft` are still limited to fixed-shape source lists.
+accumulators for `foldLeft` also work over variable-length sources by copying
+the previous accumulator storage through skipped iterations.
 Runtime records can also carry runtime-list fields through field access,
 display, and equality against compatible static record fields.
 Dynamic `if` joins can merge fixed-shape runtime-list values and record fields

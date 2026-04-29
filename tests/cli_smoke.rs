@@ -10071,7 +10071,7 @@ assertResult(2)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-fn native_build_rejects_variable_runtime_list_fold_left_list_accumulator() {
+fn builds_native_executable_for_variable_runtime_list_fold_left_list_accumulator() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time should be monotonic")
@@ -10095,6 +10095,11 @@ val varied = Map#get(%[
 ], key)
 val folded = foldLeft(varied)([#Bag(["seed"], "seed")])((acc, item) => cons(item)(acc))
 println(folded)
+if(key == "live") {
+  assertResult([#Bag(["live"], "live"), #Bag(["seed"], "seed")])(folded)
+} else {
+  assertResult([#Bag(["branch"], "long"), #Bag(["static"], "short"), #Bag(["seed"], "seed")])(folded)
+}
 "##,
     )
     .expect("source should write");
@@ -10109,17 +10114,50 @@ println(folded)
         .output()
         .expect("klassic build should run");
 
+    assert!(
+        build.status.success(),
+        "runtime-list foldLeft list accumulator build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let live_run = Command::new(&output_path)
+        .arg("live")
+        .output()
+        .expect("generated executable should run live branch");
+    let static_run = Command::new(&output_path)
+        .arg("static")
+        .output()
+        .expect("generated executable should run static branch");
+
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&output_path);
 
-    assert!(!build.status.success());
-    assert!(build.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&build.stderr)
-            .contains("runtime-list accumulator over variable-length runtime list"),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
+        live_run.status.success(),
+        "runtime-list foldLeft list accumulator live run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&live_run.stdout),
+        String::from_utf8_lossy(&live_run.stderr)
     );
+    assert_eq!(
+        String::from_utf8_lossy(&live_run.stdout),
+        "[#Bag([live], live), #Bag([seed], seed)]\n"
+    );
+    assert!(live_run.stderr.is_empty());
+
+    assert!(
+        static_run.status.success(),
+        "runtime-list foldLeft list accumulator static run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&static_run.stdout),
+        String::from_utf8_lossy(&static_run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&static_run.stdout),
+        "[#Bag([branch], long), #Bag([static], short), #Bag([seed], seed)]\n"
+    );
+    assert!(static_run.stderr.is_empty());
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

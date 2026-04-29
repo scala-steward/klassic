@@ -306,8 +306,9 @@ including reducers that build a list with `cons`.
 When a runtime-list label carries a selected runtime length, the native helpers
 preserve that selected prefix through `contains`, `cons`, `foreach`, `map`,
 scalar/string/line-list/record `foldLeft`, display, printing, `toString`,
-`size`, `isEmpty`, `head`, `tail`, `join`, and runtime-list equality; list
-accumulators for runtime-list `foldLeft` remain fixed-shape only.
+`size`, `isEmpty`, `head`, `tail`, `join`, runtime-list equality, and
+runtime-list accumulator `foldLeft`; skipped variable-length iterations
+preserve the previous accumulator storage.
 Runtime records can carry those runtime list values through field access,
 display, and equality against compatible static records.
 Dynamic `if` branches can merge fixed-shape runtime-list results, including

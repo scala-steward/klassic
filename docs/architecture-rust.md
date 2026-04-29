@@ -204,8 +204,8 @@ cargo run -- -e "1 + 2"
   variable-length runtime-list results selected from static or map-literal
   entries and nested record fields. Those variable-length labels keep helper
   iteration on the selected prefix for `contains`, `cons`, `foreach`, `map`,
-  scalar/string/line-list/record `foldLeft`, `join`, display, printing, and
-  runtime-list equality.
+  scalar/string/line-list/record `foldLeft`, runtime-list accumulator
+  `foldLeft`, `join`, display, printing, and runtime-list equality.
   Static maps can lower `Map#get` / `.get` with runtime string/int/bool keys to
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, supported static record, non-string static-list,

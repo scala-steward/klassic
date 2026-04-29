@@ -4610,6 +4610,10 @@ impl NativeCodeGenerator {
             },
         }
 
+        let dynamic_source_label =
+            source_label.filter(|label| self.runtime_list_dynamic_len(*label).is_some());
+        let source_has_dynamic_len = dynamic_source_label.is_some();
+
         let initial = self.compile_expr(initial)?;
         let mut accumulator = if let Some(output) =
             self.prepare_record_branch_output(initial, span)?
@@ -4638,10 +4642,11 @@ impl NativeCodeGenerator {
                 "foldLeft string accumulator exceeds 65536 bytes",
             );
             LiteralFoldAccumulator::String { data, len }
-        } else if let Some(label) = self.stabilize_native_list_to_runtime_list_label(
+        } else if let Some(label) = self.stabilize_native_list_to_runtime_list_label_with_length(
             initial,
             span,
             "foldLeft runtime-list accumulator exceeds 65536 bytes",
+            source_has_dynamic_len,
         )? {
             LiteralFoldAccumulator::RuntimeList { label }
         } else if self.native_value_is_lines_list_compatible(initial) {
@@ -4664,18 +4669,6 @@ impl NativeCodeGenerator {
                 ),
             ));
         };
-        if source_label
-            .and_then(|label| self.runtime_list_dynamic_len(label))
-            .is_some()
-            && matches!(&accumulator, LiteralFoldAccumulator::RuntimeList { .. })
-        {
-            return Err(unsupported(
-                span,
-                &format!(
-                    "native foldLeft over {context} with runtime-list accumulator over variable-length runtime list"
-                ),
-            ));
-        }
 
         let reducer = self.compile_runtime_line_lambda(
             reducer,
@@ -4698,11 +4691,34 @@ impl NativeCodeGenerator {
         };
 
         for (index, element) in elements.into_iter().enumerate() {
-            let skip = source_label
-                .and_then(|label| self.begin_runtime_list_dynamic_index_guard(label, index));
-            if skip.is_some() {
+            let runtime_list_skip =
+                if matches!(&accumulator, LiteralFoldAccumulator::RuntimeList { .. }) {
+                    dynamic_source_label.map(|label| {
+                        let skip = self.asm.create_text_label();
+                        let done = self.asm.create_text_label();
+                        self.emit_runtime_list_len_to_rax(label);
+                        self.asm.cmp_reg_imm32(Reg::Rax, index as i32);
+                        self.asm.jcc_label(Condition::LessEqual, skip);
+                        (skip, done)
+                    })
+                } else {
+                    None
+                };
+            let skip = if runtime_list_skip.is_some() {
+                None
+            } else {
+                source_label
+                    .and_then(|label| self.begin_runtime_list_dynamic_index_guard(label, index))
+            };
+            if skip.is_some() || runtime_list_skip.is_some() {
                 self.dynamic_control_depth += 1;
             }
+            let previous_runtime_list_label = match &accumulator {
+                LiteralFoldAccumulator::RuntimeList { label } if runtime_list_skip.is_some() => {
+                    Some(*label)
+                }
+                _ => None,
+            };
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&reducer);
             match &accumulator {
@@ -4751,7 +4767,7 @@ impl NativeCodeGenerator {
             self.bind_compiled_literal_iteration_value(element_param, element);
             let next_acc = self.compile_expr(&reducer.body);
             self.pop_scope();
-            if skip.is_some() {
+            if skip.is_some() || runtime_list_skip.is_some() {
                 self.dynamic_control_depth -= 1;
             }
             let next_acc = next_acc?;
@@ -4796,20 +4812,61 @@ impl NativeCodeGenerator {
                     );
                 }
                 LiteralFoldAccumulator::RuntimeList { label } => {
-                    *label = self
-                        .stabilize_native_list_to_runtime_list_label(
+                    if !Self::native_value_can_copy_to_runtime_list(next_acc) {
+                        return Err(unsupported(
+                            span,
+                            &format!("native foldLeft over {context} for non-list reducer result"),
+                        ));
+                    }
+                    if let Some((skip, done)) = runtime_list_skip {
+                        let previous_label = previous_runtime_list_label.expect(
+                            "runtime-list skip should remember the previous accumulator label",
+                        );
+                        let previous_acc = NativeValue::RuntimeList {
+                            label: previous_label,
+                        };
+                        let previous_elements = self.compiled_literal_values_from_list_native(
+                            previous_acc,
+                            span,
+                            "native foldLeft runtime-list accumulator",
+                        )?;
+                        let next_elements = self.compiled_literal_values_from_list_native(
                             next_acc,
                             span,
+                            "native foldLeft runtime-list accumulator",
+                        )?;
+                        let next_label = self.prepare_runtime_list_output_from_candidate_elements(
+                            vec![previous_elements, next_elements],
+                            true,
+                            span,
+                            "native foldLeft runtime-list accumulator",
+                        )?;
+                        self.emit_copy_native_list_to_runtime_list_output(
+                            next_acc,
+                            next_label,
+                            span,
                             "foldLeft runtime-list accumulator exceeds 65536 bytes",
-                        )?
-                        .ok_or_else(|| {
-                            unsupported(
+                        )?;
+                        self.asm.jmp_label(done);
+                        self.asm.bind_text_label(skip);
+                        self.emit_copy_native_list_to_runtime_list_output(
+                            previous_acc,
+                            next_label,
+                            span,
+                            "foldLeft runtime-list accumulator exceeds 65536 bytes",
+                        )?;
+                        self.asm.bind_text_label(done);
+                        *label = next_label;
+                    } else {
+                        *label = self
+                            .stabilize_native_list_to_runtime_list_label_with_length(
+                                next_acc,
                                 span,
-                                &format!(
-                                    "native foldLeft over {context} for non-list reducer result"
-                                ),
-                            )
-                        })?;
+                                "foldLeft runtime-list accumulator exceeds 65536 bytes",
+                                source_has_dynamic_len,
+                            )?
+                            .expect("runtime-list accumulator result was checked");
+                    }
                 }
                 LiteralFoldAccumulator::Lines { data, len } => {
                     let next_acc = self.native_lines_ref_from_value(
@@ -7694,15 +7751,20 @@ impl NativeCodeGenerator {
             || Self::native_value_is_static_list_like(value)
     }
 
-    fn stabilize_native_list_to_runtime_list_label(
+    fn stabilize_native_list_to_runtime_list_label_with_length(
         &mut self,
         value: NativeValue,
         span: Span,
         overflow_message: &str,
+        force_dynamic_len: bool,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
         if !Self::native_value_can_copy_to_runtime_list(value) {
             return Ok(None);
         }
+        let source_dynamic_len = match value {
+            NativeValue::RuntimeList { label } => self.runtime_list_dynamic_len(label),
+            _ => None,
+        };
         let elements = self.compiled_literal_values_from_list_native(
             value,
             span,
@@ -7712,7 +7774,20 @@ impl NativeCodeGenerator {
             .into_iter()
             .map(|value| self.stabilize_runtime_list_literal_value(value, span, overflow_message))
             .collect::<Result<Vec<_>, Diagnostic>>()?;
-        Ok(Some(self.intern_runtime_list(elements)))
+        let length = if force_dynamic_len || source_dynamic_len.is_some() {
+            let output_len = self.asm.data_label_with_i64s(&[0]);
+            if let Some(source_len) = source_dynamic_len {
+                self.asm.mov_data_addr(Reg::R10, source_len);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+            } else {
+                self.asm.mov_imm64(Reg::Rax, elements.len() as u64);
+            }
+            self.emit_store_rax_to_data_slot(output_len);
+            RuntimeListLength::Dynamic(output_len)
+        } else {
+            RuntimeListLength::Static
+        };
+        Ok(Some(self.intern_runtime_list_with_length(elements, length)))
     }
 
     fn prepare_native_list_branch_output(
