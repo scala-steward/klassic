@@ -8069,16 +8069,19 @@ impl NativeCodeGenerator {
             return Some(elements);
         }
         let template = *elements.first()?;
-        let scalar_value = match template {
-            CompiledLiteralValue::Scalar { value, .. } => value,
-            CompiledLiteralValue::Native(_) => return None,
-        };
         while elements.len() < capacity {
-            let slot = self.asm.data_label_with_i64s(&[0]);
-            elements.push(CompiledLiteralValue::Scalar {
-                value: scalar_value,
-                slot,
-            });
+            let extra = match template {
+                CompiledLiteralValue::Scalar { value, .. } => {
+                    let slot = self.asm.data_label_with_i64s(&[0]);
+                    CompiledLiteralValue::Scalar { value, slot }
+                }
+                CompiledLiteralValue::Native(value) if self.native_string_ref(value).is_some() => {
+                    let label = self.asm.data_label_with_bytes(b"");
+                    CompiledLiteralValue::Native(NativeValue::StaticString { label, len: 0 })
+                }
+                CompiledLiteralValue::Native(_) => return None,
+            };
+            elements.push(extra);
         }
         Some(elements)
     }

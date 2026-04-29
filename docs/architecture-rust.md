@@ -160,7 +160,11 @@ cargo run -- -e "1 + 2"
   joined value flows past the join. Divergent integer-list branches with
   different lengths share the same buffer with dynamic length tracking by
   padding the shorter branch's slots, so `[1, 2]` and `[3, 4, 5]` can join
-  through one runtime list even though their lengths differ.
+  through one runtime list even though their lengths differ. The same buffer
+  padding works for boolean-list and string-list branches whose lengths
+  differ; padded scalar slots use a default value and padded string slots use
+  an empty static string, both kept beyond the dynamic length the consumer
+  observes.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local
