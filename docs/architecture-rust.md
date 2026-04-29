@@ -164,7 +164,10 @@ cargo run -- -e "1 + 2"
   padding works for boolean-list and string-list branches whose lengths
   differ; padded scalar slots use a default value and padded string slots use
   an empty static string, both kept beyond the dynamic length the consumer
-  observes.
+  observes. The branch shape detector and length predictor recognize `cons`
+  and `tail` over static lists, so branches like `cons(99)([1, 2, 3])` versus
+  `[4, 5]` and `tail([1, 2, 3])` versus `[40, 50, 60]` route through the same
+  runtime-list buffer.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

@@ -18702,6 +18702,45 @@ impl NativeCodeGenerator {
                 let other = self.expr_static_list_length_hint(else_branch)?;
                 Some(then.max(other))
             }
+            Expr::Call {
+                callee, arguments, ..
+            } => match callee.as_ref() {
+                Expr::Identifier { name, .. } => {
+                    if self.builtin_name_for_identifier(name) == "tail" && arguments.len() == 1 {
+                        let inner = self.expr_static_list_length_hint(&arguments[0])?;
+                        Some(inner.saturating_sub(1))
+                    } else {
+                        None
+                    }
+                }
+                Expr::FieldAccess { target, field, .. } => {
+                    if field == "tail" && arguments.is_empty() {
+                        let inner = self.expr_static_list_length_hint(target)?;
+                        Some(inner.saturating_sub(1))
+                    } else {
+                        None
+                    }
+                }
+                Expr::Call {
+                    callee: nested_callee,
+                    arguments: head_arguments,
+                    ..
+                } => {
+                    if matches!(
+                        nested_callee.as_ref(),
+                        Expr::Identifier { name, .. }
+                            if self.builtin_name_for_identifier(name) == "cons"
+                    ) && head_arguments.len() == 1
+                        && arguments.len() == 1
+                    {
+                        let tail_len = self.expr_static_list_length_hint(&arguments[0])?;
+                        Some(tail_len + 1)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -18745,6 +18784,34 @@ impl NativeCodeGenerator {
                         .as_deref()
                         .is_some_and(|branch| self.expr_may_yield_static_list_like(branch))
             }
+            Expr::Call {
+                callee, arguments, ..
+            } => match callee.as_ref() {
+                Expr::Identifier { name, .. } => {
+                    matches!(self.builtin_name_for_identifier(name).as_str(), "tail")
+                        && arguments.len() == 1
+                        && self.expr_may_yield_static_list_like(&arguments[0])
+                }
+                Expr::FieldAccess { target, field, .. } => {
+                    field == "tail"
+                        && arguments.is_empty()
+                        && self.expr_may_yield_static_list_like(target)
+                }
+                Expr::Call {
+                    callee: nested_callee,
+                    arguments: head_arguments,
+                    ..
+                } => {
+                    matches!(
+                        nested_callee.as_ref(),
+                        Expr::Identifier { name, .. }
+                            if self.builtin_name_for_identifier(name) == "cons"
+                    ) && head_arguments.len() == 1
+                        && arguments.len() == 1
+                        && self.expr_may_yield_static_list_like(&arguments[0])
+                }
+                _ => false,
+            },
             _ => false,
         }
     }
