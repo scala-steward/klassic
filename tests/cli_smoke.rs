@@ -10231,15 +10231,18 @@ val selected = Map#get(%[
 def makeLines(): List<String> = [runtime, "tail"]
 def makeSelected(): List<String> = selected
 def makeBag(): #Bag = #Bag([runtime, "tail"], "made")
+def makeSelectedBag(): #Bag = #Bag(selected, "selected")
 val echoed = echoLines(xs)
 val selectedEchoed = echoLines(selected)
 val made = makeLines()
 val selectedMade = makeSelected()
 val bag = makeBag()
+val selectedBag = makeSelectedBag()
 println(lineCount(xs))
 println(join(echoed, "|"))
 println(join(made, "|"))
 println(bag)
+println(selectedBag)
 println(lineCount(selected))
 println(join(selectedEchoed, "|"))
 println(join(selectedMade, "|"))
@@ -10251,6 +10254,7 @@ assertResult(["ab"])(selectedEchoed)
 assertResult(["ab", "tail"])(made)
 assertResult(["ab"])(selectedMade)
 assertResult(#Bag(["ab", "tail"], "made"))(bag)
+assertResult(#Bag(["ab"], "selected"))(selectedBag)
 assertResult(2)(hits)
 "##,
             path_holder.display()
@@ -10297,7 +10301,7 @@ assertResult(2)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\nab|tail\nab|tail\n#Bag([ab, tail], made)\n1\nab\nab\n2\n"
+        "2\nab|tail\nab|tail\n#Bag([ab, tail], made)\n#Bag([ab], selected)\n1\nab\nab\n2\n"
     );
     assert!(run.stderr.is_empty());
 }
