@@ -424,6 +424,12 @@ enum CompiledLiteralValue {
 }
 
 #[derive(Clone, Debug)]
+struct CompiledLiteralSetOrdinals {
+    count: DataLabel,
+    slots: Vec<DataLabel>,
+}
+
+#[derive(Clone, Debug)]
 struct DynamicBranchState {
     value: NativeValue,
     next_stack_offset: i32,
@@ -6786,6 +6792,20 @@ impl NativeCodeGenerator {
                 let rhs = self.compile_map_literal_entry_values(rhs_entries)?;
                 self.emit_compiled_literal_map_equality(&lhs, &rhs, span)?;
             }
+            (
+                Expr::SetLiteral {
+                    elements: lhs_elements,
+                    ..
+                },
+                Expr::SetLiteral {
+                    elements: rhs_elements,
+                    ..
+                },
+            ) => {
+                let lhs = self.compile_literal_values(lhs_elements)?;
+                let rhs = self.compile_literal_values(rhs_elements)?;
+                self.emit_compiled_literal_set_equality(&lhs, &rhs, span)?;
+            }
             _ => return Ok(None),
         }
         if op == BinaryOp::NotEqual {
@@ -6847,6 +6867,97 @@ impl NativeCodeGenerator {
         self.asm.mov_imm64(Reg::Rax, 0);
         self.asm.bind_text_label(done);
         Ok(())
+    }
+
+    fn emit_compiled_literal_set_equality(
+        &mut self,
+        lhs: &[CompiledLiteralValue],
+        rhs: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let lhs_ordinals = self.emit_compiled_literal_set_unique_ordinals(lhs, span)?;
+        let rhs_ordinals = self.emit_compiled_literal_set_unique_ordinals(rhs, span)?;
+        let not_equal = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+
+        self.asm.mov_data_addr(Reg::R10, lhs_ordinals.count);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.mov_data_addr(Reg::R10, rhs_ordinals.count);
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rcx);
+        self.asm.jcc_label(Condition::NotEqual, not_equal);
+
+        for (lhs_index, lhs_value) in lhs.iter().copied().enumerate() {
+            let skip_duplicate = self.asm.create_text_label();
+            let matched_ordinal = self.asm.create_text_label();
+            self.asm
+                .mov_data_addr(Reg::R10, lhs_ordinals.slots[lhs_index]);
+            self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+            self.asm.cmp_reg_imm8(Reg::R8, -1);
+            self.asm.jcc_label(Condition::Equal, skip_duplicate);
+
+            for (rhs_index, rhs_value) in rhs.iter().copied().enumerate() {
+                let next_rhs = self.asm.create_text_label();
+                self.asm
+                    .mov_data_addr(Reg::R10, rhs_ordinals.slots[rhs_index]);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                self.asm.cmp_reg_reg(Reg::R8, Reg::Rax);
+                self.asm.jcc_label(Condition::NotEqual, next_rhs);
+                self.emit_compiled_literal_values_equal(lhs_value, rhs_value, span)?;
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::Equal, not_equal);
+                self.asm.jmp_label(matched_ordinal);
+                self.asm.bind_text_label(next_rhs);
+            }
+            self.asm.jmp_label(not_equal);
+            self.asm.bind_text_label(matched_ordinal);
+            self.asm.bind_text_label(skip_duplicate);
+        }
+
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(not_equal);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(())
+    }
+
+    fn emit_compiled_literal_set_unique_ordinals(
+        &mut self,
+        values: &[CompiledLiteralValue],
+        span: Span,
+    ) -> Result<CompiledLiteralSetOrdinals, Diagnostic> {
+        let count = self.asm.data_label_with_i64s(&[0]);
+        let slots = values
+            .iter()
+            .map(|_| self.asm.data_label_with_i64s(&[0]))
+            .collect::<Vec<_>>();
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.emit_store_rax_to_data_slot(count);
+
+        for (index, value) in values.iter().copied().enumerate() {
+            let duplicate = self.asm.create_text_label();
+            let done = self.asm.create_text_label();
+            for previous in values.iter().take(index).copied() {
+                self.emit_compiled_literal_values_equal(value, previous, span)?;
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::NotEqual, duplicate);
+            }
+
+            self.asm.mov_data_addr(Reg::R10, count);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+            self.emit_store_rax_to_data_slot(slots[index]);
+            self.asm.inc_reg(Reg::Rax);
+            self.emit_store_rax_to_data_slot(count);
+            self.asm.jmp_label(done);
+
+            self.asm.bind_text_label(duplicate);
+            self.asm.mov_imm64(Reg::Rax, u64::MAX);
+            self.emit_store_rax_to_data_slot(slots[index]);
+            self.asm.bind_text_label(done);
+        }
+
+        Ok(CompiledLiteralSetOrdinals { count, slots })
     }
 
     fn compile_literal_size_or_is_empty(

@@ -8740,7 +8740,7 @@ assertResult(26)(hits)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-fn builds_native_executable_for_runtime_list_and_map_literal_equality() {
+fn builds_native_executable_for_runtime_collection_literal_equality() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time should be monotonic")
@@ -8766,18 +8766,25 @@ val listOk = [{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}] == ["a\nb", "ta
 val listNe = [{{ hits += 1; runtime }}] != ["other"]
 val mapOk = %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}] == %["a\nb": "value"]
 val mapNe = %[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}] != %["a\nb": "other"]
+val setOk = %({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}) == %("a\nb", "tail")
+val setNe = %({{ hits += 1; runtime }}) != %("other")
 println(listOk)
 println(listNe)
 println(mapOk)
 println(mapNe)
+println(setOk)
+println(setNe)
 println(hits)
 assert(listOk)
 assert(listNe)
 assert(mapOk)
 assert(mapNe)
+assert(setOk)
+assert(setNe)
 assertResult(["a\nb", "tail"])([{{ hits += 1; runtime }}, {{ hits += 1; "tail" }}])
 assertResult(%["a\nb": "value"])(%[{{ hits += 1; runtime }}: {{ hits += 1; "value" }}])
-assertResult(11)(hits)
+assertResult(%("a\nb", "tail"))(%({{ hits += 1; runtime }}, {{ hits += 1; "tail" }}, {{ hits += 1; runtime }}))
+assertResult(18)(hits)
 "##,
             path_holder.display()
         ),
@@ -8823,7 +8830,7 @@ assertResult(11)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\ntrue\ntrue\ntrue\n7\n"
+        "true\ntrue\ntrue\ntrue\ntrue\ntrue\n11\n"
     );
     assert!(run.stderr.is_empty());
 }
