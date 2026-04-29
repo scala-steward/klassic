@@ -8495,6 +8495,11 @@ fn builds_native_executable_for_literal_runtime_record_membership() {
   count: Int
   ok: Boolean
 }}
+record Summary {{
+  text: String
+  count: Int
+  ok: Boolean
+}}
 val path = FileInput#all("{}")
 val runtimeBox = #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true)
 mutable hits = 0
@@ -8517,6 +8522,7 @@ foreach(box in [{{ foreachHits += 1; #Box(FileInput#all(path), FileInput#lines(p
   foreachScore = foreachScore * 10 + box.count
 }}
 val foldedCount = foldLeft([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}])(0)((acc, box) => acc + box.count)
+val foldedSummary = foldLeft([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}])(#Summary("", 0, true))((acc, box) => #Summary(acc.text + box.text, acc.count + box.count, acc.ok && box.ok))
 println(listHit)
 println(listMiss)
 println(setHit)
@@ -8531,6 +8537,9 @@ println(keyMiss)
 println(hits)
 println(foreachScore)
 println(foldedCount)
+println(foldedSummary.count)
+println(foldedSummary.ok)
+println(foldedSummary.text)
 assert(listHit)
 assert(!listMiss)
 assert(setHit)
@@ -8542,10 +8551,11 @@ assert(!mapNonEmpty)
 assert(!setNonEmpty)
 assert(keyHit)
 assert(!keyMiss)
-assertResult(27)(hits)
+assertResult(29)(hits)
 assertResult(2)(foreachHits)
 assertResult(35)(foreachScore)
 assertResult(8)(foldedCount)
+assertResult(#Summary("a\nbother", 8, false))(foldedSummary)
 "##,
             path_holder.display()
         ),
@@ -8591,7 +8601,7 @@ assertResult(8)(foldedCount)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n27\n35\n8\n"
+        "2\n3\n2\n5\ntrue\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\ntrue\nfalse\n29\n35\n8\n8\nfalse\na\nbother\n"
     );
     assert!(run.stderr.is_empty());
 }

@@ -4196,16 +4196,39 @@ impl NativeCodeGenerator {
             return Ok(None);
         }
 
+        enum LiteralFoldAccumulator {
+            Scalar {
+                storage: DataLabel,
+                value_kind: NativeValue,
+            },
+            Record {
+                output: RuntimeRecordBranchOutput,
+            },
+        }
+
         let elements = self.compile_literal_values(elements)?;
         let initial = self.compile_expr(initial)?;
-        if !matches!(initial, NativeValue::Int | NativeValue::Bool) {
+        let accumulator = if let Some(output) = self.prepare_record_branch_output(initial, span)? {
+            self.emit_copy_record_value_to_branch_output(
+                initial,
+                &output,
+                span,
+                "foldLeft list-literal record accumulator exceeds 65536 bytes",
+            )?;
+            LiteralFoldAccumulator::Record { output }
+        } else if matches!(initial, NativeValue::Int | NativeValue::Bool) {
+            let storage = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(storage);
+            LiteralFoldAccumulator::Scalar {
+                storage,
+                value_kind: initial,
+            }
+        } else {
             return Err(unsupported(
                 span,
-                "native foldLeft over list literal runtime values for non-Int or non-Bool initial value",
+                "native foldLeft over list literal runtime values for non-Int, non-Bool, or non-record initial value",
             ));
-        }
-        let acc_storage = self.asm.data_label_with_i64s(&[0]);
-        self.emit_store_rax_to_data_slot(acc_storage);
+        };
 
         let reducer = self.compile_runtime_line_lambda(
             reducer,
@@ -4230,26 +4253,66 @@ impl NativeCodeGenerator {
         for element in elements {
             self.push_scope();
             self.bind_runtime_line_lambda_captures(&reducer);
-            self.asm.mov_data_addr(Reg::Rax, acc_storage);
-            self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
-            let acc_slot = self.allocate_slot(acc_param.clone(), initial);
-            self.asm.store_rbp_slot(acc_slot.offset, Reg::Rax);
+            match &accumulator {
+                LiteralFoldAccumulator::Scalar {
+                    storage,
+                    value_kind,
+                } => {
+                    self.asm.mov_data_addr(Reg::Rax, *storage);
+                    self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+                    let acc_slot = self.allocate_slot(acc_param.clone(), *value_kind);
+                    self.asm.store_rbp_slot(acc_slot.offset, Reg::Rax);
+                }
+                LiteralFoldAccumulator::Record { output } => {
+                    self.bind_constant(
+                        acc_param.clone(),
+                        NativeValue::RuntimeRecord {
+                            label: output.label,
+                        },
+                    );
+                }
+            }
             self.bind_compiled_literal_iteration_value(element_param, element);
             let next_acc = self.compile_expr(&reducer.body);
             self.pop_scope();
             let next_acc = next_acc?;
-            if next_acc != initial {
-                return Err(unsupported(
-                    span,
-                    "native foldLeft over list literal runtime values for reducer result with different scalar type",
-                ));
+            match &accumulator {
+                LiteralFoldAccumulator::Scalar {
+                    storage,
+                    value_kind,
+                } => {
+                    if next_acc != *value_kind {
+                        return Err(unsupported(
+                            span,
+                            "native foldLeft over list literal runtime values for reducer result with different scalar type",
+                        ));
+                    }
+                    self.emit_store_rax_to_data_slot(*storage);
+                }
+                LiteralFoldAccumulator::Record { output } => {
+                    self.emit_copy_record_value_to_branch_output(
+                        next_acc,
+                        output,
+                        span,
+                        "foldLeft list-literal record accumulator exceeds 65536 bytes",
+                    )?;
+                }
             }
-            self.emit_store_rax_to_data_slot(acc_storage);
         }
 
-        self.asm.mov_data_addr(Reg::Rax, acc_storage);
-        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
-        Ok(Some(initial))
+        Ok(Some(match accumulator {
+            LiteralFoldAccumulator::Scalar {
+                storage,
+                value_kind,
+            } => {
+                self.asm.mov_data_addr(Reg::Rax, storage);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+                value_kind
+            }
+            LiteralFoldAccumulator::Record { output } => NativeValue::RuntimeRecord {
+                label: output.label,
+            },
+        }))
     }
 
     fn list_literal_has_runtime_values(&mut self, elements: &[Expr]) -> bool {
