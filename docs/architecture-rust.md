@@ -284,7 +284,7 @@ cargo run -- -e "1 + 2"
   static map literals, and static set literals with static contents support
   construction, printing, nesting, static map/set helper calls, and equality
   through `assertResult`; records also support field selection, fixed-buffer
-  runtime `String` / `List<String>` fields, and static lambda method fields.
+  runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields, and static lambda method fields.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

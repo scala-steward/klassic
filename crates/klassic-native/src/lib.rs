@@ -463,6 +463,7 @@ struct RuntimeRecord {
 enum RuntimeRecordField {
     Static(StaticValue),
     Runtime(NativeValue),
+    Scalar { value: NativeValue, slot: DataLabel },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -8798,7 +8799,7 @@ impl NativeCodeGenerator {
         let mut has_runtime_field = false;
         for (field, value) in fields {
             let value = self.compile_record_field_value(value, span)?;
-            if matches!(value, RuntimeRecordField::Runtime(_)) {
+            if !matches!(value, RuntimeRecordField::Static(_)) {
                 has_runtime_field = true;
             }
             if let RuntimeRecordField::Static(value) = &value {
@@ -8840,7 +8841,7 @@ impl NativeCodeGenerator {
         let mut has_runtime_field = false;
         for (field, value) in fields.into_iter().zip(arguments.iter()) {
             let value = self.compile_record_field_value(value, span)?;
-            if matches!(value, RuntimeRecordField::Runtime(_)) {
+            if !matches!(value, RuntimeRecordField::Static(_)) {
                 has_runtime_field = true;
             }
             if let RuntimeRecordField::Static(value) = &value {
@@ -8871,6 +8872,15 @@ impl NativeCodeGenerator {
         let after_static_scopes = self.static_scopes.clone();
         if let Some(value) = self.static_value_from_native(compiled) {
             return Ok(RuntimeRecordField::Static(value));
+        }
+        if matches!(compiled, NativeValue::Int | NativeValue::Bool) {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.asm.mov_data_addr(Reg::R10, slot);
+            self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+            return Ok(RuntimeRecordField::Scalar {
+                value: compiled,
+                slot,
+            });
         }
         if runtime_record_field_value_is_supported(compiled) {
             return Ok(RuntimeRecordField::Runtime(compiled));
@@ -8905,6 +8915,11 @@ impl NativeCodeGenerator {
         {
             RuntimeRecordField::Static(value) => Ok(self.emit_static_value(&value)),
             RuntimeRecordField::Runtime(value) => Ok(value),
+            RuntimeRecordField::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                Ok(value)
+            }
         }
     }
 
@@ -11661,6 +11676,7 @@ impl NativeCodeGenerator {
                         RuntimeRecordField::Runtime(value) => {
                             self.native_value_captures_current_scope(*value)
                         }
+                        RuntimeRecordField::Scalar { .. } => false,
                     })
                 })
             }
@@ -16201,6 +16217,11 @@ impl NativeCodeGenerator {
                     self.emit_print_value_fragment(fd, value);
                 }
                 RuntimeRecordField::Runtime(value) => {
+                    self.emit_print_value_fragment(fd, *value);
+                }
+                RuntimeRecordField::Scalar { value, slot } => {
+                    self.asm.mov_data_addr(Reg::R10, *slot);
+                    self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
                     self.emit_print_value_fragment(fd, *value);
                 }
             }

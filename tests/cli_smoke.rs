@@ -8262,6 +8262,8 @@ fn builds_native_executable_for_runtime_record_fields() {
         .as_nanos();
     let source_path =
         std::env::temp_dir().join(format!("klassic-native-runtime-record-{unique}.kl"));
+    let path_holder =
+        std::env::temp_dir().join(format!("klassic-native-runtime-record-path-{unique}.txt"));
     let input_path =
         std::env::temp_dir().join(format!("klassic-native-runtime-record-{unique}.txt"));
     let output_path = std::env::temp_dir().join(format!("klassic-native-runtime-record-{unique}"));
@@ -8271,29 +8273,40 @@ fn builds_native_executable_for_runtime_record_fields() {
             r#"record Box {{
   text: String
   lines: List<String>
+  count: Int
+  ok: Boolean
 }}
+val path = FileInput#all("{}")
+val text = FileInput#all(path)
 val literal = record {{
-  text: FileInput#all("{}"),
-  lines: FileInput#lines("{}"),
+  text: text,
+  lines: FileInput#lines(path),
+  count: length(text),
+  ok: text.contains("a"),
   label: "ok"
 }}
-val constructed = #Box(FileInput#all("{}"), FileInput#lines("{}"))
+val constructed = #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), FileOutput#exists(path))
 println(literal.text)
 println(join(literal.lines, "|"))
+println(literal.count)
+println("ok=" + literal.ok)
 println(literal.label)
 println(constructed.text)
 println(join(constructed.lines, ":"))
+println(constructed.count)
+println("exists=" + constructed.ok)
 println(constructed)
 assertResult("a\nb")(literal.text)
 assertResult(["a", "b"])(literal.lines)
+assertResult(3)(literal.count)
+assertResult(true)(literal.ok)
 assertResult("ok")(literal.label)
 assertResult("a\nb")(constructed.text)
 assertResult(["a", "b"])(constructed.lines)
+assertResult(3)(constructed.count)
+assertResult(true)(constructed.ok)
 "#,
-            input_path.display(),
-            input_path.display(),
-            input_path.display(),
-            input_path.display()
+            path_holder.display()
         ),
     )
     .expect("source should write");
@@ -8317,12 +8330,15 @@ assertResult(["a", "b"])(constructed.lines)
     assert!(build.stdout.is_empty());
     assert!(build.stderr.is_empty());
 
+    fs::write(&path_holder, input_path.to_string_lossy().as_bytes())
+        .expect("path holder should write after native build");
     fs::write(&input_path, "a\nb").expect("input should write after native build");
     let run = Command::new(&output_path)
         .output()
         .expect("generated executable should run");
 
     let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&path_holder);
     let _ = fs::remove_file(&input_path);
     let _ = fs::remove_file(&output_path);
 
@@ -8334,7 +8350,7 @@ assertResult(["a", "b"])(constructed.lines)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\nok\na\nb\na:b\n#Box(a\nb, [a, b])\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\n"
     );
     assert!(run.stderr.is_empty());
 }

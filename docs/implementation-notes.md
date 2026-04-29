@@ -300,7 +300,7 @@ static reducer path for list-building reducers such as `e #cons acc`. Static nom
 structural records whose fields are static native values now support native
 construction, field selection, printing, static lambda method fields, and
 `assertResult` equality. Record literals and constructors can also carry
-fixed-buffer runtime `String` / `List<String>` fields for field selection and
+fixed-buffer runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields for field selection and
 printing. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as

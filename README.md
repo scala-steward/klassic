@@ -243,7 +243,7 @@ values. Static structural and nominal records, static
 map literals, and static set literals can also be bound, printed, nested, queried
 with static map/set helpers, and compared with `assertResult` when their
 contents are static native values. Record literals and constructors may also
-carry fixed-buffer runtime `String` / `List<String>` fields for field selection
+carry fixed-buffer runtime `String` / `List<String>` and dynamic `Int` / `Boolean` fields for field selection
 and printing. Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,
