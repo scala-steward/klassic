@@ -335,6 +335,9 @@ Direct `head` over list literals can likewise return runtime native values
 after evaluating every list element in source order.
 List/set literal `contains` and map literal `containsValue` can compare runtime
 native values directly after evaluating the literal and query in source order.
+Literal list/map `size` and list/map/set `isEmpty` selectors likewise preserve
+literal effects and return the known cardinality or emptiness without
+materializing runtime values.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or equivalent static values, including the

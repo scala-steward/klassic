@@ -2562,6 +2562,11 @@ impl NativeCodeGenerator {
                         format!("{name} expects 1 argument but got {}", arguments.len()),
                     ));
                 }
+                if let Some(value) =
+                    self.compile_literal_size_or_is_empty(name.as_str(), &arguments[0], span)?
+                {
+                    return Ok(value);
+                }
                 let value = self.compile_expr(&arguments[0])?;
                 if name == "size"
                     && let NativeValue::RuntimeLinesList { data, len } = value
@@ -2606,6 +2611,11 @@ impl NativeCodeGenerator {
                         span,
                         format!("{name} expects 1 argument but got {}", arguments.len()),
                     ));
+                }
+                if let Some(value) =
+                    self.compile_literal_size_or_is_empty(name.as_str(), &arguments[0], span)?
+                {
+                    return Ok(value);
                 }
                 let value = self.compile_expr(&arguments[0])?;
                 if name == "isEmpty"
@@ -5994,6 +6004,67 @@ impl NativeCodeGenerator {
             .iter()
             .map(|element| self.compile_literal_value(element))
             .collect()
+    }
+
+    fn compile_literal_size_or_is_empty(
+        &mut self,
+        name: &str,
+        collection: &Expr,
+        _span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        match (name, collection) {
+            ("size", Expr::ListLiteral { elements, .. }) => {
+                self.compile_list_literal_effects(elements)?;
+                self.asm.mov_imm64(Reg::Rax, elements.len() as u64);
+                Ok(Some(NativeValue::Int))
+            }
+            ("isEmpty", Expr::ListLiteral { elements, .. }) => {
+                self.compile_list_literal_effects(elements)?;
+                self.asm.mov_imm64(Reg::Rax, u64::from(elements.is_empty()));
+                Ok(Some(NativeValue::Bool))
+            }
+            (
+                "size" | "Map#size",
+                Expr::MapLiteral {
+                    entries: elements, ..
+                },
+            ) => {
+                self.compile_map_literal_effects(elements)?;
+                self.asm.mov_imm64(Reg::Rax, elements.len() as u64);
+                Ok(Some(NativeValue::Int))
+            }
+            (
+                "isEmpty" | "Map#isEmpty",
+                Expr::MapLiteral {
+                    entries: elements, ..
+                },
+            ) => {
+                self.compile_map_literal_effects(elements)?;
+                self.asm.mov_imm64(Reg::Rax, u64::from(elements.is_empty()));
+                Ok(Some(NativeValue::Bool))
+            }
+            ("isEmpty" | "Set#isEmpty", Expr::SetLiteral { elements, .. }) => {
+                self.compile_list_literal_effects(elements)?;
+                self.asm.mov_imm64(Reg::Rax, u64::from(elements.is_empty()));
+                Ok(Some(NativeValue::Bool))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn compile_list_literal_effects(&mut self, elements: &[Expr]) -> Result<(), Diagnostic> {
+        for element in elements {
+            self.compile_expr(element)?;
+        }
+        Ok(())
+    }
+
+    fn compile_map_literal_effects(&mut self, elements: &[(Expr, Expr)]) -> Result<(), Diagnostic> {
+        for (key, value) in elements {
+            self.compile_expr(key)?;
+            self.compile_expr(value)?;
+        }
+        Ok(())
     }
 
     fn emit_compiled_literal_membership(

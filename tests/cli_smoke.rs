@@ -8502,16 +8502,31 @@ val listHit = [{{ hits += 1; #Box(FileInput#all(path), FileInput#lines(path), le
 val listMiss = contains([{{ hits += 1; #Box("other", ["other"], 5, false) }}])(runtimeBox)
 val setHit = Set#contains(%({{ hits += 1; #Box("miss", ["miss"], 4, false) }}, {{ hits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}), runtimeBox)
 val mapHit = Map#containsValue(%[{{ hits += 1; "live" }}: {{ hits += 1; #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}], runtimeBox)
+val listSize = size([{{ hits += 1; runtimeBox }}, {{ hits += 1; #Box("other", ["other"], 5, false) }}])
+val listNonEmpty = isEmpty([{{ hits += 1; runtimeBox }}])
+val mapSize = Map#size(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}, {{ hits += 1; "other" }}: {{ hits += 1; #Box("other", ["other"], 5, false) }}])
+val mapNonEmpty = Map#isEmpty(%[{{ hits += 1; "live" }}: {{ hits += 1; runtimeBox }}])
+val setNonEmpty = Set#isEmpty(%({{ hits += 1; runtimeBox }}))
 println(listHit)
 println(listMiss)
 println(setHit)
 println(mapHit)
+println(listSize)
+println(listNonEmpty)
+println(mapSize)
+println(mapNonEmpty)
+println(setNonEmpty)
 println(hits)
 assert(listHit)
 assert(!listMiss)
 assert(setHit)
 assert(mapHit)
-assertResult(9)(hits)
+assertResult(2)(listSize)
+assert(!listNonEmpty)
+assertResult(2)(mapSize)
+assert(!mapNonEmpty)
+assert(!setNonEmpty)
+assertResult(19)(hits)
 "##,
             path_holder.display()
         ),
@@ -8557,7 +8572,7 @@ assertResult(9)(hits)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "true\nfalse\ntrue\ntrue\n9\n"
+        "true\nfalse\ntrue\ntrue\n2\nfalse\n2\nfalse\nfalse\n19\n"
     );
     assert!(run.stderr.is_empty());
 }
