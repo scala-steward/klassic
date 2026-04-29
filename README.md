@@ -247,7 +247,9 @@ contents are static native values. Record literals and constructors may also
 carry fixed-buffer runtime `String` / `List<String>`, dynamic `Int` /
 `Boolean`, and nested runtime record fields for field selection, printing, and
 equality against compatible records, and can be formatted through `toString`,
-interpolation, and string concatenation. Static string-key maps, static string-valued maps, string sets,
+interpolation, and string concatenation. Dynamic `if` expressions can merge
+compatible runtime record branch results through shared runtime field storage.
+Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,
 ints, and booleans. Builtin

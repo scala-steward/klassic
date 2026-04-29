@@ -466,6 +466,21 @@ enum RuntimeRecordField {
     Scalar { value: NativeValue, slot: DataLabel },
 }
 
+#[derive(Clone, Debug)]
+struct RuntimeRecordBranchOutput {
+    label: RuntimeRecordLabel,
+    fields: Vec<RuntimeRecordFieldBranchOutput>,
+}
+
+#[derive(Clone, Debug)]
+enum RuntimeRecordFieldBranchOutput {
+    Static(StaticValue),
+    RuntimeString { data: DataLabel, len: DataLabel },
+    RuntimeLinesList { data: DataLabel, len: DataLabel },
+    Scalar { value: NativeValue, slot: DataLabel },
+    RuntimeRecord(RuntimeRecordBranchOutput),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StaticList {
     elements: Vec<StaticValue>,
@@ -9032,6 +9047,499 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn prepare_record_branch_output(
+        &mut self,
+        value: NativeValue,
+        span: Span,
+    ) -> Result<Option<RuntimeRecordBranchOutput>, Diagnostic> {
+        match value {
+            NativeValue::RuntimeRecord { label } => self
+                .prepare_runtime_record_branch_output(label, span)
+                .map(Some),
+            NativeValue::StaticRecord { label } => self
+                .prepare_static_record_branch_output(label, span)
+                .map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    fn prepare_runtime_record_branch_output(
+        &mut self,
+        label: RuntimeRecordLabel,
+        span: Span,
+    ) -> Result<RuntimeRecordBranchOutput, Diagnostic> {
+        let record = self
+            .runtime_records
+            .get(label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native if record branch value"))?;
+        let mut fields = Vec::with_capacity(record.fields.len());
+        let mut outputs = Vec::with_capacity(record.fields.len());
+        for (name, field) in record.fields {
+            let output = self.prepare_runtime_record_field_branch_output(&field, span)?;
+            fields.push((name, Self::runtime_record_field_from_branch_output(&output)));
+            outputs.push(output);
+        }
+        let label = self.intern_runtime_record(record.name, fields);
+        Ok(RuntimeRecordBranchOutput {
+            label,
+            fields: outputs,
+        })
+    }
+
+    fn prepare_static_record_branch_output(
+        &mut self,
+        label: RecordLabel,
+        span: Span,
+    ) -> Result<RuntimeRecordBranchOutput, Diagnostic> {
+        let record = self
+            .static_records
+            .get(label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native if record branch value"))?;
+        let mut fields = Vec::with_capacity(record.fields.len());
+        let mut outputs = Vec::with_capacity(record.fields.len());
+        for (name, value) in record.fields {
+            let output = self.prepare_static_record_field_branch_output(&value, span)?;
+            fields.push((name, Self::runtime_record_field_from_branch_output(&output)));
+            outputs.push(output);
+        }
+        let label = self.intern_runtime_record(record.name, fields);
+        Ok(RuntimeRecordBranchOutput {
+            label,
+            fields: outputs,
+        })
+    }
+
+    fn prepare_runtime_record_field_branch_output(
+        &mut self,
+        field: &RuntimeRecordField,
+        span: Span,
+    ) -> Result<RuntimeRecordFieldBranchOutput, Diagnostic> {
+        match field {
+            RuntimeRecordField::Static(value) => {
+                self.prepare_static_record_field_branch_output(value, span)
+            }
+            RuntimeRecordField::Runtime(value) => match value {
+                value if self.native_string_ref(*value).is_some() => {
+                    let (data, len) = self.runtime_record_branch_string_buffer();
+                    Ok(RuntimeRecordFieldBranchOutput::RuntimeString { data, len })
+                }
+                NativeValue::RuntimeLinesList { .. } => {
+                    let (data, len) = self.runtime_record_branch_string_buffer();
+                    Ok(RuntimeRecordFieldBranchOutput::RuntimeLinesList { data, len })
+                }
+                NativeValue::RuntimeRecord { label } => {
+                    Ok(RuntimeRecordFieldBranchOutput::RuntimeRecord(
+                        self.prepare_runtime_record_branch_output(*label, span)?,
+                    ))
+                }
+                _ => Err(unsupported(span, "native if record branch field value")),
+            },
+            RuntimeRecordField::Scalar { value, .. } if matches!(value, NativeValue::Int) => {
+                Ok(RuntimeRecordFieldBranchOutput::Scalar {
+                    value: *value,
+                    slot: self.asm.data_label_with_i64s(&[0]),
+                })
+            }
+            RuntimeRecordField::Scalar { value, .. } if matches!(value, NativeValue::Bool) => {
+                Ok(RuntimeRecordFieldBranchOutput::Scalar {
+                    value: *value,
+                    slot: self.asm.data_label_with_i64s(&[0]),
+                })
+            }
+            RuntimeRecordField::Scalar { .. } => {
+                Err(unsupported(span, "native if record branch scalar field"))
+            }
+        }
+    }
+
+    fn prepare_static_record_field_branch_output(
+        &mut self,
+        value: &StaticValue,
+        span: Span,
+    ) -> Result<RuntimeRecordFieldBranchOutput, Diagnostic> {
+        match value {
+            StaticValue::Int(_) => Ok(RuntimeRecordFieldBranchOutput::Scalar {
+                value: NativeValue::Int,
+                slot: self.asm.data_label_with_i64s(&[0]),
+            }),
+            StaticValue::Bool(_) => Ok(RuntimeRecordFieldBranchOutput::Scalar {
+                value: NativeValue::Bool,
+                slot: self.asm.data_label_with_i64s(&[0]),
+            }),
+            StaticValue::StaticString { .. } => {
+                let (data, len) = self.runtime_record_branch_string_buffer();
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeString { data, len })
+            }
+            StaticValue::StaticList { .. }
+                if self.static_string_list_content_from_value(value).is_some() =>
+            {
+                let (data, len) = self.runtime_record_branch_string_buffer();
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeLinesList { data, len })
+            }
+            StaticValue::StaticRecord { label } => {
+                Ok(RuntimeRecordFieldBranchOutput::RuntimeRecord(
+                    self.prepare_static_record_branch_output(*label, span)?,
+                ))
+            }
+            _ => Ok(RuntimeRecordFieldBranchOutput::Static(value.clone())),
+        }
+    }
+
+    fn runtime_record_branch_string_buffer(&mut self) -> (DataLabel, DataLabel) {
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        (
+            self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]),
+            self.asm.data_label_with_i64s(&[0]),
+        )
+    }
+
+    fn runtime_record_field_from_branch_output(
+        output: &RuntimeRecordFieldBranchOutput,
+    ) -> RuntimeRecordField {
+        match output {
+            RuntimeRecordFieldBranchOutput::Static(value) => {
+                RuntimeRecordField::Static(value.clone())
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeString { data, len } => {
+                RuntimeRecordField::Runtime(NativeValue::RuntimeString {
+                    data: *data,
+                    len: *len,
+                })
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeLinesList { data, len } => {
+                RuntimeRecordField::Runtime(NativeValue::RuntimeLinesList {
+                    data: *data,
+                    len: *len,
+                })
+            }
+            RuntimeRecordFieldBranchOutput::Scalar { value, slot } => RuntimeRecordField::Scalar {
+                value: *value,
+                slot: *slot,
+            },
+            RuntimeRecordFieldBranchOutput::RuntimeRecord(record) => {
+                RuntimeRecordField::Runtime(NativeValue::RuntimeRecord {
+                    label: record.label,
+                })
+            }
+        }
+    }
+
+    fn emit_copy_record_value_to_branch_output(
+        &mut self,
+        value: NativeValue,
+        output: &RuntimeRecordBranchOutput,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        match value {
+            NativeValue::RuntimeRecord { label } => self.emit_copy_runtime_record_to_branch_output(
+                label,
+                output,
+                span,
+                overflow_message,
+            ),
+            NativeValue::StaticRecord { label } => {
+                self.emit_copy_static_record_to_branch_output(label, output, span, overflow_message)
+            }
+            _ => Err(unsupported(
+                span,
+                "native if record branch with non-record value",
+            )),
+        }
+    }
+
+    fn emit_copy_runtime_record_to_branch_output(
+        &mut self,
+        label: RuntimeRecordLabel,
+        output: &RuntimeRecordBranchOutput,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        let source = self
+            .runtime_records
+            .get(label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native if record branch value"))?;
+        let output_record = self
+            .runtime_records
+            .get(output.label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native if record branch output"))?;
+        if source.name != output_record.name
+            || source.fields.len() != output_record.fields.len()
+            || source
+                .fields
+                .iter()
+                .zip(output_record.fields.iter())
+                .any(|((source_name, _), (output_name, _))| source_name != output_name)
+        {
+            return Err(unsupported(
+                span,
+                "native if record branches with incompatible record shapes",
+            ));
+        }
+        for ((_, source_field), output_field) in source.fields.iter().zip(output.fields.iter()) {
+            self.emit_copy_runtime_record_field_to_branch_output(
+                source_field,
+                output_field,
+                span,
+                overflow_message,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn emit_copy_static_record_to_branch_output(
+        &mut self,
+        label: RecordLabel,
+        output: &RuntimeRecordBranchOutput,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        let source = self
+            .static_records
+            .get(label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native if record branch value"))?;
+        let output_record = self
+            .runtime_records
+            .get(output.label.0)
+            .cloned()
+            .ok_or_else(|| unsupported(span, "native if record branch output"))?;
+        if source.name != output_record.name
+            || source.fields.len() != output_record.fields.len()
+            || source
+                .fields
+                .iter()
+                .zip(output_record.fields.iter())
+                .any(|((source_name, _), (output_name, _))| source_name != output_name)
+        {
+            return Err(unsupported(
+                span,
+                "native if record branches with incompatible record shapes",
+            ));
+        }
+        for ((_, source_value), output_field) in source.fields.iter().zip(output.fields.iter()) {
+            self.emit_copy_static_value_to_branch_output(
+                source_value,
+                output_field,
+                span,
+                overflow_message,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn emit_copy_runtime_record_field_to_branch_output(
+        &mut self,
+        source: &RuntimeRecordField,
+        output: &RuntimeRecordFieldBranchOutput,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        match source {
+            RuntimeRecordField::Static(value) => {
+                self.emit_copy_static_value_to_branch_output(value, output, span, overflow_message)
+            }
+            RuntimeRecordField::Runtime(value) => {
+                self.emit_copy_native_value_to_branch_output(*value, output, span, overflow_message)
+            }
+            RuntimeRecordField::Scalar { value, slot } => {
+                self.emit_copy_scalar_slot_to_branch_output(*value, *slot, output, span)
+            }
+        }
+    }
+
+    fn emit_copy_static_value_to_branch_output(
+        &mut self,
+        value: &StaticValue,
+        output: &RuntimeRecordFieldBranchOutput,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        match output {
+            RuntimeRecordFieldBranchOutput::Static(expected) => {
+                if self.static_value_equal(value, expected) {
+                    Ok(())
+                } else {
+                    Err(unsupported(
+                        span,
+                        "native if record branches with incompatible static fields",
+                    ))
+                }
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeString { data, len } => {
+                let StaticValue::StaticString {
+                    label,
+                    len: input_len,
+                } = value
+                else {
+                    return Err(unsupported(span, "native if record string branch field"));
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    NativeStringRef {
+                        data: *label,
+                        len: NativeStringLen::Immediate(*input_len),
+                    },
+                    span,
+                    overflow_message,
+                );
+                Ok(())
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeLinesList { data, len } => {
+                let content = self
+                    .static_string_list_content_from_value(value)
+                    .ok_or_else(|| unsupported(span, "native if record line-list branch field"))?;
+                let input = NativeStringRef {
+                    data: self.asm.data_label_with_bytes(content.as_bytes()),
+                    len: NativeStringLen::Immediate(content.len()),
+                };
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    overflow_message,
+                );
+                Ok(())
+            }
+            RuntimeRecordFieldBranchOutput::Scalar {
+                value: NativeValue::Int,
+                slot,
+            } => {
+                let StaticValue::Int(value) = value else {
+                    return Err(unsupported(span, "native if record scalar branch field"));
+                };
+                self.asm.mov_imm64(Reg::Rax, *value as u64);
+                self.emit_store_rax_to_data_slot(*slot);
+                Ok(())
+            }
+            RuntimeRecordFieldBranchOutput::Scalar {
+                value: NativeValue::Bool,
+                slot,
+            } => {
+                let StaticValue::Bool(value) = value else {
+                    return Err(unsupported(span, "native if record scalar branch field"));
+                };
+                self.asm.mov_imm64(Reg::Rax, u64::from(*value));
+                self.emit_store_rax_to_data_slot(*slot);
+                Ok(())
+            }
+            RuntimeRecordFieldBranchOutput::Scalar { .. } => {
+                Err(unsupported(span, "native if record scalar branch field"))
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeRecord(record) => {
+                let StaticValue::StaticRecord { label } = value else {
+                    return Err(unsupported(span, "native if record nested branch field"));
+                };
+                self.emit_copy_static_record_to_branch_output(
+                    *label,
+                    record,
+                    span,
+                    overflow_message,
+                )
+            }
+        }
+    }
+
+    fn emit_copy_native_value_to_branch_output(
+        &mut self,
+        value: NativeValue,
+        output: &RuntimeRecordFieldBranchOutput,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        match output {
+            RuntimeRecordFieldBranchOutput::RuntimeString { data, len } => {
+                let input = self
+                    .native_string_ref(value)
+                    .ok_or_else(|| unsupported(span, "native if record string branch field"))?;
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    overflow_message,
+                );
+                Ok(())
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeLinesList { data, len } => {
+                let input =
+                    self.native_lines_ref_from_value(value, span, "if record branch field")?;
+                self.emit_copy_native_string_to_runtime_string_buffer(
+                    *data,
+                    *len,
+                    input,
+                    span,
+                    overflow_message,
+                );
+                Ok(())
+            }
+            RuntimeRecordFieldBranchOutput::RuntimeRecord(record) => {
+                let NativeValue::RuntimeRecord { label } = value else {
+                    return Err(unsupported(span, "native if record nested branch field"));
+                };
+                self.emit_copy_runtime_record_to_branch_output(
+                    label,
+                    record,
+                    span,
+                    overflow_message,
+                )
+            }
+            RuntimeRecordFieldBranchOutput::Static(expected) => {
+                let value = self
+                    .static_value_from_native(value)
+                    .ok_or_else(|| unsupported(span, "native if record static branch field"))?;
+                if self.static_value_equal(&value, expected) {
+                    Ok(())
+                } else {
+                    Err(unsupported(
+                        span,
+                        "native if record branches with incompatible static fields",
+                    ))
+                }
+            }
+            RuntimeRecordFieldBranchOutput::Scalar { .. } => {
+                Err(unsupported(span, "native if record scalar branch field"))
+            }
+        }
+    }
+
+    fn emit_copy_scalar_slot_to_branch_output(
+        &mut self,
+        value: NativeValue,
+        slot: DataLabel,
+        output: &RuntimeRecordFieldBranchOutput,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let RuntimeRecordFieldBranchOutput::Scalar {
+            value: output_value,
+            slot: output_slot,
+        } = output
+        else {
+            return Err(unsupported(span, "native if record scalar branch field"));
+        };
+        if value != *output_value {
+            return Err(unsupported(
+                span,
+                "native if record branches with incompatible scalar fields",
+            ));
+        }
+        self.asm.mov_data_addr(Reg::R10, slot);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.emit_store_rax_to_data_slot(*output_slot);
+        Ok(())
+    }
+
+    fn emit_store_rax_to_data_slot(&mut self, slot: DataLabel) {
+        self.asm.mov_data_addr(Reg::R10, slot);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+    }
+
     fn static_value_from_expr(&mut self, expr: &Expr) -> Option<StaticValue> {
         match expr {
             Expr::Int { value, .. } => Some(StaticValue::Int(*value)),
@@ -14379,6 +14887,19 @@ impl NativeCodeGenerator {
         } else {
             self.pop_scope();
         }
+        let branch_record_output = if else_branch.is_some() {
+            self.prepare_record_branch_output(then_value, span)?
+        } else {
+            None
+        };
+        if let Some(output) = &branch_record_output {
+            self.emit_copy_record_value_to_branch_output(
+                then_value,
+                output,
+                span,
+                "if record result exceeds 65536 bytes",
+            )?;
+        }
         if let Some((data, len)) = branch_string_output
             && let Some(input) = self.native_string_ref(then_value)
         {
@@ -14430,6 +14951,16 @@ impl NativeCodeGenerator {
             self.pop_scope_preserving_allocations();
         } else {
             self.pop_scope();
+        }
+        if let Some(output) = &branch_record_output
+            && !matches!(else_value, NativeValue::Unit)
+        {
+            self.emit_copy_record_value_to_branch_output(
+                else_value,
+                output,
+                span,
+                "if record result exceeds 65536 bytes",
+            )?;
         }
         if let Some((data, len)) = branch_string_output
             && let Some(input) = self.native_string_ref(else_value)
@@ -14509,6 +15040,10 @@ impl NativeCodeGenerator {
         } else if matches!(then_value, NativeValue::Unit) || matches!(else_value, NativeValue::Unit)
         {
             Ok(NativeValue::Unit)
+        } else if let Some(output) = branch_record_output {
+            Ok(NativeValue::RuntimeRecord {
+                label: output.label,
+            })
         } else {
             Err(unsupported(
                 span,

@@ -73,7 +73,7 @@ The repository contains a Rust-native language implementation with:
   fixed-buffer annotated `String` / `List<String>` function returns copied into
   call-site buffers, function value aliases, static record fields, runtime
   `String` / `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields with
-  compatible equality/display,
+  compatible equality/display and dynamic `if` branch merging,
   direct or method-style static-list `head` lookups including `tail` and
   `cons` chains, and static `Map#get` /
   `.get` lookups with literal or folded static keys plus runtime string/int/bool

@@ -287,7 +287,8 @@ cargo run -- -e "1 + 2"
   through `assertResult`; records also support field selection, fixed-buffer
   runtime `String` / `List<String>`, dynamic `Int` / `Boolean`, and nested runtime
   record fields, compatible record equality and runtime string display for those fields,
-  and static lambda method fields.
+  dynamic `if` merging for compatible runtime record branch results, and static
+  lambda method fields.
   Static file input/output helpers for static paths are supported
   with Linux syscalls and compile-time virtual file tracking; `FileOutput#write`
   / `FileOutput#append` can also write fixed-buffer runtime string content.

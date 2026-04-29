@@ -8312,6 +8312,9 @@ def identityBox(b: #Box): #Box = b
 val nested = #Outer(identityBox(constructed), "wrap")
 val expectedNested = #Outer(expectedConstructed, "wrap")
 val made = identityBox(makeBox())
+val missing = path + ".missing"
+val pickedExisting = if(FileOutput#exists(path)) #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) else #Box("missing", ["missing"], 7, false)
+val pickedFallback = if(FileOutput#exists(missing)) #Box(FileInput#all(missing), FileInput#lines(missing), length(FileInput#all(missing)), true) else #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), false)
 val literalText = "literal=" + literal
 val constructedText = "constructed=#{{constructed}}"
 val againText = toString(literalAgain)
@@ -8342,6 +8345,9 @@ println(nested)
 println(nestedText)
 println(toString(nested))
 println(nested == expectedNested)
+println(pickedExisting)
+println(pickedFallback)
+println(pickedFallback.ok)
 assertResult("a\nb")(literal.text)
 assertResult(["a", "b"])(literal.lines)
 assertResult(3)(literal.count)
@@ -8367,6 +8373,10 @@ assertResult(expectedNested)(nested)
 assert(nested == expectedNested)
 assertResult("nested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)")(nestedText)
 assertResult("#Outer(#Box(a\nb, [a, b], 3, true), wrap)")(toString(nested))
+assertResult(expectedConstructed)(pickedExisting)
+assertResult(#Box("a\nb", ["a", "b"], 3, false))(pickedFallback)
+assertResult("a\nb")(pickedExisting.text)
+assertResult(false)(pickedFallback.ok)
 "##,
             path_holder.display()
         ),
@@ -8412,7 +8422,7 @@ assertResult("#Outer(#Box(a\nb, [a, b], 3, true), wrap)")(toString(nested))
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n#Box(a\nb, [a, b], 3, true)\n#Box(a\nb, [a, b], 3, false)\nfalse\n"
     );
     assert!(run.stderr.is_empty());
 }
