@@ -4197,15 +4197,44 @@ fn builds_native_executable_for_recursive_callable_dispatch_capture() {
         "def plusOne(x: Int): Int = x + 1\n\
 def plusTwo(x: Int): Int = x + 2\n\
 val key = head(args())\n\
+val selector = head(tail(args()))\n\
 val f = Map#get(%[\"one\": plusOne, \"two\": plusTwo], key)\n\
+val byLength = Map#get(%[3: plusOne, 5: plusTwo], length(selector))\n\
+val byFlag = Map#get(%[false: plusOne, true: plusTwo], selector == \"wide!\")\n\
 def applyMany(n: Int, x: Int): Int = if(n < 1) x else applyMany(n - 1, f(x))\n\
+def applyLength(n: Int, x: Int): Int = if(n < 1) x else applyLength(n - 1, byLength(x))\n\
+def applyFlag(n: Int, x: Int): Int = if(n < 1) x else applyFlag(n - 1, byFlag(x))\n\
+def localPick(k: Int, n: Int): Int = if(n < 1) {\n\
+  val picked = Map#get(%[1: plusOne, 2: plusTwo], k)\n\
+  picked(0)\n\
+} else {\n\
+  val picked = Map#get(%[1: plusOne, 2: plusTwo], k)\n\
+  localPick(2, n - 1) + picked(0)\n\
+}\n\
 val actual = applyMany(3, 0)\n\
+val lengthActual = applyLength(2, 0)\n\
+val flagActual = applyFlag(2, 0)\n\
+val localActual = localPick(1, 1)\n\
 println(actual)\n\
+println(lengthActual)\n\
+println(flagActual)\n\
+println(localActual)\n\
 if(key == \"one\") {\n\
   assertResult(3)(actual)\n\
 } else {\n\
   assertResult(6)(actual)\n\
-}\n",
+}\n\
+if(length(selector) == 3) {\n\
+  assertResult(2)(lengthActual)\n\
+} else {\n\
+  assertResult(4)(lengthActual)\n\
+}\n\
+if(selector == \"wide!\") {\n\
+  assertResult(4)(flagActual)\n\
+} else {\n\
+  assertResult(2)(flagActual)\n\
+}\n\
+assertResult(3)(localActual)\n",
     )
     .expect("source should write");
 
@@ -4230,10 +4259,12 @@ if(key == \"one\") {\n\
 
     let one_run = Command::new(&output_path)
         .arg("one")
+        .arg("cat")
         .output()
         .expect("generated executable should run with one key");
     let two_run = Command::new(&output_path)
         .arg("two")
+        .arg("wide!")
         .output()
         .expect("generated executable should run with two key");
 
@@ -4246,7 +4277,7 @@ if(key == \"one\") {\n\
         String::from_utf8_lossy(&one_run.stdout),
         String::from_utf8_lossy(&one_run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&one_run.stdout), "3\n");
+    assert_eq!(String::from_utf8_lossy(&one_run.stdout), "3\n2\n2\n3\n");
     assert!(one_run.stderr.is_empty());
 
     assert!(
@@ -4255,7 +4286,7 @@ if(key == \"one\") {\n\
         String::from_utf8_lossy(&two_run.stdout),
         String::from_utf8_lossy(&two_run.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&two_run.stdout), "6\n");
+    assert_eq!(String::from_utf8_lossy(&two_run.stdout), "6\n4\n4\n3\n");
     assert!(two_run.stderr.is_empty());
 }
 

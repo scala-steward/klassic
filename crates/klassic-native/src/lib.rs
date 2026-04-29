@@ -558,7 +558,13 @@ struct ConditionalBuiltinDisplay {
 #[derive(Clone, Copy, Debug)]
 enum RuntimeMapCallableDispatchKey {
     String(NativeStringRef),
-    Scalar(VarSlot),
+    Scalar(RuntimeMapCallableDispatchScalarKey),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RuntimeMapCallableDispatchScalarKey {
+    Stack(VarSlot),
+    Data(DataLabel),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2907,8 +2913,8 @@ impl NativeCodeGenerator {
                     span,
                 )
             }
-            RuntimeMapCallableDispatchKey::Scalar(slot) => {
-                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+            RuntimeMapCallableDispatchKey::Scalar(key) => {
+                self.emit_load_runtime_map_callable_dispatch_scalar_key(key);
                 let candidates = dispatch
                     .candidates
                     .into_iter()
@@ -2931,6 +2937,21 @@ impl NativeCodeGenerator {
                     arguments,
                     span,
                 )
+            }
+        }
+    }
+
+    fn emit_load_runtime_map_callable_dispatch_scalar_key(
+        &mut self,
+        key: RuntimeMapCallableDispatchScalarKey,
+    ) {
+        match key {
+            RuntimeMapCallableDispatchScalarKey::Stack(slot) => {
+                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+            }
+            RuntimeMapCallableDispatchScalarKey::Data(slot) => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::R10, Reg::R10, 0);
             }
         }
     }
@@ -8977,13 +8998,27 @@ impl NativeCodeGenerator {
         {
             return None;
         }
-        let slot = self.allocate_anonymous_slot(key);
-        self.asm.store_rbp_slot(slot.offset, Reg::Rax);
+        let key = self.store_runtime_map_callable_dispatch_scalar_key(key);
         let label = self.intern_runtime_map_callable_dispatch(RuntimeMapCallableDispatch {
-            key: RuntimeMapCallableDispatchKey::Scalar(slot),
+            key: RuntimeMapCallableDispatchKey::Scalar(key),
             candidates,
         });
         Some(NativeValue::RuntimeMapCallableDispatch(label))
+    }
+
+    fn store_runtime_map_callable_dispatch_scalar_key(
+        &mut self,
+        value: NativeValue,
+    ) -> RuntimeMapCallableDispatchScalarKey {
+        if self.active_function_name.is_some() {
+            let slot = self.allocate_anonymous_slot(value);
+            self.asm.store_rbp_slot(slot.offset, Reg::Rax);
+            RuntimeMapCallableDispatchScalarKey::Stack(slot)
+        } else {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            RuntimeMapCallableDispatchScalarKey::Data(slot)
+        }
     }
 
     fn compile_static_map_get_runtime_string_key(
@@ -15118,8 +15153,8 @@ impl NativeCodeGenerator {
                     Some((label, candidate.callable))
                 })
                 .collect::<Vec<_>>(),
-            RuntimeMapCallableDispatchKey::Scalar(slot) => {
-                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+            RuntimeMapCallableDispatchKey::Scalar(key) => {
+                self.emit_load_runtime_map_callable_dispatch_scalar_key(key);
                 dispatch
                     .candidates
                     .into_iter()
@@ -16019,14 +16054,18 @@ impl NativeCodeGenerator {
                 .runtime_map_callable_dispatches
                 .get(label.0)
                 .is_some_and(|dispatch| {
-                    let key_captures_current_scope =
-                        if let RuntimeMapCallableDispatchKey::Scalar(slot) = dispatch.key {
-                            self.scope_base_offsets
-                                .last()
-                                .is_some_and(|base_offset| slot.offset > *base_offset)
-                        } else {
-                            false
-                        };
+                    let key_captures_current_scope = match dispatch.key {
+                        RuntimeMapCallableDispatchKey::Scalar(
+                            RuntimeMapCallableDispatchScalarKey::Stack(slot),
+                        ) => self
+                            .scope_base_offsets
+                            .last()
+                            .is_some_and(|base_offset| slot.offset > *base_offset),
+                        RuntimeMapCallableDispatchKey::String(_)
+                        | RuntimeMapCallableDispatchKey::Scalar(
+                            RuntimeMapCallableDispatchScalarKey::Data(_),
+                        ) => false,
+                    };
                     key_captures_current_scope
                         || dispatch.candidates.iter().any(|candidate| {
                             self.native_value_captures_current_scope(candidate.callable)
@@ -19973,8 +20012,8 @@ impl NativeCodeGenerator {
                     Some((label, candidate.callable))
                 })
                 .collect::<Vec<_>>(),
-            RuntimeMapCallableDispatchKey::Scalar(slot) => {
-                self.asm.load_rbp_slot(Reg::R10, slot.offset);
+            RuntimeMapCallableDispatchKey::Scalar(key) => {
+                self.emit_load_runtime_map_callable_dispatch_scalar_key(key);
                 dispatch
                     .candidates
                     .into_iter()

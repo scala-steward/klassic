@@ -186,7 +186,7 @@ the module layout is described in `docs/architecture-rust.md`.
   concatenation, and `toString`; equality involving those function values keeps
   the evaluator's always-false function comparison semantics. Recursive native
   functions can capture frame-independent callable dispatch values, including
-  top-level string-key dispatch bindings.
+  top-level string/int/bool-key dispatch bindings.
 - Block, cleanup, and same-runtime-return conditional callees retain those
   runtime return hints for immediate calls.
 - Immediate calls on conditional function values lower to branch-local calls, so
