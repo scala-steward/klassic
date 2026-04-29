@@ -5,7 +5,7 @@ use std::fs;
 use klassic_rewrite::rewrite_expression;
 use klassic_span::{Diagnostic, SourceFile, Span};
 use klassic_syntax::{
-    BinaryOp, Expr, FloatLiteralKind, TypeAnnotation, TypeClassConstraint, UnaryOp,
+    BinaryOp, Expr, FloatLiteralKind, RecordField, TypeAnnotation, TypeClassConstraint, UnaryOp,
     parse_inline_expression, parse_source,
 };
 use klassic_types::typecheck_program;
@@ -454,6 +454,12 @@ struct StaticRecord {
 }
 
 #[derive(Clone, Debug)]
+struct NativeRecordFieldSchema {
+    name: String,
+    annotation: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 struct RuntimeRecord {
     name: String,
     fields: Vec<(String, RuntimeRecordField)>,
@@ -575,7 +581,7 @@ struct NativeCodeGenerator {
     referenced_functions: HashSet<String>,
     active_function_name: Option<String>,
     instance_methods: Vec<NativeInstanceMethod>,
-    record_schemas: HashMap<String, Vec<String>>,
+    record_schemas: HashMap<String, Vec<NativeRecordFieldSchema>>,
     static_lists: Vec<StaticList>,
     static_records: Vec<StaticRecord>,
     runtime_records: Vec<RuntimeRecord>,
@@ -616,7 +622,19 @@ impl NativeCodeGenerator {
         let command_line_argv1_base = asm.data_label_with_i64s(&[0]);
         let environment_base = asm.data_label_with_i64s(&[0]);
         let mut record_schemas = HashMap::new();
-        record_schemas.insert("Point".to_string(), vec!["x".to_string(), "y".to_string()]);
+        record_schemas.insert(
+            "Point".to_string(),
+            vec![
+                NativeRecordFieldSchema {
+                    name: "x".to_string(),
+                    annotation: Some("Int".to_string()),
+                },
+                NativeRecordFieldSchema {
+                    name: "y".to_string(),
+                    annotation: Some("Int".to_string()),
+                },
+            ],
+        );
         Self {
             source,
             asm,
@@ -669,6 +687,7 @@ impl NativeCodeGenerator {
     }
 
     fn compile(mut self, expr: &Expr) -> Result<ObjectFile, Diagnostic> {
+        self.predeclare_record_schemas(expr);
         self.predeclare_top_level_functions(expr);
         self.asm.push_reg(Reg::Rbp);
         self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
@@ -698,6 +717,38 @@ impl NativeCodeGenerator {
         self.asm.add_reg_imm32(Reg::R8, 24);
         self.asm.add_reg_reg(Reg::R8, Reg::Rbp);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+    }
+
+    fn predeclare_record_schemas(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Block { expressions, .. } => {
+                for expression in expressions {
+                    self.predeclare_record_schemas(expression);
+                }
+            }
+            Expr::RecordDeclaration { name, fields, .. } => {
+                self.declare_record_schema(name.clone(), fields);
+            }
+            _ => {}
+        }
+    }
+
+    fn declare_record_schema(&mut self, name: String, fields: &[RecordField]) {
+        self.record_schemas
+            .insert(name, Self::native_record_field_schemas(fields));
+    }
+
+    fn native_record_field_schemas(fields: &[RecordField]) -> Vec<NativeRecordFieldSchema> {
+        fields
+            .iter()
+            .map(|field| NativeRecordFieldSchema {
+                name: field.name.clone(),
+                annotation: field
+                    .annotation
+                    .as_ref()
+                    .map(|annotation| annotation.text.clone()),
+            })
+            .collect()
     }
 
     fn predeclare_top_level_functions(&mut self, expr: &Expr) {
@@ -909,10 +960,7 @@ impl NativeCodeGenerator {
                 Ok(NativeValue::Unit)
             }
             Expr::RecordDeclaration { name, fields, .. } => {
-                self.record_schemas.insert(
-                    name.clone(),
-                    fields.iter().map(|field| field.name.clone()).collect(),
-                );
+                self.declare_record_schema(name.clone(), fields);
                 Ok(NativeValue::Unit)
             }
             Expr::TheoremDeclaration { .. }
@@ -926,12 +974,81 @@ impl NativeCodeGenerator {
         match annotation.text.trim() {
             "String" => Some(self.runtime_string_scratch_value()),
             "List<String>" => Some(self.runtime_lines_list_scratch_value()),
-            _ => native_value_from_annotation(annotation),
+            text => self
+                .runtime_record_scratch_value_from_annotation(text)
+                .or_else(|| native_value_from_annotation(annotation)),
         }
     }
 
     fn native_function_return_value(&mut self, annotation: &TypeAnnotation) -> Option<NativeValue> {
         self.native_function_param_value(annotation)
+    }
+
+    fn runtime_record_scratch_value_from_annotation(
+        &mut self,
+        annotation: &str,
+    ) -> Option<NativeValue> {
+        let mut visiting = HashSet::new();
+        let name = self.record_name_from_annotation(annotation)?;
+        self.runtime_record_scratch_value_for_record(&name, &mut visiting)
+    }
+
+    fn record_name_from_annotation(&self, annotation: &str) -> Option<String> {
+        let trimmed = annotation.trim();
+        let without_hash = trimmed.strip_prefix('#').unwrap_or(trimmed);
+        let name = without_hash
+            .split(|ch: char| ch == '<' || ch.is_whitespace())
+            .next()
+            .unwrap_or("");
+        (!name.is_empty() && self.record_schemas.contains_key(name)).then(|| name.to_string())
+    }
+
+    fn runtime_record_scratch_value_for_record(
+        &mut self,
+        name: &str,
+        visiting: &mut HashSet<String>,
+    ) -> Option<NativeValue> {
+        if !visiting.insert(name.to_string()) {
+            return None;
+        }
+        let fields = self.record_schemas.get(name)?.clone();
+        let mut runtime_fields = Vec::with_capacity(fields.len());
+        for field in fields {
+            let annotation = field.annotation.as_deref()?;
+            let value = self.runtime_record_field_storage_for_annotation(annotation, visiting)?;
+            runtime_fields.push((field.name, value));
+        }
+        visiting.remove(name);
+        let label = self.intern_runtime_record(name.to_string(), runtime_fields);
+        Some(NativeValue::RuntimeRecord { label })
+    }
+
+    fn runtime_record_field_storage_for_annotation(
+        &mut self,
+        annotation: &str,
+        visiting: &mut HashSet<String>,
+    ) -> Option<RuntimeRecordField> {
+        match annotation.trim() {
+            "Byte" | "Short" | "Int" | "Long" => Some(RuntimeRecordField::Scalar {
+                value: NativeValue::Int,
+                slot: self.asm.data_label_with_i64s(&[0]),
+            }),
+            "Boolean" | "Bool" => Some(RuntimeRecordField::Scalar {
+                value: NativeValue::Bool,
+                slot: self.asm.data_label_with_i64s(&[0]),
+            }),
+            "String" => Some(RuntimeRecordField::Runtime(
+                self.runtime_string_scratch_value(),
+            )),
+            "List<String>" => Some(RuntimeRecordField::Runtime(
+                self.runtime_lines_list_scratch_value(),
+            )),
+            annotation => {
+                let name = self.record_name_from_annotation(annotation)?;
+                let value = self.runtime_record_scratch_value_for_record(&name, visiting)?;
+                Some(RuntimeRecordField::Runtime(value))
+            }
+        }
     }
 
     fn runtime_string_scratch_value(&mut self) -> NativeValue {
@@ -2755,6 +2872,7 @@ impl NativeCodeGenerator {
             ));
         }
         let mut staged_runtime_arguments = Vec::new();
+        let mut staged_record_arguments = Vec::new();
         let mut scalar_argument_count = 0usize;
         for (argument, expected_value) in arguments.iter().zip(function.param_values.iter()) {
             let value = self.compile_expr(argument)?;
@@ -2838,6 +2956,24 @@ impl NativeCodeGenerator {
                 ));
                 continue;
             }
+            if let NativeValue::RuntimeRecord { label } = expected_value {
+                let staged_output = self.prepare_runtime_record_branch_output(*label, span)?;
+                self.emit_copy_record_value_to_branch_output(
+                    value,
+                    &staged_output,
+                    span,
+                    "function record argument exceeds 65536 bytes",
+                )?;
+                let target_output =
+                    self.runtime_record_branch_output_from_existing(*label, span)?;
+                staged_record_arguments.push((
+                    NativeValue::RuntimeRecord {
+                        label: staged_output.label,
+                    },
+                    target_output,
+                ));
+                continue;
+            }
             if matches!(expected_value, NativeValue::Int | NativeValue::Bool) {
                 if value != *expected_value {
                     return Err(unsupported(
@@ -2864,6 +3000,14 @@ impl NativeCodeGenerator {
                 span,
                 overflow_message,
             );
+        }
+        for (value, output) in staged_record_arguments {
+            self.emit_copy_record_value_to_branch_output(
+                value,
+                &output,
+                span,
+                "function record argument exceeds 65536 bytes",
+            )?;
         }
         let arg_regs = argument_registers(scalar_argument_count);
         let pass_on_stack = scalar_argument_count > arg_regs.len();
@@ -2914,6 +3058,7 @@ impl NativeCodeGenerator {
         match return_value {
             NativeValue::RuntimeString { .. } => self.expr_may_yield_native_string(argument),
             NativeValue::RuntimeLinesList { .. } => self.expr_may_yield_native_lines_list(argument),
+            NativeValue::RuntimeRecord { .. } => true,
             _ => false,
         }
     }
@@ -2965,6 +3110,18 @@ impl NativeCodeGenerator {
                     "function line-list return exceeds 65536 bytes",
                 );
                 Ok(output)
+            }
+            NativeValue::RuntimeRecord { label } => {
+                let output = self.prepare_runtime_record_branch_output(label, span)?;
+                self.emit_copy_record_value_to_branch_output(
+                    NativeValue::RuntimeRecord { label },
+                    &output,
+                    span,
+                    "function record return exceeds 65536 bytes",
+                )?;
+                Ok(NativeValue::RuntimeRecord {
+                    label: output.label,
+                })
             }
             value => Ok(value),
         }
@@ -3438,6 +3595,9 @@ impl NativeCodeGenerator {
             NativeValue::RuntimeLinesList { .. } => {
                 self.native_value_is_lines_list_compatible(value)
             }
+            NativeValue::RuntimeRecord { label } => {
+                self.record_value_matches_runtime_record_shape(value, label)
+            }
             _ => false,
         }
     }
@@ -3460,6 +3620,9 @@ impl NativeCodeGenerator {
                     "inline function line-list return",
                 )
                 .map(|_| true)
+            }
+            NativeValue::RuntimeRecord { label } => {
+                Ok(self.record_value_matches_runtime_record_shape(value, label))
             }
             NativeValue::Unit => Ok(matches!(value, NativeValue::Unit)),
             expected => Ok(value == expected),
@@ -9022,9 +9185,9 @@ impl NativeCodeGenerator {
                 has_runtime_field = true;
             }
             if let RuntimeRecordField::Static(value) = &value {
-                static_fields.push((field.clone(), value.clone()));
+                static_fields.push((field.name.clone(), value.clone()));
             }
-            runtime_fields.push((field, value));
+            runtime_fields.push((field.name, value));
         }
         if has_runtime_field {
             let label = self.intern_runtime_record(name.to_string(), runtime_fields);
@@ -9671,6 +9834,151 @@ impl NativeCodeGenerator {
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
     }
 
+    fn record_value_matches_runtime_record_shape(
+        &self,
+        value: NativeValue,
+        expected_label: RuntimeRecordLabel,
+    ) -> bool {
+        match value {
+            NativeValue::RuntimeRecord { label } => {
+                self.runtime_record_matches_runtime_record_shape(label, expected_label)
+            }
+            NativeValue::StaticRecord { label } => {
+                self.static_record_matches_runtime_record_shape(label, expected_label)
+            }
+            _ => false,
+        }
+    }
+
+    fn runtime_record_matches_runtime_record_shape(
+        &self,
+        source_label: RuntimeRecordLabel,
+        expected_label: RuntimeRecordLabel,
+    ) -> bool {
+        let Some(source) = self.runtime_records.get(source_label.0) else {
+            return false;
+        };
+        let Some(expected) = self.runtime_records.get(expected_label.0) else {
+            return false;
+        };
+        source.name == expected.name
+            && source.fields.len() == expected.fields.len()
+            && source.fields.iter().zip(expected.fields.iter()).all(
+                |((source_name, source), (expected_name, expected))| {
+                    source_name == expected_name
+                        && self.runtime_record_field_matches_runtime_field_shape(source, expected)
+                },
+            )
+    }
+
+    fn static_record_matches_runtime_record_shape(
+        &self,
+        source_label: RecordLabel,
+        expected_label: RuntimeRecordLabel,
+    ) -> bool {
+        let Some(source) = self.static_records.get(source_label.0) else {
+            return false;
+        };
+        let Some(expected) = self.runtime_records.get(expected_label.0) else {
+            return false;
+        };
+        source.name == expected.name
+            && source.fields.len() == expected.fields.len()
+            && source.fields.iter().zip(expected.fields.iter()).all(
+                |((source_name, source), (expected_name, expected))| {
+                    source_name == expected_name
+                        && self.static_value_matches_runtime_field_shape(source, expected)
+                },
+            )
+    }
+
+    fn runtime_record_field_matches_runtime_field_shape(
+        &self,
+        source: &RuntimeRecordField,
+        expected: &RuntimeRecordField,
+    ) -> bool {
+        match source {
+            RuntimeRecordField::Static(value) => {
+                self.static_value_matches_runtime_field_shape(value, expected)
+            }
+            RuntimeRecordField::Runtime(value) => {
+                self.native_value_matches_runtime_field_shape(*value, expected)
+            }
+            RuntimeRecordField::Scalar { value, .. } => matches!(
+                expected,
+                RuntimeRecordField::Scalar {
+                    value: expected_value,
+                    ..
+                } if value == expected_value
+            ),
+        }
+    }
+
+    fn native_value_matches_runtime_field_shape(
+        &self,
+        value: NativeValue,
+        expected: &RuntimeRecordField,
+    ) -> bool {
+        match expected {
+            RuntimeRecordField::Static(expected) => self
+                .static_value_from_native(value)
+                .is_some_and(|value| self.static_value_equal(&value, expected)),
+            RuntimeRecordField::Runtime(expected)
+                if self.native_string_ref(*expected).is_some() =>
+            {
+                self.native_string_ref(value).is_some()
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeLinesList { .. }) => {
+                self.native_value_is_lines_list_compatible(value)
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeRecord { label }) => {
+                matches!(
+                    value,
+                    NativeValue::RuntimeRecord { label: source_label }
+                        if self.runtime_record_matches_runtime_record_shape(source_label, *label)
+                )
+            }
+            RuntimeRecordField::Runtime(_) => false,
+            RuntimeRecordField::Scalar {
+                value: expected_value,
+                ..
+            } => value == *expected_value,
+        }
+    }
+
+    fn static_value_matches_runtime_field_shape(
+        &self,
+        value: &StaticValue,
+        expected: &RuntimeRecordField,
+    ) -> bool {
+        match expected {
+            RuntimeRecordField::Static(expected) => self.static_value_equal(value, expected),
+            RuntimeRecordField::Runtime(expected)
+                if self.native_string_ref(*expected).is_some() =>
+            {
+                matches!(value, StaticValue::StaticString { .. })
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeLinesList { .. }) => {
+                self.static_string_list_content_from_value(value).is_some()
+            }
+            RuntimeRecordField::Runtime(NativeValue::RuntimeRecord { label }) => matches!(
+                value,
+                StaticValue::StaticRecord { label: source_label }
+                    if self.static_record_matches_runtime_record_shape(*source_label, *label)
+            ),
+            RuntimeRecordField::Runtime(_) => false,
+            RuntimeRecordField::Scalar {
+                value: NativeValue::Int,
+                ..
+            } => matches!(value, StaticValue::Int(_)),
+            RuntimeRecordField::Scalar {
+                value: NativeValue::Bool,
+                ..
+            } => matches!(value, StaticValue::Bool(_)),
+            RuntimeRecordField::Scalar { .. } => false,
+        }
+    }
+
     fn static_value_from_expr(&mut self, expr: &Expr) -> Option<StaticValue> {
         match expr {
             Expr::Int { value, .. } => Some(StaticValue::Int(*value)),
@@ -9762,7 +10070,7 @@ impl NativeCodeGenerator {
                     .zip(arguments.iter())
                     .map(|(field, value)| {
                         self.static_value_from_expr(value)
-                            .map(|value| (field, value))
+                            .map(|value| (field.name, value))
                     })
                     .collect::<Option<Vec<_>>>()?;
                 let label = self.intern_static_record(name.clone(), fields);
@@ -11273,7 +11581,7 @@ impl NativeCodeGenerator {
                     .zip(arguments.iter())
                     .map(|(field, value)| {
                         self.static_value_from_expr_with_bindings(value, bindings)
-                            .map(|value| (field, value))
+                            .map(|value| (field.name, value))
                     })
                     .collect::<Option<Vec<_>>>()?;
                 let label = self.intern_static_record(name.clone(), fields);
@@ -19680,6 +19988,18 @@ impl NativeCodeGenerator {
                     "function line-list return exceeds 65536 bytes",
                 );
                 Ok(())
+            }
+            NativeValue::RuntimeRecord { label } => {
+                if value == expected {
+                    return Ok(());
+                }
+                let output = self.runtime_record_branch_output_from_existing(label, span)?;
+                self.emit_copy_record_value_to_branch_output(
+                    value,
+                    &output,
+                    span,
+                    "function record return exceeds 65536 bytes",
+                )
             }
             NativeValue::Unit if matches!(value, NativeValue::Unit) => Ok(()),
             expected if value == expected => Ok(()),

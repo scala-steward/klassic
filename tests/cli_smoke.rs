@@ -8309,12 +8309,16 @@ def textOf(b: #Box): String = b.text
 def countOf(b) = b.count
 def makeBox(): #Box = #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), FileOutput#exists(path))
 def identityBox(b: #Box): #Box = b
+def chooseBox(flag: Boolean, left: #Box, right: #Box): #Box = if(flag) left else right
+def recursiveBox(n: Int): #Box = if(n <= 0) #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) else recursiveBox(n - 1)
 val nested = #Outer(identityBox(constructed), "wrap")
 val expectedNested = #Outer(expectedConstructed, "wrap")
 val made = identityBox(makeBox())
 val missing = path + ".missing"
 val pickedExisting = if(FileOutput#exists(path)) #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), true) else #Box("missing", ["missing"], 7, false)
 val pickedFallback = if(FileOutput#exists(missing)) #Box(FileInput#all(missing), FileInput#lines(missing), length(FileInput#all(missing)), true) else #Box(FileInput#all(path), FileInput#lines(path), length(FileInput#all(path)), false)
+val chosen = chooseBox(FileOutput#exists(path), constructed, #Box("fallback", ["fallback"], 8, false))
+val recursive = recursiveBox(2)
 mutable mutableBox = #Box("start", ["start"], 5, false)
 mutableBox = constructed
 mutableBox = #Box("mut", ["mut"], 3, false)
@@ -8351,6 +8355,9 @@ println(nested == expectedNested)
 println(pickedExisting)
 println(pickedFallback)
 println(pickedFallback.ok)
+println(chosen)
+println(recursive)
+println(recursive.text)
 println(mutableBox)
 println(mutableBox.text)
 println(mutableBox.ok)
@@ -8383,6 +8390,9 @@ assertResult(expectedConstructed)(pickedExisting)
 assertResult(#Box("a\nb", ["a", "b"], 3, false))(pickedFallback)
 assertResult("a\nb")(pickedExisting.text)
 assertResult(false)(pickedFallback.ok)
+assertResult(expectedConstructed)(chosen)
+assertResult(expectedConstructed)(recursive)
+assertResult("a\nb")(recursive.text)
 assertResult(#Box("mut", ["mut"], 3, false))(mutableBox)
 assertResult("mut")(mutableBox.text)
 assertResult(false)(mutableBox.ok)
@@ -8431,7 +8441,7 @@ assertResult(false)(mutableBox.ok)
     );
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n#Box(a\nb, [a, b], 3, true)\n#Box(a\nb, [a, b], 3, false)\nfalse\n#Box(mut, [mut], 3, false)\nmut\nfalse\n"
+        "a\nb\na|b\n3\nok=true\nok\na\nb\na:b\n3\nexists=true\n#Box(a\nb, [a, b], 3, true)\ntrue\ntrue\ntrue\nliteral=#(a\nb, [a, b], 3, true, ok)\nconstructed=#Box(a\nb, [a, b], 3, true)\n#(a\nb, [a, b], 3, true, ok)\na\nb\n3\na\nb\n3\na\nb\n3\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\nnested=#Outer(#Box(a\nb, [a, b], 3, true), wrap)\n#Outer(#Box(a\nb, [a, b], 3, true), wrap)\ntrue\n#Box(a\nb, [a, b], 3, true)\n#Box(a\nb, [a, b], 3, false)\nfalse\n#Box(a\nb, [a, b], 3, true)\n#Box(a\nb, [a, b], 3, true)\na\nb\n#Box(mut, [mut], 3, false)\nmut\nfalse\n"
     );
     assert!(run.stderr.is_empty());
 }

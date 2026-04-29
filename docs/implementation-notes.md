@@ -60,6 +60,8 @@ string concatenation for immutable values, static record fields, and runtime
 `String` / `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields,
 runtime string concatenation that formats dynamic native `Int` / `Boolean` and
 runtime record operands,
+annotated supported record parameters and returns using staged runtime field
+storage across normal and recursive native calls,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
 and method-style `parts.size()`, runtime-key `Map#get` selection from static maps
 when the key is a runtime string/int/bool and the selected values are strings,
@@ -307,7 +309,8 @@ records, plus runtime string display through `toString`, interpolation, and
 concatenation. Dynamic `if` expressions can copy compatible runtime record branch
 results into shared runtime field storage, and mutable runtime record bindings
 reuse that field storage for compatible assignments from runtime or supported
-static-record initializers. Static map
+static-record initializers. Annotated record function parameters and returns
+reuse compatible field storage for normal and recursive native calls. Static map
 and set literals are also represented as compile-time arenas; maps preserve
 entry order, and sets de-duplicate values in the same first-occurrence order as
 the evaluator. Static map/set helpers cover `Map#size`, `Map#isEmpty`,

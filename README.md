@@ -103,6 +103,12 @@ so reentrant and self-recursive calls preserve left-to-right argument evaluation
 Annotated `String` and `List<String>` function returns use fixed return buffers
 that are copied into call-site buffers so adjacent calls do not overwrite each
 other.
+Annotated record parameters and returns whose fields lower to runtime
+`String`, `List<String>`, `Int`, `Boolean`, or nested supported records use the
+same fixed field-storage model. Call sites stage record arguments before copying
+them into function-parameter storage and copy record returns into call-site
+storage, so recursive functions can return supported runtime records without
+call-site inlining.
 Function value aliases, static record fields, runtime `String` / `List<String>`,
 dynamic `Int` / `Boolean`, and nested runtime record fields, direct or method-style `head`
 lookups from static lists including `tail` and `cons` chains, and static
@@ -250,7 +256,9 @@ equality against compatible records, and can be formatted through `toString`,
 interpolation, and string concatenation. Dynamic `if` expressions can merge
 compatible runtime record branch results through shared runtime field storage.
 Mutable runtime record bindings reuse the same field storage for compatible
-record assignments, including supported static-record initializers.
+record assignments, including supported static-record initializers. Annotated
+record function parameters and returns use compatible field storage across
+normal and recursive native calls.
 Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,

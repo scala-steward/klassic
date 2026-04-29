@@ -117,6 +117,10 @@ the module layout is described in `docs/architecture-rust.md`.
   argument evaluation intact.
 - Annotated `String` / `List<String>` returns use fixed function return buffers
   that direct call sites copy into call-site-local buffers.
+- Annotated supported record parameters and returns use fixed runtime field
+  storage too. Call sites stage record arguments before updating shared
+  function-parameter storage and copy record returns into call-site-local
+  storage, which allows recursive native functions to return runtime records.
 - Function value aliases, static record fields, runtime `String` /
   `List<String>`, dynamic `Int` / `Boolean`, and nested runtime record fields, direct or
   method-style `head` lookups from static lists including `tail` and `cons`
