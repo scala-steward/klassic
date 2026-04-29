@@ -210,12 +210,13 @@ cargo run -- -e "1 + 2"
   native comparisons when the compatible values are uniformly string,
   string-list, int, boolean, supported static record, non-string static-list,
   `null`, or `()`, or when
-  every compatible entry returns an equivalent static value, including the same callable value; a
-  runtime key whose type has no compatible static keys returns static `null`.
+  every compatible entry returns an equivalent static value, including the same callable value.
+  A runtime key whose type has no compatible static keys returns static `null`.
   All-`null` compatible values also collapse to static `null`, because hits and
-  misses are indistinguishable at the value level. Other runtime misses among
-  compatible keys report a native diagnostic because this untagged path cannot
-  materialize a dynamic `null`.
+  misses are indistinguishable at the value level. Runtime misses among
+  compatible keys report a native diagnostic when the selected value must be
+  materialized, but direct `Map#get(...) == null` / `!= null` checks lower to
+  key-match tests instead of materializing a dynamic tagged `null`.
   Immediate calls through runtime-key lookups of static callable maps, such as
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, dispatch to the selected
   lambda or builtin branch and merge the supported native return shapes.
