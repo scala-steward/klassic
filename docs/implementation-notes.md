@@ -328,6 +328,9 @@ structurally against static record entries through static list/set `contains`
 and map `containsValue`.
 Effectful query expressions that compile back to static values after preserving
 their effects are also compared through the static collection membership path.
+Static-key `Map#get` / `.get` over a map literal can return runtime native
+values, including supported runtime records, after evaluating every map entry
+and the key in source order.
 Static maps also support runtime string, int, and boolean `Map#get` / `.get`
 keys when the compatible entries return all strings, all string lists, all ints,
 all booleans, all `null`, all `()`, or equivalent static values, including the

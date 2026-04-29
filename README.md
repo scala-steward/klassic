@@ -262,6 +262,8 @@ normal and recursive native calls. Runtime line-list `foldLeft` can use the
 same storage for record accumulators, including empty `List<String>` fields.
 Static maps can also return supported static records from runtime
 string/int/bool keys by copying the selected entry into runtime record storage.
+Static-key `Map#get` / `.get` can also select from map literals whose values are
+runtime native values, while preserving every entry's evaluation effects.
 Those runtime record results can be passed back through static list/set
 `contains` and map `containsValue` helpers for structural record membership.
 Static string-key maps, static string-valued maps, string sets,

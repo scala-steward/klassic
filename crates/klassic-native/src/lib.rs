@@ -6103,6 +6103,11 @@ impl NativeCodeGenerator {
                 "Map#get expects one map and one key",
             ));
         }
+        if let Some(value) =
+            self.compile_map_literal_get_static_key(&map_arguments[0], &key_arguments[0], span)?
+        {
+            return Ok(value);
+        }
         let entries = self.static_map_entries_from_expr(&map_arguments[0], span)?;
         let before_static_scopes = self.static_scopes.clone();
         let key_preview = self.preview_static_value_after_effectful_eval(&key_arguments[0]);
@@ -6138,6 +6143,69 @@ impl NativeCodeGenerator {
             .map(|(_, value)| value.clone())
             .unwrap_or(StaticValue::Null);
         Ok(self.emit_static_value(&value))
+    }
+
+    fn compile_map_literal_get_static_key(
+        &mut self,
+        map: &Expr,
+        key: &Expr,
+        span: Span,
+    ) -> Result<Option<NativeValue>, Diagnostic> {
+        let Expr::MapLiteral { entries, .. } = map else {
+            return Ok(None);
+        };
+        if self
+            .preview_static_value_after_effectful_eval(key)
+            .is_none()
+        {
+            return Ok(None);
+        }
+
+        enum CompiledMapLiteralValue {
+            Native(NativeValue),
+            Scalar { value: NativeValue, slot: DataLabel },
+        }
+
+        let mut compiled_entries = Vec::with_capacity(entries.len());
+        for (entry_key, entry_value) in entries {
+            let entry_key = self.static_value_from_argument_preserving_effects(
+                entry_key,
+                span,
+                "native map key with non-static value",
+            )?;
+            let entry_value = self.compile_expr(entry_value)?;
+            let entry_value = if matches!(entry_value, NativeValue::Int | NativeValue::Bool) {
+                let slot = self.asm.data_label_with_i64s(&[0]);
+                self.emit_store_rax_to_data_slot(slot);
+                CompiledMapLiteralValue::Scalar {
+                    value: entry_value,
+                    slot,
+                }
+            } else {
+                CompiledMapLiteralValue::Native(entry_value)
+            };
+            compiled_entries.push((entry_key, entry_value));
+        }
+
+        let key = self.static_value_from_argument_preserving_effects(
+            key,
+            span,
+            "native Map#get for non-static key",
+        )?;
+        let Some((_, value)) = compiled_entries
+            .into_iter()
+            .find(|(entry_key, _)| self.static_value_equal_user(entry_key, &key))
+        else {
+            return Ok(Some(NativeValue::Null));
+        };
+        match value {
+            CompiledMapLiteralValue::Native(value) => Ok(Some(value)),
+            CompiledMapLiteralValue::Scalar { value, slot } => {
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                Ok(Some(value))
+            }
+        }
     }
 
     fn compile_static_map_get_runtime_string_callable_value(
