@@ -84,8 +84,8 @@ cargo run -- -e "1 + 2"
   `head` lookups including `tail` and `cons` chains, static `Map#get` / `.get`
   lookups with literal or folded static keys preserving those runtime return
   hints and record display paths, and runtime string/int/bool key
-  lookups from static maps when the
-  compatible values are all strings, ints, or booleans, plus block, cleanup,
+  lookups from static maps when the compatible values are strings, string lists,
+  ints, booleans, or supported static records, plus block, cleanup,
   and same-runtime-return conditional callees
   preserving those hints,
   immediate calls on conditional function values lowered to branch-local calls,
@@ -198,8 +198,8 @@ cargo run -- -e "1 + 2"
   settle back to static values can still use static collection membership.
   Static maps can lower `Map#get` / `.get` with runtime string/int/bool keys to
   native comparisons when the compatible values are uniformly string,
-  string-list, int, boolean, `null`, or `()`, or when every compatible entry
-  returns an equivalent static value, including the same callable value; a
+  string-list, int, boolean, supported static record, `null`, or `()`, or when
+  every compatible entry returns an equivalent static value, including the same callable value; a
   runtime key whose type has no compatible static keys returns static `null`.
   All-`null` compatible values also collapse to static `null`, because hits and
   misses are indistinguishable at the value level. Other runtime misses among

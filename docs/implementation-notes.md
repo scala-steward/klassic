@@ -65,7 +65,7 @@ storage across normal and recursive native calls,
 static helper evaluation for calls such as `size`, `head`, `tail`, `join`, `Map#get`,
 and method-style `parts.size()`, runtime-key `Map#get` selection from static maps
 when the key is a runtime string/int/bool and the selected values are strings,
-string lists, integers, or booleans, immediate runtime-key calls through static
+string lists, integers, booleans, or supported static records, immediate runtime-key calls through static
 map callable values such as `Map#get(fns, key)(...)` and `fns.get(key)(...)`,
 static-millisecond `sleep` through Linux
 and runtime integer-millisecond `sleep` through Linux `nanosleep`,

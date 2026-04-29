@@ -6573,6 +6573,17 @@ impl NativeCodeGenerator {
                 span,
             );
         }
+        if let Some(output) = self.prepare_runtime_map_get_record_output(
+            candidates.iter().map(|(_, value)| value),
+            span,
+        )? {
+            return self.compile_static_map_get_runtime_record_candidates(
+                candidates,
+                emit_match_condition,
+                output,
+                span,
+            );
+        }
         let value_kind =
             self.runtime_map_get_value_kind(candidates.iter().map(|(_, value)| value), span)?;
         let output = if matches!(
@@ -6664,6 +6675,78 @@ impl NativeCodeGenerator {
         }
         self.asm.bind_text_label(done);
         Ok(self.emit_static_value(&value))
+    }
+
+    fn prepare_runtime_map_get_record_output<'a>(
+        &mut self,
+        values: impl IntoIterator<Item = &'a StaticValue>,
+        span: Span,
+    ) -> Result<Option<RuntimeRecordBranchOutput>, Diagnostic> {
+        let mut values = values.into_iter();
+        let Some(StaticValue::StaticRecord { label }) = values.next() else {
+            return Ok(None);
+        };
+        if !self.static_record_can_use_runtime_storage(*label) {
+            return Ok(None);
+        }
+        let output = self.prepare_static_record_branch_output(*label, span)?;
+        for value in values {
+            let StaticValue::StaticRecord { label } = value else {
+                return Ok(None);
+            };
+            if !self.static_record_can_use_runtime_storage(*label) {
+                return Ok(None);
+            }
+            if !self.static_record_matches_runtime_record_shape(*label, output.label) {
+                return Err(unsupported(
+                    span,
+                    "native Map#get runtime key for mixed record values",
+                ));
+            }
+        }
+        Ok(Some(output))
+    }
+
+    fn compile_static_map_get_runtime_record_candidates<K>(
+        &mut self,
+        candidates: Vec<(K, StaticValue)>,
+        mut emit_match_condition: impl FnMut(&mut Self, K) -> Condition,
+        output: RuntimeRecordBranchOutput,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let done = self.asm.create_text_label();
+        let branches = candidates
+            .into_iter()
+            .map(|(entry_key, value)| {
+                let label = self.asm.create_text_label();
+                let condition = emit_match_condition(self, entry_key);
+                self.asm.jcc_label(condition, label);
+                (label, value)
+            })
+            .collect::<Vec<_>>();
+
+        self.emit_runtime_error(span, "Map#get runtime key was not found");
+        for (label, value) in branches {
+            self.asm.bind_text_label(label);
+            let StaticValue::StaticRecord { label } = value else {
+                return Err(unsupported(
+                    span,
+                    "native Map#get runtime key for non-record map value",
+                ));
+            };
+            self.emit_copy_static_record_to_branch_output(
+                label,
+                &output,
+                span,
+                "Map#get record result exceeds 65536 bytes",
+            )?;
+            self.asm.jmp_label(done);
+        }
+        self.asm.bind_text_label(done);
+
+        Ok(NativeValue::RuntimeRecord {
+            label: output.label,
+        })
     }
 
     fn runtime_map_get_value_kind<'a>(

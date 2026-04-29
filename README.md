@@ -259,6 +259,8 @@ Mutable runtime record bindings reuse the same field storage for compatible
 record assignments, including supported static-record initializers. Annotated
 record function parameters and returns use compatible field storage across
 normal and recursive native calls.
+Static maps can also return supported static records from runtime
+string/int/bool keys by copying the selected entry into runtime record storage.
 Static string-key maps, static string-valued maps, string sets,
 and scalar list/set/map entries can also answer
 `containsKey` / `containsValue` / `contains` queries from runtime strings,

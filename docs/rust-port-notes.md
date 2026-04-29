@@ -140,6 +140,9 @@ the module layout is described in `docs/architecture-rust.md`.
   runtime line-list membership queries.
 - Static collection membership also handles effectful query expressions that
   compile back to static values after preserving their effects.
+- Static maps can return supported static records for runtime string/int/bool
+  keys by copying the selected record into runtime field storage, preserving
+  field access, display, and equality on the lookup result.
 - Static maps of callable values support immediate runtime-key dispatch via
   `Map#get(fns, key)(...)` and `fns.get(key)(...)`, evaluating only the selected
   branch's call arguments at runtime and merging supported native return shapes.
