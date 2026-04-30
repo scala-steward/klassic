@@ -192,7 +192,11 @@ cargo run -- -e "1 + 2"
   branch's longest inner list. The outer-list padding template also accepts
   static records, static int-lists, and static lists, so divergent
   record-list and nested-list branches with different outer lengths can use
-  the same padding path.
+  the same padding path. A separate global `deep_min_capacity` tracks the
+  maximum list length found anywhere in either branch's nested list literals
+  and propagates uniformly to every nested level, so three-or-more-level
+  nested list branches with mismatched deepest inner lengths (such as
+  `[[[1, 2]]]` versus `[[[3, 4, 5]]]`) join through one padded buffer too.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

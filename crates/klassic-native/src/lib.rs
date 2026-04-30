@@ -8266,6 +8266,7 @@ impl NativeCodeGenerator {
         force_dynamic_len: bool,
         min_capacity: Option<usize>,
         inner_capacities: Option<&[usize]>,
+        deep_min_capacity: Option<usize>,
         span: Span,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
         if !Self::native_value_can_copy_to_runtime_list(value) {
@@ -8296,6 +8297,7 @@ impl NativeCodeGenerator {
         self.prepare_runtime_list_branch_output_from_elements_with_inner_caps(
             &elements,
             inner_capacities,
+            deep_min_capacity,
             force_dynamic_len,
             span,
         )
@@ -8411,6 +8413,7 @@ impl NativeCodeGenerator {
         self.prepare_runtime_list_branch_output_from_elements_with_inner_caps(
             elements,
             None,
+            None,
             force_dynamic_len,
             span,
         )
@@ -8420,6 +8423,7 @@ impl NativeCodeGenerator {
         &mut self,
         elements: &[CompiledLiteralValue],
         inner_capacities: Option<&[usize]>,
+        deep_min_capacity: Option<usize>,
         force_dynamic_len: bool,
         span: Span,
     ) -> Result<RuntimeListLabel, Diagnostic> {
@@ -8430,7 +8434,10 @@ impl NativeCodeGenerator {
             .map(|(index, value)| {
                 let cap = inner_capacities.and_then(|caps| caps.get(index).copied());
                 self.prepare_compiled_literal_branch_output_with_min_inner_capacity(
-                    value, cap, span,
+                    value,
+                    cap,
+                    deep_min_capacity,
+                    span,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -8442,18 +8449,11 @@ impl NativeCodeGenerator {
         Ok(self.intern_runtime_list_with_length(output, length))
     }
 
-    fn prepare_compiled_literal_branch_output(
-        &mut self,
-        value: CompiledLiteralValue,
-        span: Span,
-    ) -> Result<CompiledLiteralValue, Diagnostic> {
-        self.prepare_compiled_literal_branch_output_with_min_inner_capacity(value, None, span)
-    }
-
     fn prepare_compiled_literal_branch_output_with_min_inner_capacity(
         &mut self,
         value: CompiledLiteralValue,
         min_inner_capacity: Option<usize>,
+        deep_min_capacity: Option<usize>,
         span: Span,
     ) -> Result<CompiledLiteralValue, Diagnostic> {
         match value {
@@ -8493,8 +8493,13 @@ impl NativeCodeGenerator {
                     }))
                 }
                 NativeValue::StaticIntList { len, .. } => {
-                    let buffer_len = match min_inner_capacity {
-                        Some(cap) => cap.max(len),
+                    let cap = match (min_inner_capacity, deep_min_capacity) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (Some(a), None) | (None, Some(a)) => Some(a),
+                        (None, None) => None,
+                    };
+                    let buffer_len = match cap {
+                        Some(c) => c.max(len),
                         None => len,
                     };
                     let elements: Vec<CompiledLiteralValue> = (0..buffer_len)
@@ -8521,7 +8526,12 @@ impl NativeCodeGenerator {
                             unsupported(span, "native if runtime-list static-list branch value")
                         })?;
                     let mut inner_compiled = self.compile_static_literal_values(&static_elements);
-                    if let Some(cap) = min_inner_capacity {
+                    let cap = match (min_inner_capacity, deep_min_capacity) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (Some(a), None) | (None, Some(a)) => Some(a),
+                        (None, None) => None,
+                    };
+                    if let Some(cap) = cap {
                         if let Some(padded) =
                             self.pad_runtime_list_branch_elements(inner_compiled.clone(), cap)
                         {
@@ -8530,7 +8540,14 @@ impl NativeCodeGenerator {
                     }
                     let inner_output = inner_compiled
                         .into_iter()
-                        .map(|value| self.prepare_compiled_literal_branch_output(value, span))
+                        .map(|value| {
+                            self.prepare_compiled_literal_branch_output_with_min_inner_capacity(
+                                value,
+                                deep_min_capacity,
+                                deep_min_capacity,
+                                span,
+                            )
+                        })
                         .collect::<Result<Vec<_>, _>>()?;
                     let length = RuntimeListLength::Dynamic(self.asm.data_label_with_i64s(&[0]));
                     let new_label = self.intern_runtime_list_with_length(inner_output, length);
@@ -19042,6 +19059,38 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn expr_max_nested_list_length(&self, expr: &Expr) -> Option<usize> {
+        match expr {
+            Expr::ListLiteral { elements, .. } => {
+                let self_len = elements.len();
+                let inner_max = elements
+                    .iter()
+                    .filter_map(|e| self.expr_max_nested_list_length(e))
+                    .max()
+                    .unwrap_or(0);
+                Some(self_len.max(inner_max))
+            }
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|e| self.expr_max_nested_list_length(e)),
+            Expr::Cleanup { body, .. } => self.expr_max_nested_list_length(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let t = self.expr_max_nested_list_length(then_branch);
+                let e = self.expr_max_nested_list_length(else_branch);
+                match (t, e) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    (Some(a), None) | (None, Some(a)) => Some(a),
+                    (None, None) => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn expr_outer_list_inner_lengths(&self, expr: &Expr) -> Option<Vec<usize>> {
         match expr {
             Expr::ListLiteral { elements, .. } => elements
@@ -20322,11 +20371,21 @@ impl NativeCodeGenerator {
                     }
                     _ => None,
                 };
+                let deep_min_capacity = {
+                    let then_max = self.expr_max_nested_list_length(then_branch);
+                    let else_max = self.expr_max_nested_list_length(else_branch);
+                    match (then_max, else_max) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (Some(a), None) | (None, Some(a)) => Some(a),
+                        (None, None) => None,
+                    }
+                };
                 self.prepare_native_list_branch_output_with_min_capacity_and_inner_caps(
                     then_value,
                     branch_may_yield_runtime_list || lengths_differ,
                     min_capacity,
                     inner_capacities.as_deref(),
+                    deep_min_capacity,
                     span,
                 )?
             } else {
