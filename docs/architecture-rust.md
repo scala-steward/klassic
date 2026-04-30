@@ -176,7 +176,10 @@ cargo run -- -e "1 + 2"
   method-style `xs.map(f)` calls over static-list inputs, so
   `if(...) map([1, 2])(f) else map([3, 4, 5])(g)` and
   `if(...) [1, 2].map(f) else [10, 20, 30].map(g)` join through the runtime
-  buffer using each branch's known input length. The per-element branch buffer also promotes static
+  buffer using each branch's known input length. The same recognizer extends
+  to `map(xs)(f)` and `xs.map(f)` over runtime-list inputs, so a runtime-list
+  map result can be one branch of a dynamic if whose other branch is a static
+  list literal. The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
   `[#Pt(3, 4)]` join through the same runtime list of nested buffers. The

@@ -18995,22 +18995,46 @@ impl NativeCodeGenerator {
                     }
                 }
                 Expr::FieldAccess { target, field, .. } => {
-                    field == "tail"
+                    if field == "tail"
                         && arguments.is_empty()
                         && self.expr_may_yield_runtime_list(target)
+                    {
+                        return true;
+                    }
+                    if field == "map"
+                        && arguments.len() == 1
+                        && self.expr_may_yield_runtime_list(target)
+                    {
+                        return true;
+                    }
+                    false
                 }
                 Expr::Call {
                     callee: nested_callee,
                     arguments: head_arguments,
                     ..
                 } => {
-                    matches!(
+                    if matches!(
                         nested_callee.as_ref(),
                         Expr::Identifier { name, .. }
                             if self.builtin_name_for_identifier(name) == "cons"
                     ) && head_arguments.len() == 1
                         && arguments.len() == 1
                         && self.expr_may_yield_runtime_list(&arguments[0])
+                    {
+                        return true;
+                    }
+                    if matches!(
+                        nested_callee.as_ref(),
+                        Expr::Identifier { name, .. }
+                            if self.builtin_name_for_identifier(name) == "map"
+                    ) && head_arguments.len() == 1
+                        && arguments.len() == 1
+                        && self.expr_may_yield_runtime_list(&head_arguments[0])
+                    {
+                        return true;
+                    }
+                    false
                 }
                 _ => false,
             },
