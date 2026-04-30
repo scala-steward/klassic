@@ -319,6 +319,12 @@ cargo run -- -e "1 + 2"
   Static-list `map` and `foldLeft` can unroll lambdas with mutable prefix
   effects when their final result expression is still statically recoverable;
   method-style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same path.
+  When the mapper lambda's body references a dynamic captured local (its
+  result is not statically recoverable for at least one element), static-list
+  `map` lowers each element into a runtime list buffer and calls the mapper
+  per element through the runtime-list helper path, so `map([10, 20, 30])((x) => x + n)`
+  with a dynamic `n` and `map(["alpha", "beta"])((s) => s + suffix)` with a
+  dynamic `suffix` work in native builds.
   Static string/Map/Set helper calls may still fold their final helper result
   after emitting impure argument blocks, when those resulting argument values
   are statically recoverable.

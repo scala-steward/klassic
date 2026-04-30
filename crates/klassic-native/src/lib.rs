@@ -4039,6 +4039,20 @@ impl NativeCodeGenerator {
         Ok(self.emit_static_value(&value))
     }
 
+    fn lambda_body_references_dynamic_capture(&self, params: &[String], body: &Expr) -> bool {
+        let dynamic_names: HashSet<String> = self
+            .scopes
+            .iter()
+            .flat_map(|scope| scope.keys().cloned())
+            .filter(|name| !self.static_scopes.iter().any(|s| s.contains_key(name)))
+            .collect();
+        if dynamic_names.is_empty() {
+            return false;
+        }
+        let shadowed: HashSet<String> = params.iter().cloned().collect();
+        expr_references_any_name_with_shadowing(body, &dynamic_names, &shadowed)
+    }
+
     fn head_arg_is_statically_known(&mut self, expr: &Expr) -> bool {
         if self.static_value_from_pure_expr(expr).is_some() {
             return true;
@@ -4094,6 +4108,27 @@ impl NativeCodeGenerator {
                         len: mapped.len(),
                     });
                 }
+                if let Expr::Lambda { params, body, .. } = mapper
+                    && self.lambda_body_references_dynamic_capture(params, body)
+                {
+                    let compiled: Vec<CompiledLiteralValue> = elements
+                        .iter()
+                        .map(|&value| {
+                            let slot = self.asm.data_label_with_i64s(&[value]);
+                            CompiledLiteralValue::Scalar {
+                                value: NativeValue::Int,
+                                slot,
+                            }
+                        })
+                        .collect();
+                    return self.compile_compiled_literal_values_map(
+                        compiled,
+                        None,
+                        mapper,
+                        span,
+                        "static int list",
+                    );
+                }
                 let mut mapped = Vec::with_capacity(elements.len());
                 for value in elements {
                     mapped.push(
@@ -4114,6 +4149,18 @@ impl NativeCodeGenerator {
                     .get(label.0)
                     .map(|list| list.elements.clone())
                     .unwrap_or_default();
+                if let Expr::Lambda { params, body, .. } = mapper
+                    && self.lambda_body_references_dynamic_capture(params, body)
+                {
+                    let compiled = self.compile_static_literal_values(&elements);
+                    return self.compile_compiled_literal_values_map(
+                        compiled,
+                        None,
+                        mapper,
+                        span,
+                        "static list",
+                    );
+                }
                 let mut mapped = Vec::with_capacity(elements.len());
                 for value in elements {
                     mapped.push(
