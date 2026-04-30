@@ -154,7 +154,12 @@ cargo run -- -e "1 + 2"
   runtime line-list branch results are materialized into shared fixed runtime
   buffers so the selected value can flow past the join, and divergent static
   string-list branches can join with each other or with runtime line-list
-  branches through the same buffer. Divergent static list-like branches whose
+  branches through the same buffer. When neither branch directly yields a
+  runtime line-list (both branches are static string-list literals), the
+  join prefers the runtime-list buffer over the line-list buffer so
+  downstream `map` / `foldLeft` callers can return non-string results
+  through the runtime-list helper path.
+  Divergent static list-like branches whose
   element types match (for example, two `Int` lists or two `String` lists of
   the same length) are also materialized through a runtime-list buffer so the
   joined value flows past the join. Divergent integer-list branches with

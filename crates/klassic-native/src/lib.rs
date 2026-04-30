@@ -20231,6 +20231,11 @@ impl NativeCodeGenerator {
         } else {
             None
         };
+        let branches_yield_runtime_lines_directly =
+            else_branch.as_deref().is_some_and(|else_branch| {
+                self.expr_may_yield_runtime_lines_list(then_branch)
+                    || self.expr_may_yield_runtime_lines_list(else_branch)
+            });
         let condition_value = self.compile_expr(condition)?;
         if condition_value != NativeValue::Bool {
             return Err(unsupported(span, "native if condition for non-Bool"));
@@ -20464,6 +20469,10 @@ impl NativeCodeGenerator {
             && self.native_string_ref(else_value).is_some()
         {
             Ok(NativeValue::RuntimeString { data, len })
+        } else if let Some(output) = branch_runtime_list_output
+            && !branches_yield_runtime_lines_directly
+        {
+            Ok(NativeValue::RuntimeList { label: output })
         } else if let Some((data, len)) = branch_lines_output
             && self.native_value_is_lines_list_compatible(then_value)
             && self.native_value_is_lines_list_compatible(else_value)
