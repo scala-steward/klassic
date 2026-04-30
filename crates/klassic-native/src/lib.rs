@@ -19089,6 +19089,8 @@ impl NativeCodeGenerator {
                     if field == "tail" && arguments.is_empty() {
                         let inner = self.expr_static_list_length_hint(target)?;
                         Some(inner.saturating_sub(1))
+                    } else if field == "map" && arguments.len() == 1 {
+                        self.expr_static_list_length_hint(target)
                     } else {
                         None
                     }
@@ -19173,9 +19175,19 @@ impl NativeCodeGenerator {
                         && self.expr_may_yield_static_list_like(&arguments[0])
                 }
                 Expr::FieldAccess { target, field, .. } => {
-                    field == "tail"
+                    if field == "tail"
                         && arguments.is_empty()
                         && self.expr_may_yield_static_list_like(target)
+                    {
+                        return true;
+                    }
+                    if field == "map"
+                        && arguments.len() == 1
+                        && self.expr_may_yield_static_list_like(target)
+                    {
+                        return true;
+                    }
+                    false
                 }
                 Expr::Call {
                     callee: nested_callee,

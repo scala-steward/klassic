@@ -167,9 +167,11 @@ cargo run -- -e "1 + 2"
   observes. The branch shape detector and length predictor recognize `cons`
   and `tail` over static lists, so branches like `cons(99)([1, 2, 3])` versus
   `[4, 5]` and `tail([1, 2, 3])` versus `[40, 50, 60]` route through the same
-  runtime-list buffer. The detector also accepts `map(...)(...)` calls over
-  static-list inputs, so `if(...) map([1, 2])(f) else map([3, 4, 5])(g)` joins
-  through the runtime buffer using each branch's known input length. The per-element branch buffer also promotes static
+  runtime-list buffer. The detector also accepts `map(...)(...)` calls and
+  method-style `xs.map(f)` calls over static-list inputs, so
+  `if(...) map([1, 2])(f) else map([3, 4, 5])(g)` and
+  `if(...) [1, 2].map(f) else [10, 20, 30].map(g)` join through the runtime
+  buffer using each branch's known input length. The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
   `[#Pt(3, 4)]` join through the same runtime list of nested buffers. The
