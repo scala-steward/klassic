@@ -174,7 +174,13 @@ cargo run -- -e "1 + 2"
   per-position inner-length predictor pairs each outer-list position from
   both branches, takes the maximum inner length, and sizes the inner runtime
   list buffer accordingly, so `[[1, 2, 3], [4]]` and `[[5], [6, 7, 8]]` join
-  even though their per-position inner lengths differ.
+  even though their per-position inner lengths differ. When the outer
+  branches have different lengths, the predictor falls back to the global
+  maximum inner length so every padded outer slot can still hold either
+  branch's longest inner list. The outer-list padding template also accepts
+  static records, static int-lists, and static lists, so divergent
+  record-list and nested-list branches with different outer lengths can use
+  the same padding path.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

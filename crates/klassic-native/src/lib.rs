@@ -8085,6 +8085,9 @@ impl NativeCodeGenerator {
                     let label = self.asm.data_label_with_bytes(b"");
                     CompiledLiteralValue::Native(NativeValue::StaticString { label, len: 0 })
                 }
+                CompiledLiteralValue::Native(NativeValue::StaticRecord { .. })
+                | CompiledLiteralValue::Native(NativeValue::StaticIntList { .. })
+                | CompiledLiteralValue::Native(NativeValue::StaticList { .. }) => template,
                 CompiledLiteralValue::Native(_) => return None,
             };
             elements.push(extra);
@@ -20000,6 +20003,10 @@ impl NativeCodeGenerator {
                 {
                     (Some(t), Some(e)) if t.len() == e.len() => {
                         Some(t.into_iter().zip(e).map(|(a, b)| a.max(b)).collect())
+                    }
+                    (Some(t), Some(e)) => {
+                        let max_inner = t.iter().chain(e.iter()).copied().max().unwrap_or(0);
+                        Some(vec![max_inner; t.len().max(e.len())])
                     }
                     _ => None,
                 };
