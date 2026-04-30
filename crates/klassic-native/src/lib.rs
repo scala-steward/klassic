@@ -19106,10 +19106,18 @@ impl NativeCodeGenerator {
                         && arguments.len() == 1
                     {
                         let tail_len = self.expr_static_list_length_hint(&arguments[0])?;
-                        Some(tail_len + 1)
-                    } else {
-                        None
+                        return Some(tail_len + 1);
                     }
+                    if matches!(
+                        nested_callee.as_ref(),
+                        Expr::Identifier { name, .. }
+                            if self.builtin_name_for_identifier(name) == "map"
+                    ) && head_arguments.len() == 1
+                        && arguments.len() == 1
+                    {
+                        return self.expr_static_list_length_hint(&head_arguments[0]);
+                    }
+                    None
                 }
                 _ => None,
             },
@@ -19174,13 +19182,27 @@ impl NativeCodeGenerator {
                     arguments: head_arguments,
                     ..
                 } => {
-                    matches!(
+                    if matches!(
                         nested_callee.as_ref(),
                         Expr::Identifier { name, .. }
                             if self.builtin_name_for_identifier(name) == "cons"
                     ) && head_arguments.len() == 1
                         && arguments.len() == 1
                         && self.expr_may_yield_static_list_like(&arguments[0])
+                    {
+                        return true;
+                    }
+                    if matches!(
+                        nested_callee.as_ref(),
+                        Expr::Identifier { name, .. }
+                            if self.builtin_name_for_identifier(name) == "map"
+                    ) && head_arguments.len() == 1
+                        && arguments.len() == 1
+                        && self.expr_may_yield_static_list_like(&head_arguments[0])
+                    {
+                        return true;
+                    }
+                    false
                 }
                 _ => false,
             },
