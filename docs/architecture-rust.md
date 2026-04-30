@@ -170,7 +170,11 @@ cargo run -- -e "1 + 2"
   runtime-list buffer. The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
-  `[#Pt(3, 4)]` join through the same runtime list of nested buffers.
+  `[#Pt(3, 4)]` join through the same runtime list of nested buffers. The
+  per-position inner-length predictor pairs each outer-list position from
+  both branches, takes the maximum inner length, and sizes the inner runtime
+  list buffer accordingly, so `[[1, 2, 3], [4]]` and `[[5], [6, 7, 8]]` join
+  even though their per-position inner lengths differ.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

@@ -2704,6 +2704,76 @@ println(size(differentOuter))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_dynamic_if_nested_int_list_branches_with_different_inner_lengths() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-if-nested-inner-len-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-if-nested-inner-len-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        r#"val key = head(args())
+val xs: List<List<Int>> = if(key == "left") [[1, 2, 3], [4]] else [[5], [6, 7, 8]]
+println(head(xs))
+println(head(tail(xs)))
+println(size(xs))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic if nested-inner-len build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let left_run = Command::new(&output_path)
+        .arg("left")
+        .output()
+        .expect("generated executable should run left");
+    let right_run = Command::new(&output_path)
+        .arg("right")
+        .output()
+        .expect("generated executable should run right");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(left_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&left_run.stdout),
+        "[1, 2, 3]\n[4]\n2\n"
+    );
+    assert!(left_run.stderr.is_empty());
+
+    assert!(right_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&right_run.stdout),
+        "[5]\n[6, 7, 8]\n2\n"
+    );
+    assert!(right_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_record_list_branches() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
