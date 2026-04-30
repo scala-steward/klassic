@@ -8605,19 +8605,26 @@ impl NativeCodeGenerator {
         Some(elements)
     }
 
-    fn prepare_mutable_runtime_list_output(
+    fn prepare_mutable_runtime_list_output_with_growth(
         &mut self,
         value: NativeValue,
+        growth: usize,
         span: Span,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
         if !Self::native_value_can_copy_to_runtime_list(value) {
             return Ok(None);
         }
-        let elements = self.compiled_literal_values_from_list_native(
+        let mut elements = self.compiled_literal_values_from_list_native(
             value,
             span,
             "native mutable runtime-list binding",
         )?;
+        if growth > 0 {
+            let target = elements.len() + growth;
+            if let Some(padded) = self.pad_runtime_list_branch_elements(elements.clone(), target) {
+                elements = padded;
+            }
+        }
         self.prepare_runtime_list_output_from_candidate_elements(
             vec![elements],
             true,
@@ -8632,11 +8639,22 @@ impl NativeCodeGenerator {
         names: &HashSet<String>,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        self.materialize_assigned_runtime_list_storage_with_growth(names, 0, span)
+    }
+
+    fn materialize_assigned_runtime_list_storage_with_growth(
+        &mut self,
+        names: &HashSet<String>,
+        growth: usize,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
         for name in names {
             let Some(slot) = self.lookup_var(name) else {
                 continue;
             };
-            let Some(output) = self.prepare_mutable_runtime_list_output(slot.value, span)? else {
+            let Some(output) =
+                self.prepare_mutable_runtime_list_output_with_growth(slot.value, growth, span)?
+            else {
                 continue;
             };
             self.emit_copy_native_list_to_runtime_list_output(
@@ -21111,6 +21129,12 @@ impl NativeCodeGenerator {
         let iterable_value = self.compile_expr(iterable)?;
         match iterable_value {
             NativeValue::StaticIntList { label, len } => {
+                let assigned_names = assigned_names_in_expr(body);
+                self.materialize_assigned_runtime_list_storage_with_growth(
+                    &assigned_names,
+                    len,
+                    span,
+                )?;
                 for element in self.asm.i64s_for_label(label, len) {
                     self.push_scope();
                     self.asm.mov_imm64(Reg::Rax, element as u64);
@@ -21131,6 +21155,12 @@ impl NativeCodeGenerator {
                     .get(label.0)
                     .map(|list| list.elements.clone())
                     .unwrap_or_default();
+                let assigned_names = assigned_names_in_expr(body);
+                self.materialize_assigned_runtime_list_storage_with_growth(
+                    &assigned_names,
+                    elements.len(),
+                    span,
+                )?;
                 for element in elements {
                     self.push_scope();
                     self.bind_static_iteration_value(binding, &element);

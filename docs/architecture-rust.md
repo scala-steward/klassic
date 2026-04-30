@@ -337,6 +337,12 @@ cargo run -- -e "1 + 2"
   native folds run. Runtime-list locals assigned in those loops are copied into
   mutable selected-length storage before the loop begins, allowing assignments
   to update the visible list length within the materialized capacity.
+  Static-list `foreach` (over `StaticIntList` or `StaticList`) also pre-grows
+  any mutable runtime-list bindings assigned in its body by the iterable's
+  length, so loops that cons each iteration's value onto a mutable list, such
+  as `mutable acc: List<Int> = []; foreach(x in xs) { acc = cons(x)(acc) }`,
+  fit within the materialized capacity even when the body's `if` arms differ
+  in resulting length.
   Static-list `map` and `foldLeft` can unroll lambdas with mutable prefix
   effects when their final result expression is still statically recoverable;
   method-style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same path.

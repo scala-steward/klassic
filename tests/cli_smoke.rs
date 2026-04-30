@@ -3226,6 +3226,88 @@ println(gtFour)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_foreach_growing_mutable_list_via_cons() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-foreach-mutable-cons-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-foreach-mutable-cons-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+mutable result: List<Int> = []
+mutable filtered: List<Int> = []
+val xs: List<Int> = [1, 2, 3, 4, 5]
+foreach(x in xs) {
+  result = (if(arg == "a") cons(x)(result) else if(x > 2) cons(x * 10)(result) else result)
+}
+foreach(x in xs) {
+  if(x > 2) {
+    filtered = cons(x)(filtered)
+  }
+}
+mutable strs: List<String> = []
+foreach(s in ["alpha", "beta", "gamma"]) {
+  strs = cons(s + "!")(strs)
+}
+println(result)
+println(filtered)
+println(strs)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "foreach mutable cons build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&a_run.stdout),
+        "[5, 4, 3, 2, 1]\n[5, 4, 3]\n[gamma!, beta!, alpha!]\n"
+    );
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&b_run.stdout),
+        "[50, 40, 30]\n[5, 4, 3]\n[gamma!, beta!, alpha!]\n"
+    );
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
