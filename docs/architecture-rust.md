@@ -326,7 +326,10 @@ cargo run -- -e "1 + 2"
   path, so `map([10, 20, 30])((x) => x + n)` with a dynamic `n`,
   `map(["alpha", "beta"])((s) => s + suffix)` with a dynamic `suffix`, and
   `foldLeft([1, 2, 3])(0)((acc, x) => acc + x * n)` with a dynamic `n` work
-  in native builds.
+  in native builds. The dynamic-capture detector is transitive across
+  user-defined function calls, so `def addN(x) = x + n; map(xs)(addN)` and
+  `foldLeft(xs)(0)((acc, x) => addN(x) + acc)` are both routed through the
+  runtime path when `n` is dynamic.
   Static string/Map/Set helper calls may still fold their final helper result
   after emitting impure argument blocks, when those resulting argument values
   are statically recoverable.

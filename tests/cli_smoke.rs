@@ -2857,6 +2857,81 @@ println(counter)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_static_list_helpers_with_transitive_dynamic_capture() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-static-list-transitive-cap-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-static-list-transitive-cap-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val n: Int = if(arg == "a") 10 else 20
+def addN(x: Int): Int = x + n
+def square(x: Int): Int = addN(x * x)
+val mapped = map([1, 2, 3])(addN)
+val nested = map([1, 2, 3])(square)
+val total = foldLeft([1, 2, 3])(0)((acc, x) => addN(x) + acc)
+println(mapped)
+println(nested)
+println(total)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "static list transitive capture build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&a_run.stdout),
+        "[11, 12, 13]\n[11, 14, 19]\n36\n",
+    );
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&b_run.stdout),
+        "[21, 22, 23]\n[21, 24, 29]\n66\n",
+    );
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_nested_static_int_list_branches() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

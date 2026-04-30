@@ -4053,6 +4053,132 @@ impl NativeCodeGenerator {
         expr_references_any_name_with_shadowing(body, &dynamic_names, &shadowed)
     }
 
+    fn callable_references_dynamic_capture(&self, callable: &Expr) -> bool {
+        match callable {
+            Expr::Lambda { params, body, .. } => {
+                self.lambda_or_callee_references_dynamic_capture(params, body)
+            }
+            Expr::Identifier { name, .. } => self.function_references_dynamic_capture(name),
+            _ => false,
+        }
+    }
+
+    fn lambda_or_callee_references_dynamic_capture(&self, params: &[String], body: &Expr) -> bool {
+        if self.lambda_body_references_dynamic_capture(params, body) {
+            return true;
+        }
+        let mut visited = HashSet::new();
+        self.expr_calls_dynamic_capturing_function(body, &mut visited)
+    }
+
+    fn function_references_dynamic_capture(&self, name: &str) -> bool {
+        let Some(function) = self.functions.get(name) else {
+            return false;
+        };
+        if self.lambda_body_references_dynamic_capture(&function.params, &function.body) {
+            return true;
+        }
+        let mut visited = HashSet::new();
+        visited.insert(name.to_string());
+        self.expr_calls_dynamic_capturing_function(&function.body, &mut visited)
+    }
+
+    fn expr_calls_dynamic_capturing_function(
+        &self,
+        expr: &Expr,
+        visited: &mut HashSet<String>,
+    ) -> bool {
+        match expr {
+            Expr::Call {
+                callee, arguments, ..
+            } => {
+                if let Expr::Identifier { name, .. } = callee.as_ref() {
+                    if let Some(function) = self.functions.get(name) {
+                        if !visited.contains(name) {
+                            visited.insert(name.clone());
+                            if self.lambda_body_references_dynamic_capture(
+                                &function.params,
+                                &function.body,
+                            ) {
+                                return true;
+                            }
+                            if self.expr_calls_dynamic_capturing_function(&function.body, visited) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                if self.expr_calls_dynamic_capturing_function(callee, visited) {
+                    return true;
+                }
+                arguments
+                    .iter()
+                    .any(|argument| self.expr_calls_dynamic_capturing_function(argument, visited))
+            }
+            Expr::Block { expressions, .. } => expressions
+                .iter()
+                .any(|expression| self.expr_calls_dynamic_capturing_function(expression, visited)),
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_calls_dynamic_capturing_function(condition, visited)
+                    || self.expr_calls_dynamic_capturing_function(then_branch, visited)
+                    || else_branch.as_deref().is_some_and(|branch| {
+                        self.expr_calls_dynamic_capturing_function(branch, visited)
+                    })
+            }
+            Expr::Binary { lhs, rhs, .. } => {
+                self.expr_calls_dynamic_capturing_function(lhs, visited)
+                    || self.expr_calls_dynamic_capturing_function(rhs, visited)
+            }
+            Expr::Unary { expr, .. } | Expr::FieldAccess { target: expr, .. } => {
+                self.expr_calls_dynamic_capturing_function(expr, visited)
+            }
+            Expr::Cleanup { body, cleanup, .. } => {
+                self.expr_calls_dynamic_capturing_function(body, visited)
+                    || self.expr_calls_dynamic_capturing_function(cleanup, visited)
+            }
+            Expr::While {
+                condition, body, ..
+            } => {
+                self.expr_calls_dynamic_capturing_function(condition, visited)
+                    || self.expr_calls_dynamic_capturing_function(body, visited)
+            }
+            Expr::Foreach { iterable, body, .. } => {
+                self.expr_calls_dynamic_capturing_function(iterable, visited)
+                    || self.expr_calls_dynamic_capturing_function(body, visited)
+            }
+            Expr::VarDecl { value, .. } | Expr::Assign { value, .. } => {
+                self.expr_calls_dynamic_capturing_function(value, visited)
+            }
+            Expr::Lambda { body, .. } | Expr::DefDecl { body, .. } => {
+                self.expr_calls_dynamic_capturing_function(body, visited)
+            }
+            Expr::ListLiteral {
+                elements: arguments,
+                ..
+            }
+            | Expr::SetLiteral {
+                elements: arguments,
+                ..
+            }
+            | Expr::RecordConstructor { arguments, .. } => arguments
+                .iter()
+                .any(|argument| self.expr_calls_dynamic_capturing_function(argument, visited)),
+            Expr::RecordLiteral { fields, .. } => fields
+                .iter()
+                .any(|(_, value)| self.expr_calls_dynamic_capturing_function(value, visited)),
+            Expr::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
+                self.expr_calls_dynamic_capturing_function(key, visited)
+                    || self.expr_calls_dynamic_capturing_function(value, visited)
+            }),
+            _ => false,
+        }
+    }
+
     fn head_arg_is_statically_known(&mut self, expr: &Expr) -> bool {
         if self.static_value_from_pure_expr(expr).is_some() {
             return true;
@@ -4108,9 +4234,7 @@ impl NativeCodeGenerator {
                         len: mapped.len(),
                     });
                 }
-                if let Expr::Lambda { params, body, .. } = mapper
-                    && self.lambda_body_references_dynamic_capture(params, body)
-                {
+                if self.callable_references_dynamic_capture(mapper) {
                     let compiled: Vec<CompiledLiteralValue> = elements
                         .iter()
                         .map(|&value| {
@@ -4149,9 +4273,7 @@ impl NativeCodeGenerator {
                     .get(label.0)
                     .map(|list| list.elements.clone())
                     .unwrap_or_default();
-                if let Expr::Lambda { params, body, .. } = mapper
-                    && self.lambda_body_references_dynamic_capture(params, body)
-                {
+                if self.callable_references_dynamic_capture(mapper) {
                     let compiled = self.compile_static_literal_values(&elements);
                     return self.compile_compiled_literal_values_map(
                         compiled,
@@ -4595,9 +4717,7 @@ impl NativeCodeGenerator {
                         return Ok(NativeValue::Int);
                     }
                 }
-                if let Expr::Lambda { params, body, .. } = reducer
-                    && self.lambda_body_references_dynamic_capture(params, body)
-                {
+                if self.callable_references_dynamic_capture(reducer) {
                     let elements_i64 = self.asm.i64s_for_label(label, len);
                     let compiled: Vec<CompiledLiteralValue> = elements_i64
                         .iter()
@@ -4639,9 +4759,7 @@ impl NativeCodeGenerator {
                     .get(label.0)
                     .map(|list| list.elements.clone())
                     .unwrap_or_default();
-                if let Expr::Lambda { params, body, .. } = reducer
-                    && self.lambda_body_references_dynamic_capture(params, body)
-                {
+                if self.callable_references_dynamic_capture(reducer) {
                     let compiled = self.compile_static_literal_values(&elements);
                     return self.compile_compiled_literal_values_fold_left(
                         compiled,
