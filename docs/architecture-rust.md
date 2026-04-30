@@ -158,7 +158,12 @@ cargo run -- -e "1 + 2"
   runtime line-list (both branches are static string-list literals), the
   join prefers the runtime-list buffer over the line-list buffer so
   downstream `map` / `foldLeft` callers can return non-string results
-  through the runtime-list helper path.
+  through the runtime-list helper path. When the input source is itself a
+  runtime line-list (for example, `FileInput#lines` joined with a static
+  string list), `map` over the line list also accepts non-string scalar
+  mapper bodies whose return type is provably `Int` or `Boolean`; the
+  scalar-output path materializes the result into a fixed runtime list of
+  back-to-back `i64` slots indexed at runtime.
   Divergent static list-like branches whose
   element types match (for example, two `Int` lists or two `String` lists of
   the same length) are also materialized through a runtime-list buffer so the

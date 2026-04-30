@@ -3145,6 +3145,87 @@ println(method)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_lines_map_to_scalar_list() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-lines-scalar-{unique}.kl"));
+    let lines_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-lines-scalar-{unique}.txt"));
+    let lines_path_holder = std::env::temp_dir().join(format!(
+        "klassic-native-runtime-lines-scalar-path-{unique}.txt"
+    ));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-lines-scalar-{unique}"));
+    fs::write(&lines_path_holder, lines_path.to_string_lossy().as_bytes())
+        .expect("lines path holder should write");
+    fs::write(&lines_path, "alpha\nbeta\ngamma").expect("lines should write");
+    let source = format!(
+        r#"val pathHolder = "{}"
+val linesPath = FileInput#all(pathHolder)
+val runtimeLines = FileInput#lines(linesPath)
+val branched = if(head(args()) == "left") runtimeLines else ["short", "tiny"]
+val lengths = map(branched)((s) => length(s))
+val gtFour = map(branched)((s) => length(s) > 4)
+println(lengths)
+println(gtFour)
+"#,
+        lines_path_holder.display()
+    );
+    fs::write(&source_path, source).expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime lines scalar map build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let left_run = Command::new(&output_path)
+        .arg("left")
+        .output()
+        .expect("generated executable should run left");
+    let right_run = Command::new(&output_path)
+        .arg("right")
+        .output()
+        .expect("generated executable should run right");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&lines_path_holder);
+    let _ = fs::remove_file(&lines_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(left_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&left_run.stdout),
+        "[5, 4, 5]\n[true, false, true]\n"
+    );
+    assert!(left_run.stderr.is_empty());
+
+    assert!(right_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&right_run.stdout),
+        "[5, 4]\n[true, false]\n"
+    );
+    assert!(right_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

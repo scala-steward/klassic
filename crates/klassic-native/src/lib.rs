@@ -4434,6 +4434,15 @@ impl NativeCodeGenerator {
         mapper: &Expr,
         span: Span,
     ) -> Result<NativeValue, Diagnostic> {
+        if let Expr::Lambda { body, .. } = mapper
+            && matches!(
+                self.lambda_body_scalar_return_hint(body),
+                Some(NativeValue::Int) | Some(NativeValue::Bool)
+            )
+            && !self.expr_may_yield_native_string(body)
+        {
+            return self.compile_runtime_lines_map_to_runtime_scalar_list(input, mapper, span);
+        }
         let mapper = self.compile_runtime_line_lambda(
             mapper,
             1,
@@ -4585,6 +4594,256 @@ impl NativeCodeGenerator {
             self.remove_static_value(&name);
         }
         result
+    }
+
+    fn lambda_body_scalar_return_hint(&mut self, body: &Expr) -> Option<NativeValue> {
+        match body {
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|e| self.lambda_body_scalar_return_hint(e)),
+            Expr::Cleanup { body, .. } => self.lambda_body_scalar_return_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let t = self.lambda_body_scalar_return_hint(then_branch)?;
+                let e = self.lambda_body_scalar_return_hint(else_branch)?;
+                (t == e).then_some(t)
+            }
+            Expr::Call { callee, .. } => {
+                if let Expr::Identifier { name, .. } = callee.as_ref() {
+                    Self::builtin_scalar_return_hint(&self.builtin_name_for_identifier(name))
+                } else if let Expr::FieldAccess { field, .. } = callee.as_ref() {
+                    Self::builtin_scalar_return_hint(field)
+                } else {
+                    None
+                }
+            }
+            Expr::Binary { op, lhs, rhs, .. } => match op {
+                BinaryOp::Add => {
+                    if self.expr_may_yield_native_string(lhs)
+                        || self.expr_may_yield_native_string(rhs)
+                    {
+                        None
+                    } else {
+                        Some(NativeValue::Int)
+                    }
+                }
+                BinaryOp::Subtract
+                | BinaryOp::Multiply
+                | BinaryOp::Divide
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor => Some(NativeValue::Int),
+                BinaryOp::Equal
+                | BinaryOp::NotEqual
+                | BinaryOp::Less
+                | BinaryOp::LessEqual
+                | BinaryOp::Greater
+                | BinaryOp::GreaterEqual
+                | BinaryOp::LogicalAnd
+                | BinaryOp::LogicalOr => Some(NativeValue::Bool),
+            },
+            Expr::Int { .. } => Some(NativeValue::Int),
+            Expr::Bool { .. } => Some(NativeValue::Bool),
+            _ => None,
+        }
+    }
+
+    fn compile_runtime_lines_map_to_runtime_scalar_list(
+        &mut self,
+        input: NativeStringRef,
+        mapper: &Expr,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        let mapper = self.compile_runtime_line_lambda(
+            mapper,
+            1,
+            span,
+            "native map over runtime lines for non-lambda mapper",
+            "native map over runtime lines for this mapper arity",
+        )?;
+        if mapper.contains_thread_call {
+            return Err(unsupported(
+                span,
+                "native map over runtime lines with thread mapper",
+            ));
+        }
+        let [param] = mapper.params.as_slice() else {
+            return Err(unsupported(
+                span,
+                "native map over runtime lines for this mapper arity",
+            ));
+        };
+
+        const RUNTIME_STRING_CAP: usize = 65_536;
+        const MAX_OUTPUT_LINES: usize = 8192;
+
+        let line_data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
+        let line_len = self.asm.data_label_with_i64s(&[0]);
+        let cursor = self.asm.data_label_with_i64s(&[0]);
+        let output_index = self.asm.data_label_with_i64s(&[0]);
+
+        let slot_labels: Vec<DataLabel> = (0..MAX_OUTPUT_LINES)
+            .map(|_| self.asm.data_label_with_i64s(&[0]))
+            .collect();
+        let first_slot = slot_labels[0];
+        let output_len = self.asm.data_label_with_i64s(&[0]);
+
+        self.asm.mov_imm64(Reg::R8, 0);
+        self.asm.mov_data_addr(Reg::Rax, cursor);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R8);
+        self.asm.mov_data_addr(Reg::Rax, output_index);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R8);
+
+        let saved_static_scopes = self.static_scopes.clone();
+        self.static_scopes = vec![HashMap::new(); saved_static_scopes.len()];
+        let assigned_names = assigned_names_in_expr(&mapper.body);
+
+        let mut output_value_kind = NativeValue::Int;
+
+        let result = (|| -> Result<NativeValue, Diagnostic> {
+            let loop_label = self.asm.create_text_label();
+            let done = self.asm.create_text_label();
+            let scan = self.asm.create_text_label();
+            let segment_end = self.asm.create_text_label();
+            let copy_loop = self.asm.create_text_label();
+            let copied = self.asm.create_text_label();
+            let consumed_at_end = self.asm.create_text_label();
+            let body_label = self.asm.create_text_label();
+
+            self.asm.bind_text_label(loop_label);
+            self.asm.mov_data_addr(Reg::Rsi, input.data);
+            self.emit_load_native_string_len(Reg::Rdx, input.len);
+            self.asm.mov_data_addr(Reg::Rax, cursor);
+            self.asm.load_ptr_disp32(Reg::R9, Reg::Rax, 0);
+            self.asm.cmp_reg_reg(Reg::R9, Reg::Rdx);
+            self.asm.jcc_label(Condition::GreaterEqual, done);
+            self.asm.mov_reg_reg(Reg::R8, Reg::R9);
+
+            self.asm.bind_text_label(scan);
+            self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
+            self.asm.jcc_label(Condition::Equal, segment_end);
+            self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R8);
+            self.asm.cmp_reg_imm8(Reg::Rax, b'\n' as i8);
+            self.asm.jcc_label(Condition::Equal, segment_end);
+            self.asm.inc_reg(Reg::R8);
+            self.asm.jmp_label(scan);
+
+            self.asm.bind_text_label(segment_end);
+            self.asm.mov_imm64(Reg::R10, 0);
+            self.asm.bind_text_label(copy_loop);
+            self.asm.cmp_reg_reg(Reg::R9, Reg::R8);
+            self.asm.jcc_label(Condition::Equal, copied);
+            self.emit_runtime_buffer_capacity_check(
+                Reg::R10,
+                RUNTIME_STRING_CAP,
+                span,
+                "map runtime line exceeds 65536 bytes",
+            );
+            self.asm.movzx_byte_indexed(Reg::Rax, Reg::Rsi, Reg::R9);
+            self.asm.mov_data_addr(Reg::Rbx, line_data);
+            self.asm.mov_byte_indexed_reg8(Reg::Rbx, Reg::R10, Reg8::Al);
+            self.asm.inc_reg(Reg::R9);
+            self.asm.inc_reg(Reg::R10);
+            self.asm.jmp_label(copy_loop);
+
+            self.asm.bind_text_label(copied);
+            self.asm.mov_data_addr(Reg::Rax, line_len);
+            self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R10);
+            self.asm.cmp_reg_reg(Reg::R8, Reg::Rdx);
+            self.asm.jcc_label(Condition::Equal, consumed_at_end);
+            self.asm.inc_reg(Reg::R8);
+            self.asm.jmp_label(body_label);
+
+            self.asm.bind_text_label(consumed_at_end);
+            self.asm.mov_reg_reg(Reg::R8, Reg::Rdx);
+
+            self.asm.bind_text_label(body_label);
+            self.asm.mov_data_addr(Reg::Rax, cursor);
+            self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R8);
+
+            self.dynamic_control_depth += 1;
+            self.push_scope();
+            self.bind_runtime_line_lambda_captures(&mapper);
+            self.bind_constant(
+                param.clone(),
+                NativeValue::RuntimeString {
+                    data: line_data,
+                    len: line_len,
+                },
+            );
+            let mapped = self.compile_expr(&mapper.body);
+            self.pop_scope();
+            self.dynamic_control_depth -= 1;
+            let mapped = mapped?;
+
+            if !matches!(mapped, NativeValue::Int | NativeValue::Bool) {
+                return Err(unsupported(
+                    span,
+                    "native map over runtime lines for non-scalar mapper result",
+                ));
+            }
+            output_value_kind = mapped;
+
+            // rax holds the mapper result. Save it to rdi (free here).
+            self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+
+            // Load output_index into rax.
+            self.asm.mov_data_addr(Reg::R8, output_index);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::R8, 0);
+
+            // Capacity check: if output_index >= MAX_OUTPUT_LINES, abort.
+            self.emit_runtime_buffer_capacity_check(
+                Reg::Rax,
+                MAX_OUTPUT_LINES,
+                span,
+                "map result exceeds 8192 lines",
+            );
+
+            // Compute slot[idx] address: first_slot + idx * 8.
+            self.asm.add_reg_reg(Reg::Rax, Reg::Rax);
+            self.asm.add_reg_reg(Reg::Rax, Reg::Rax);
+            self.asm.add_reg_reg(Reg::Rax, Reg::Rax);
+            self.asm.mov_data_addr(Reg::R9, first_slot);
+            self.asm.add_reg_reg(Reg::Rax, Reg::R9);
+
+            // Store rdi (the mapper result) at [rax].
+            self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rdi);
+
+            // Increment output_index.
+            self.asm.mov_data_addr(Reg::R8, output_index);
+            self.asm.load_ptr_disp32(Reg::Rax, Reg::R8, 0);
+            self.asm.add_reg_imm32(Reg::Rax, 1);
+            self.asm.store_ptr_disp32(Reg::R8, 0, Reg::Rax);
+
+            self.asm.jmp_label(loop_label);
+
+            self.asm.bind_text_label(done);
+            self.asm.mov_data_addr(Reg::R10, output_index);
+            self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+            self.asm.mov_data_addr(Reg::R10, output_len);
+            self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
+            Ok(NativeValue::Unit)
+        })();
+
+        self.static_scopes = saved_static_scopes;
+        for name in assigned_names {
+            self.remove_static_value(&name);
+        }
+        result?;
+
+        let elements: Vec<CompiledLiteralValue> = slot_labels
+            .into_iter()
+            .map(|slot| CompiledLiteralValue::Scalar {
+                value: output_value_kind,
+                slot,
+            })
+            .collect();
+        let label =
+            self.intern_runtime_list_with_length(elements, RuntimeListLength::Dynamic(output_len));
+        Ok(NativeValue::RuntimeList { label })
     }
 
     fn compile_runtime_line_lambda(
