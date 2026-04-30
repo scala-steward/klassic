@@ -328,7 +328,11 @@ cargo run -- -e "1 + 2"
   to the same native helper paths, so `import Map as M`, `import Map.{size}`, and
   `val readAll = FI#readAll` work in native builds.
   Static `cons` construction and static list/map/set/record literals use that
-  argument recovery rule too.
+  argument recovery rule too. When the head argument cannot be folded to a
+  static value but the tail is a static list-like, native `cons` promotes the
+  tail to a runtime list, prepends the runtime head, and returns a
+  dynamic-length runtime list, so calls like `cons(n)([1, 2, 3])` with a
+  dynamic `n` lower without folding away head-side effects.
   Static nominal and structural records,
   static map literals, and static set literals with static contents support
   construction, printing, nesting, static map/set helper calls, and equality

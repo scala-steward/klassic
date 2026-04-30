@@ -3994,6 +3994,35 @@ impl NativeCodeGenerator {
             };
             return Ok(NativeValue::RuntimeList { label });
         }
+        if !self.head_arg_is_statically_known(&head_arguments[0])
+            && self.expr_may_yield_static_list_like(&tail_arguments[0])
+        {
+            let head = self.compile_literal_value(&head_arguments[0])?;
+            let head = self.stabilize_runtime_list_literal_value(
+                head,
+                span,
+                "runtime cons list exceeds 65536 bytes",
+            )?;
+            let tail = self.compile_expr(&tail_arguments[0])?;
+            if let Some(label) = self.stabilize_native_list_to_runtime_list_label_with_length(
+                tail,
+                span,
+                "runtime cons list exceeds 65536 bytes",
+                true,
+            )? {
+                let mut elements = self.runtime_list_elements(label).unwrap_or_default();
+                elements.insert(0, head);
+                let output_len = self.asm.data_label_with_i64s(&[0]);
+                self.emit_runtime_list_len_to_rax(label);
+                self.asm.inc_reg(Reg::Rax);
+                self.emit_store_rax_to_data_slot(output_len);
+                let new_label = self.intern_runtime_list_with_length(
+                    elements,
+                    RuntimeListLength::Dynamic(output_len),
+                );
+                return Ok(NativeValue::RuntimeList { label: new_label });
+            }
+        }
         let head = self.static_value_from_argument_preserving_effects(
             &head_arguments[0],
             span,
@@ -4008,6 +4037,25 @@ impl NativeCodeGenerator {
             .static_cons_value(head, tail)
             .ok_or_else(|| unsupported(span, "native cons for non-static list"))?;
         Ok(self.emit_static_value(&value))
+    }
+
+    fn head_arg_is_statically_known(&mut self, expr: &Expr) -> bool {
+        if self.static_value_from_pure_expr(expr).is_some() {
+            return true;
+        }
+        if let Some(value) = self.preview_static_value_after_effectful_eval(expr) {
+            return matches!(
+                value,
+                StaticValue::Int(_)
+                    | StaticValue::Bool(_)
+                    | StaticValue::StaticString { .. }
+                    | StaticValue::Null
+                    | StaticValue::Unit
+                    | StaticValue::Float(_)
+                    | StaticValue::Double(_)
+            );
+        }
+        false
     }
 
     fn compile_static_map(
