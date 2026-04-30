@@ -167,7 +167,10 @@ cargo run -- -e "1 + 2"
   observes. The branch shape detector and length predictor recognize `cons`
   and `tail` over static lists, so branches like `cons(99)([1, 2, 3])` versus
   `[4, 5]` and `tail([1, 2, 3])` versus `[40, 50, 60]` route through the same
-  runtime-list buffer.
+  runtime-list buffer. The per-element branch buffer also promotes static
+  inner lists and static record elements into runtime list / runtime record
+  buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
+  `[#Pt(3, 4)]` join through the same runtime list of nested buffers.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local

@@ -8204,6 +8204,47 @@ impl NativeCodeGenerator {
                         label,
                     }))
                 }
+                NativeValue::StaticIntList { len, .. } => {
+                    let elements: Vec<CompiledLiteralValue> = (0..len)
+                        .map(|_| {
+                            let slot = self.asm.data_label_with_i64s(&[0]);
+                            CompiledLiteralValue::Scalar {
+                                value: NativeValue::Int,
+                                slot,
+                            }
+                        })
+                        .collect();
+                    let length = RuntimeListLength::Dynamic(self.asm.data_label_with_i64s(&[0]));
+                    let label = self.intern_runtime_list_with_length(elements, length);
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeList {
+                        label,
+                    }))
+                }
+                NativeValue::StaticList { label } => {
+                    let static_elements = self
+                        .static_lists
+                        .get(label.0)
+                        .map(|list| list.elements.clone())
+                        .ok_or_else(|| {
+                            unsupported(span, "native if runtime-list static-list branch value")
+                        })?;
+                    let inner_compiled = self.compile_static_literal_values(&static_elements);
+                    let inner_output = inner_compiled
+                        .into_iter()
+                        .map(|value| self.prepare_compiled_literal_branch_output(value, span))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let length = RuntimeListLength::Dynamic(self.asm.data_label_with_i64s(&[0]));
+                    let new_label = self.intern_runtime_list_with_length(inner_output, length);
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeList {
+                        label: new_label,
+                    }))
+                }
+                NativeValue::StaticRecord { label } => {
+                    let output = self.prepare_static_record_branch_output(label, span)?;
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeRecord {
+                        label: output.label,
+                    }))
+                }
                 value => Ok(CompiledLiteralValue::Native(value)),
             },
         }

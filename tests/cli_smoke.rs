@@ -2631,6 +2631,152 @@ println(head(twoCons))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_dynamic_if_nested_static_int_list_branches() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-if-nested-int-list-{unique}.kl"
+    ));
+    let output_path = std::env::temp_dir().join(format!(
+        "klassic-native-dynamic-if-nested-int-list-{unique}"
+    ));
+    fs::write(
+        &source_path,
+        r#"val key = head(args())
+val same: List<List<Int>> = if(key == "left") [[1, 2], [3, 4]] else [[5, 6], [7, 8]]
+val differentOuter: List<List<Int>> = if(key == "left") [[10, 20], [30, 40]] else [[50, 60]]
+println(head(same))
+println(head(tail(same)))
+println(size(same))
+println(head(differentOuter))
+println(size(differentOuter))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic if nested int-list build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let left_run = Command::new(&output_path)
+        .arg("left")
+        .output()
+        .expect("generated executable should run left");
+    let right_run = Command::new(&output_path)
+        .arg("right")
+        .output()
+        .expect("generated executable should run right");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(left_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&left_run.stdout),
+        "[1, 2]\n[3, 4]\n2\n[10, 20]\n2\n"
+    );
+    assert!(left_run.stderr.is_empty());
+
+    assert!(right_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&right_run.stdout),
+        "[5, 6]\n[7, 8]\n2\n[50, 60]\n1\n"
+    );
+    assert!(right_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_dynamic_if_record_list_branches() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-if-record-list-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-dynamic-if-record-list-{unique}"));
+    fs::write(
+        &source_path,
+        r#"record Pt {
+  x: Int
+  y: Int
+}
+val key = head(args())
+val rs = if(key == "left") [#Pt(1, 2), #Pt(3, 4)] else [#Pt(5, 6), #Pt(7, 8)]
+val first = head(rs)
+val second = head(tail(rs))
+println(first.x)
+println(first.y)
+println(second.x)
+println(second.y)
+println(size(rs))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "dynamic if record-list build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let left_run = Command::new(&output_path)
+        .arg("left")
+        .output()
+        .expect("generated executable should run left");
+    let right_run = Command::new(&output_path)
+        .arg("right")
+        .output()
+        .expect("generated executable should run right");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(left_run.status.success());
+    assert_eq!(String::from_utf8_lossy(&left_run.stdout), "1\n2\n3\n4\n2\n");
+    assert!(left_run.stderr.is_empty());
+
+    assert!(right_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&right_run.stdout),
+        "5\n6\n7\n8\n2\n"
+    );
+    assert!(right_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_static_string_list_branches_with_different_lengths() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
