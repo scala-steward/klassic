@@ -8605,10 +8605,11 @@ impl NativeCodeGenerator {
         Some(elements)
     }
 
-    fn prepare_mutable_runtime_list_output_with_growth(
+    fn prepare_mutable_runtime_list_output_with_growth_and_kind(
         &mut self,
         value: NativeValue,
         growth: usize,
+        empty_element_kind: Option<NativeValue>,
         span: Span,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
         if !Self::native_value_can_copy_to_runtime_list(value) {
@@ -8622,13 +8623,23 @@ impl NativeCodeGenerator {
         if growth > 0 {
             let target = elements.len() + growth;
             if elements.is_empty() {
-                if matches!(value, NativeValue::StaticIntList { .. }) {
+                let kind = empty_element_kind.or_else(|| match value {
+                    NativeValue::StaticIntList { .. } => Some(NativeValue::Int),
+                    _ => None,
+                });
+                if let Some(kind) = kind {
                     while elements.len() < target {
-                        let slot = self.asm.data_label_with_i64s(&[0]);
-                        elements.push(CompiledLiteralValue::Scalar {
-                            value: NativeValue::Int,
-                            slot,
-                        });
+                        let extra = match kind {
+                            NativeValue::Int | NativeValue::Bool => {
+                                let slot = self.asm.data_label_with_i64s(&[0]);
+                                CompiledLiteralValue::Scalar { value: kind, slot }
+                            }
+                            NativeValue::RuntimeString { .. } => {
+                                CompiledLiteralValue::Native(self.runtime_string_scratch_value())
+                            }
+                            _ => break,
+                        };
+                        elements.push(extra);
                     }
                 }
             } else if let Some(padded) =
@@ -8646,18 +8657,25 @@ impl NativeCodeGenerator {
         .map(Some)
     }
 
-    fn materialize_assigned_runtime_list_storage_with_growth(
+    fn materialize_assigned_runtime_list_storage_with_growth_and_body(
         &mut self,
         names: &HashSet<String>,
         growth: usize,
+        body: Option<&Expr>,
         span: Span,
     ) -> Result<(), Diagnostic> {
         for name in names {
             let Some(slot) = self.lookup_var(name) else {
                 continue;
             };
-            let Some(output) =
-                self.prepare_mutable_runtime_list_output_with_growth(slot.value, growth, span)?
+            let empty_element_kind =
+                body.and_then(|body| self.predict_grown_element_kind(name, body));
+            let Some(output) = self.prepare_mutable_runtime_list_output_with_growth_and_kind(
+                slot.value,
+                growth,
+                empty_element_kind,
+                span,
+            )?
             else {
                 continue;
             };
@@ -8671,6 +8689,94 @@ impl NativeCodeGenerator {
             self.remove_static_value(name);
         }
         Ok(())
+    }
+
+    fn predict_grown_element_kind(&mut self, name: &str, body: &Expr) -> Option<NativeValue> {
+        match body {
+            Expr::Block { expressions, .. } => expressions
+                .iter()
+                .find_map(|expr| self.predict_grown_element_kind(name, expr)),
+            Expr::Cleanup {
+                body: inner,
+                cleanup,
+                ..
+            } => self
+                .predict_grown_element_kind(name, inner)
+                .or_else(|| self.predict_grown_element_kind(name, cleanup)),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => self
+                .predict_grown_element_kind(name, then_branch)
+                .or_else(|| {
+                    else_branch
+                        .as_deref()
+                        .and_then(|b| self.predict_grown_element_kind(name, b))
+                }),
+            Expr::While { body: inner, .. } => self.predict_grown_element_kind(name, inner),
+            Expr::Foreach { body: inner, .. } => self.predict_grown_element_kind(name, inner),
+            Expr::Assign {
+                name: target,
+                value,
+                ..
+            } if target == name => self.cons_head_kind_for_assign(name, value),
+            _ => None,
+        }
+    }
+
+    fn cons_head_kind_for_assign(&mut self, name: &str, value: &Expr) -> Option<NativeValue> {
+        let Expr::Call {
+            callee, arguments, ..
+        } = value
+        else {
+            return None;
+        };
+        if arguments.len() != 1 {
+            return None;
+        }
+        let Expr::Identifier {
+            name: tail_name, ..
+        } = &arguments[0]
+        else {
+            return None;
+        };
+        if tail_name != name {
+            return None;
+        }
+        let Expr::Call {
+            callee: inner_callee,
+            arguments: head_arguments,
+            ..
+        } = callee.as_ref()
+        else {
+            return None;
+        };
+        let Expr::Identifier {
+            name: cons_name, ..
+        } = inner_callee.as_ref()
+        else {
+            return None;
+        };
+        if self.builtin_name_for_identifier(cons_name) != "cons" || head_arguments.len() != 1 {
+            return None;
+        }
+        let head_expr = &head_arguments[0];
+        if self.expr_may_yield_native_string(head_expr) {
+            return Some(NativeValue::RuntimeString {
+                data: DataLabel(0),
+                len: DataLabel(0),
+            });
+        }
+        if let Some(value) = self
+            .native_value_hint_for_expr(head_expr)
+            .or_else(|| native_value_hint_from_expr(head_expr))
+        {
+            if matches!(value, NativeValue::Int | NativeValue::Bool) {
+                return Some(value);
+            }
+        }
+        None
     }
 
     fn prepare_runtime_list_branch_output(
@@ -21089,9 +21195,10 @@ impl NativeCodeGenerator {
         let growth_hint = self
             .predict_while_loop_growth(condition, body)
             .unwrap_or(64);
-        self.materialize_assigned_runtime_list_storage_with_growth(
+        self.materialize_assigned_runtime_list_storage_with_growth_and_body(
             &assigned_names,
             growth_hint,
+            Some(body),
             span,
         )?;
         let saved_static_scopes = self.static_scopes.clone();
@@ -21189,9 +21296,10 @@ impl NativeCodeGenerator {
         match iterable_value {
             NativeValue::StaticIntList { label, len } => {
                 let assigned_names = assigned_names_in_expr(body);
-                self.materialize_assigned_runtime_list_storage_with_growth(
+                self.materialize_assigned_runtime_list_storage_with_growth_and_body(
                     &assigned_names,
                     len,
+                    Some(body),
                     span,
                 )?;
                 for element in self.asm.i64s_for_label(label, len) {
@@ -21215,9 +21323,10 @@ impl NativeCodeGenerator {
                     .map(|list| list.elements.clone())
                     .unwrap_or_default();
                 let assigned_names = assigned_names_in_expr(body);
-                self.materialize_assigned_runtime_list_storage_with_growth(
+                self.materialize_assigned_runtime_list_storage_with_growth_and_body(
                     &assigned_names,
                     elements.len(),
+                    Some(body),
                     span,
                 )?;
                 for element in elements {
@@ -24894,6 +25003,7 @@ impl NativeCodeGenerator {
         let data = self.asm.data_label_with_bytes(&vec![0; RUNTIME_STRING_CAP]);
         let len = self.asm.data_label_with_i64s(&[0]);
         let offset = self.asm.data_label_with_i64s(&[0]);
+        self.emit_reset_runtime_buffer_offset_label(offset);
         self.emit_append_i64_rax_to_runtime_buffer_offset_label(
             data,
             offset,

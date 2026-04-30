@@ -348,6 +348,14 @@ cargo run -- -e "1 + 2"
   cap when the bound cannot be predicted; the runtime-list assignment path
   then truncates oversized cons sources to the buffer capacity using a
   reverse-direction copy so in-place prepends preserve the prior contents.
+  When the materialized list starts empty the predictor scans the body for
+  `name = cons(head)(name)` and infers the slot kind (`Int`, `Boolean`, or a
+  runtime string scratch) from the head expression, so an empty
+  `mutable strs: List<String> = []` grows correctly when the body conses
+  string values. Runtime int-to-string concatenation also resets its scratch
+  buffer offset before each call so loop bodies see the fresh per-iteration
+  digit rendering rather than appending to the prior iteration's trailing
+  bytes.
   Static-list `map` and `foldLeft` can unroll lambdas with mutable prefix
   effects when their final result expression is still statically recoverable;
   method-style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same path.
