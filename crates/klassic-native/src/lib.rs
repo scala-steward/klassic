@@ -8621,7 +8621,19 @@ impl NativeCodeGenerator {
         )?;
         if growth > 0 {
             let target = elements.len() + growth;
-            if let Some(padded) = self.pad_runtime_list_branch_elements(elements.clone(), target) {
+            if elements.is_empty() {
+                if matches!(value, NativeValue::StaticIntList { .. }) {
+                    while elements.len() < target {
+                        let slot = self.asm.data_label_with_i64s(&[0]);
+                        elements.push(CompiledLiteralValue::Scalar {
+                            value: NativeValue::Int,
+                            slot,
+                        });
+                    }
+                }
+            } else if let Some(padded) =
+                self.pad_runtime_list_branch_elements(elements.clone(), target)
+            {
                 elements = padded;
             }
         }
@@ -8632,14 +8644,6 @@ impl NativeCodeGenerator {
             "native mutable runtime-list binding",
         )
         .map(Some)
-    }
-
-    fn materialize_assigned_runtime_list_storage(
-        &mut self,
-        names: &HashSet<String>,
-        span: Span,
-    ) -> Result<(), Diagnostic> {
-        self.materialize_assigned_runtime_list_storage_with_growth(names, 0, span)
     }
 
     fn materialize_assigned_runtime_list_storage_with_growth(
@@ -8886,13 +8890,7 @@ impl NativeCodeGenerator {
             .runtime_list_elements(output_label)
             .ok_or_else(|| unsupported(span, "native if runtime-list branch output"))?;
         let output_dynamic_len = self.runtime_list_dynamic_len(output_label);
-        if let Some(output_len) = output_dynamic_len {
-            if source.len() > output.len() {
-                return Err(unsupported(
-                    span,
-                    "native if runtime-list branches with incompatible list lengths",
-                ));
-            }
+        let truncate_source = if let Some(output_len) = output_dynamic_len {
             if let Some(source_len) = source_dynamic_len {
                 self.asm.mov_data_addr(Reg::R10, source_len);
                 self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
@@ -8901,13 +8899,28 @@ impl NativeCodeGenerator {
                 self.asm.mov_imm64(Reg::Rax, source.len() as u64);
                 self.emit_store_rax_to_data_slot(output_len);
             }
+            source.len() > output.len()
         } else if source.len() != output.len() {
             return Err(unsupported(
                 span,
                 "native if runtime-list branches with incompatible list lengths",
             ));
-        }
-        for (source, output) in source.into_iter().zip(output.into_iter()) {
+        } else {
+            false
+        };
+        let output_capacity = output.len();
+        let pairs: Vec<_> = source.into_iter().zip(output.into_iter()).collect();
+        let pairs: Vec<_> = if truncate_source {
+            pairs.into_iter().take(output_capacity).collect()
+        } else {
+            pairs
+        };
+        let iter: Box<dyn Iterator<Item = _>> = if truncate_source {
+            Box::new(pairs.into_iter().rev())
+        } else {
+            Box::new(pairs.into_iter())
+        };
+        for (source, output) in iter {
             self.emit_copy_compiled_literal_value_to_branch_output(
                 source,
                 output,
@@ -21073,7 +21086,14 @@ impl NativeCodeGenerator {
 
         let mut assigned_names = assigned_names_in_expr(condition);
         assigned_names.extend(assigned_names_in_expr(body));
-        self.materialize_assigned_runtime_list_storage(&assigned_names, span)?;
+        let growth_hint = self
+            .predict_while_loop_growth(condition, body)
+            .unwrap_or(64);
+        self.materialize_assigned_runtime_list_storage_with_growth(
+            &assigned_names,
+            growth_hint,
+            span,
+        )?;
         let saved_static_scopes = self.static_scopes.clone();
         self.static_scopes = vec![HashMap::new(); saved_static_scopes.len()];
         let loop_label = self.asm.create_text_label();
@@ -21099,6 +21119,45 @@ impl NativeCodeGenerator {
             }
         }
         Ok(NativeValue::Unit)
+    }
+
+    fn predict_while_loop_growth(&mut self, condition: &Expr, _body: &Expr) -> Option<usize> {
+        if let Expr::Binary {
+            lhs,
+            op: BinaryOp::Less,
+            rhs,
+            ..
+        } = condition
+            && let Expr::Identifier { name, .. } = lhs.as_ref()
+            && let Some(StaticValue::Int(start)) = self.static_value_for_lookup(name)
+            && let Some(StaticValue::Int(end)) = self.static_value_from_pure_expr(rhs)
+            && end >= start
+        {
+            return Some((end - start) as usize);
+        }
+        if let Expr::Binary {
+            lhs,
+            op: BinaryOp::LessEqual,
+            rhs,
+            ..
+        } = condition
+            && let Expr::Identifier { name, .. } = lhs.as_ref()
+            && let Some(StaticValue::Int(start)) = self.static_value_for_lookup(name)
+            && let Some(StaticValue::Int(end)) = self.static_value_from_pure_expr(rhs)
+            && end >= start
+        {
+            return Some((end - start + 1) as usize);
+        }
+        None
+    }
+
+    fn static_value_for_lookup(&self, name: &str) -> Option<StaticValue> {
+        for scope in self.static_scopes.iter().rev() {
+            if let Some(value) = scope.get(name) {
+                return Some(value.clone());
+            }
+        }
+        None
     }
 
     fn simulate_static_while(&mut self, condition: &Expr, body: &Expr) -> bool {

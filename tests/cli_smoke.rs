@@ -3308,6 +3308,74 @@ println(strs)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_while_loop_growing_mutable_int_list_via_cons() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-while-mutable-cons-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-while-mutable-cons-{unique}"));
+    fs::write(
+        &source_path,
+        r#"mutable acc: List<Int> = []
+mutable i = 0
+while(i < 5) {
+  acc = cons(i)(acc)
+  i = i + 1
+}
+mutable seeded: List<Int> = [99]
+mutable j = 1
+while(j < 4) {
+  seeded = cons(j * 10)(seeded)
+  j = j + 1
+}
+println(acc)
+println(size(acc))
+println(head(acc))
+println(seeded)
+println(size(seeded))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "while mutable cons build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[4, 3, 2, 1, 0]\n5\n4\n[30, 20, 10, 99]\n4\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

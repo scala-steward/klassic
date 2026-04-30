@@ -342,7 +342,12 @@ cargo run -- -e "1 + 2"
   length, so loops that cons each iteration's value onto a mutable list, such
   as `mutable acc: List<Int> = []; foreach(x in xs) { acc = cons(x)(acc) }`,
   fit within the materialized capacity even when the body's `if` arms differ
-  in resulting length.
+  in resulting length. `while` loops also pre-grow such mutable bindings by
+  the predicted iteration count when the condition is `counter < N` or
+  `counter <= N` over a static counter, falling back to a generous default
+  cap when the bound cannot be predicted; the runtime-list assignment path
+  then truncates oversized cons sources to the buffer capacity using a
+  reverse-direction copy so in-place prepends preserve the prior contents.
   Static-list `map` and `foldLeft` can unroll lambdas with mutable prefix
   effects when their final result expression is still statically recoverable;
   method-style `xs.map(f)` and `xs.foldLeft(initial, reducer)` use the same path.
