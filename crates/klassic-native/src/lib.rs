@@ -2057,6 +2057,20 @@ impl NativeCodeGenerator {
             return Ok(NativeValue::Bool);
         }
         if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+            && matches!(lhs_value, NativeValue::Null)
+        {
+            let rhs_value = self.compile_expr(rhs)?;
+            if let NativeValue::RuntimeList { label } = rhs_value {
+                self.emit_runtime_list_equal_native(label, NativeValue::Null, span)?;
+                if op == BinaryOp::NotEqual {
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    self.asm.setcc_al(Condition::Equal);
+                    self.asm.movzx_rax_al();
+                }
+                return Ok(NativeValue::Bool);
+            }
+        }
+        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
             && Self::native_value_is_static_list_like(lhs_value)
             && self.expr_may_yield_runtime_list(rhs)
         {
@@ -8528,6 +8542,29 @@ impl NativeCodeGenerator {
         deep_min_capacity: Option<usize>,
         span: Span,
     ) -> Result<Option<RuntimeListLabel>, Diagnostic> {
+        if matches!(value, NativeValue::Null) {
+            let cap = min_capacity.unwrap_or(0);
+            if cap == 0 {
+                return Ok(None);
+            }
+            let elements: Vec<CompiledLiteralValue> = (0..cap)
+                .map(|_| {
+                    let slot = self.asm.data_label_with_i64s(&[0]);
+                    CompiledLiteralValue::Scalar {
+                        value: NativeValue::Int,
+                        slot,
+                    }
+                })
+                .collect();
+            return self
+                .prepare_runtime_list_output_from_candidate_elements(
+                    vec![elements],
+                    true,
+                    span,
+                    "native if runtime-list branch value",
+                )
+                .map(Some);
+        }
         if !Self::native_value_can_copy_to_runtime_list(value) {
             return Ok(None);
         }
@@ -8976,6 +9013,28 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn emit_copy_native_list_or_null_to_runtime_list_output(
+        &mut self,
+        value: NativeValue,
+        output_label: RuntimeListLabel,
+        span: Span,
+        overflow_message: &str,
+    ) -> Result<(), Diagnostic> {
+        if matches!(value, NativeValue::Null) {
+            if let Some(output_len) = self.runtime_list_dynamic_len(output_label) {
+                self.asm.mov_imm64(Reg::Rax, (-1_i64) as u64);
+                self.emit_store_rax_to_data_slot(output_len);
+            }
+            return Ok(());
+        }
+        self.emit_copy_native_list_to_runtime_list_output(
+            value,
+            output_label,
+            span,
+            overflow_message,
+        )
+    }
+
     fn emit_copy_native_list_to_runtime_list_output(
         &mut self,
         value: NativeValue,
@@ -9261,6 +9320,25 @@ impl NativeCodeGenerator {
             }
             value if Self::native_value_is_static_list_like(value) => {
                 self.emit_runtime_list_equal_static_native(runtime_label, value, span)
+            }
+            NativeValue::Null => {
+                if let Some(len_label) = self.runtime_list_dynamic_len(runtime_label) {
+                    self.asm.mov_data_addr(Reg::R10, len_label);
+                    self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                    self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                    let is_null = self.asm.create_text_label();
+                    let done = self.asm.create_text_label();
+                    self.asm.jcc_label(Condition::Less, is_null);
+                    self.asm.mov_imm64(Reg::Rax, 0);
+                    self.asm.jmp_label(done);
+                    self.asm.bind_text_label(is_null);
+                    self.asm.mov_imm64(Reg::Rax, 1);
+                    self.asm.bind_text_label(done);
+                    Ok(())
+                } else {
+                    self.asm.mov_imm64(Reg::Rax, 0);
+                    Ok(())
+                }
             }
             _ => Err(unsupported(
                 span,
@@ -20738,9 +20816,17 @@ impl NativeCodeGenerator {
         let branch_runtime_list_output = if let Some(else_branch) = else_branch {
             let branch_may_yield_runtime_list = self.expr_may_yield_runtime_list(then_branch)
                 || self.expr_may_yield_runtime_list(else_branch);
+            let then_is_null = matches!(then_branch, Expr::Null { .. });
+            let else_is_null = matches!(else_branch, Expr::Null { .. });
             let branch_may_yield_list_like = branch_may_yield_runtime_list
                 || (self.expr_may_yield_static_list_like(then_branch)
-                    && self.expr_may_yield_static_list_like(else_branch));
+                    && self.expr_may_yield_static_list_like(else_branch))
+                || (then_is_null
+                    && (self.expr_may_yield_static_list_like(else_branch)
+                        || self.expr_may_yield_runtime_list(else_branch)))
+                || (else_is_null
+                    && (self.expr_may_yield_static_list_like(then_branch)
+                        || self.expr_may_yield_runtime_list(then_branch)));
             if branch_may_yield_list_like {
                 let then_len_hint = self
                     .native_value_list_length_hint(then_value)
@@ -20753,6 +20839,13 @@ impl NativeCodeGenerator {
                 let min_capacity = match (then_len_hint, else_len_hint) {
                     (Some(then_len), Some(else_len)) if else_len > then_len => Some(else_len),
                     _ => None,
+                };
+                let min_capacity = if then_is_null && min_capacity.is_none() {
+                    else_len_hint
+                } else if else_is_null && min_capacity.is_none() {
+                    then_len_hint
+                } else {
+                    min_capacity
                 };
                 let then_inner_lens = self.expr_outer_list_inner_lengths(then_branch);
                 let else_inner_lens = self.expr_outer_list_inner_lengths(else_branch);
@@ -20778,7 +20871,7 @@ impl NativeCodeGenerator {
                 };
                 self.prepare_native_list_branch_output_with_min_capacity_and_inner_caps(
                     then_value,
-                    branch_may_yield_runtime_list || lengths_differ,
+                    branch_may_yield_runtime_list || lengths_differ || then_is_null || else_is_null,
                     min_capacity,
                     inner_capacities.as_deref(),
                     deep_min_capacity,
@@ -20799,7 +20892,7 @@ impl NativeCodeGenerator {
             )?;
         }
         if let Some(output) = branch_runtime_list_output {
-            self.emit_copy_native_list_to_runtime_list_output(
+            self.emit_copy_native_list_or_null_to_runtime_list_output(
                 then_value,
                 output,
                 span,
@@ -20871,7 +20964,7 @@ impl NativeCodeGenerator {
         if let Some(output) = branch_runtime_list_output
             && !matches!(else_value, NativeValue::Unit)
         {
-            self.emit_copy_native_list_to_runtime_list_output(
+            self.emit_copy_native_list_or_null_to_runtime_list_output(
                 else_value,
                 output,
                 span,
