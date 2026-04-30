@@ -4595,6 +4595,29 @@ impl NativeCodeGenerator {
                         return Ok(NativeValue::Int);
                     }
                 }
+                if let Expr::Lambda { params, body, .. } = reducer
+                    && self.lambda_body_references_dynamic_capture(params, body)
+                {
+                    let elements_i64 = self.asm.i64s_for_label(label, len);
+                    let compiled: Vec<CompiledLiteralValue> = elements_i64
+                        .iter()
+                        .map(|&value| {
+                            let slot = self.asm.data_label_with_i64s(&[value]);
+                            CompiledLiteralValue::Scalar {
+                                value: NativeValue::Int,
+                                slot,
+                            }
+                        })
+                        .collect();
+                    return self.compile_compiled_literal_values_fold_left(
+                        compiled,
+                        None,
+                        &initial_arguments[0],
+                        reducer,
+                        span,
+                        "static int list",
+                    );
+                }
                 let mut acc = self.static_value_from_argument_preserving_effects(
                     &initial_arguments[0],
                     span,
@@ -4611,16 +4634,29 @@ impl NativeCodeGenerator {
                 Ok(self.emit_static_value(&acc))
             }
             NativeValue::StaticList { label } => {
-                let mut acc = self.static_value_from_argument_preserving_effects(
-                    &initial_arguments[0],
-                    span,
-                    "native foldLeft for non-static initial value",
-                )?;
                 let elements = self
                     .static_lists
                     .get(label.0)
                     .map(|list| list.elements.clone())
                     .unwrap_or_default();
+                if let Expr::Lambda { params, body, .. } = reducer
+                    && self.lambda_body_references_dynamic_capture(params, body)
+                {
+                    let compiled = self.compile_static_literal_values(&elements);
+                    return self.compile_compiled_literal_values_fold_left(
+                        compiled,
+                        None,
+                        &initial_arguments[0],
+                        reducer,
+                        span,
+                        "static list",
+                    );
+                }
+                let mut acc = self.static_value_from_argument_preserving_effects(
+                    &initial_arguments[0],
+                    span,
+                    "native foldLeft for non-static initial value",
+                )?;
                 for element in elements {
                     acc = self.compile_callable_with_static_arguments_preserving_effects(
                         reducer,
