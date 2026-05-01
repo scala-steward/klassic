@@ -3975,6 +3975,78 @@ println(Set#size(s))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_collection_display() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-display-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-runtime-display-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val xs = if(arg == "a") [1, 2, 3] else [10, 20]
+val s = if(arg == "a") %(1 2 3) else %(10 20)
+val m = if(arg == "a") %["x": 1, "y": 2] else %["a": 99]
+println(xs)
+println(s)
+println(m)
+println("xs=" + xs)
+println("s=" + s)
+println("m=" + m)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime collection display build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&a_run.stdout),
+        "[1, 2, 3]\n%(1, 2, 3)\n%[x: 1, y: 2]\nxs=[1, 2, 3]\ns=%(1, 2, 3)\nm=%[x: 1, y: 2]\n"
+    );
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&b_run.stdout),
+        "[10, 20]\n%(10, 20)\n%[a: 99]\nxs=[10, 20]\ns=%(10, 20)\nm=%[a: 99]\n"
+    );
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

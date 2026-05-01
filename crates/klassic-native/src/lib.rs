@@ -7061,26 +7061,85 @@ impl NativeCodeGenerator {
         span: Span,
         overflow_message: &str,
     ) {
+        let kind = self.runtime_list_kind(label);
+        let (open, close) = match kind {
+            RuntimeListKind::List => ("[", "]"),
+            RuntimeListKind::Set => ("%(", ")"),
+            RuntimeListKind::Map => ("%[", "]"),
+        };
         let Some(elements) = self.runtime_list_elements(label) else {
-            self.emit_append_text_to_runtime_buffer(data, offset, "[]", span, overflow_message);
+            let empty = format!("{open}{close}");
+            self.emit_append_text_to_runtime_buffer(data, offset, &empty, span, overflow_message);
             return;
         };
-        self.emit_append_text_to_runtime_buffer(data, offset, "[", span, overflow_message);
-        for (index, element) in elements.into_iter().enumerate() {
-            let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
-            if index > 0 {
-                self.emit_append_text_to_runtime_buffer(data, offset, ", ", span, overflow_message);
+        self.emit_append_text_to_runtime_buffer(data, offset, open, span, overflow_message);
+        match kind {
+            RuntimeListKind::Map => {
+                let mut chunks = elements.chunks(2).enumerate();
+                while let Some((pair_index, pair)) = chunks.next() {
+                    let element_index = pair_index * 2;
+                    let skip = self.begin_runtime_list_dynamic_index_guard(label, element_index);
+                    if pair_index > 0 {
+                        self.emit_append_text_to_runtime_buffer(
+                            data,
+                            offset,
+                            ", ",
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    if let Some(key) = pair.first() {
+                        self.emit_append_compiled_literal_display_to_runtime_buffer(
+                            data,
+                            offset,
+                            key.clone(),
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.emit_append_text_to_runtime_buffer(
+                        data,
+                        offset,
+                        ": ",
+                        span,
+                        overflow_message,
+                    );
+                    if let Some(value) = pair.get(1) {
+                        self.emit_append_compiled_literal_display_to_runtime_buffer(
+                            data,
+                            offset,
+                            value.clone(),
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.end_runtime_list_dynamic_index_guard(skip);
+                }
             }
-            self.emit_append_compiled_literal_display_to_runtime_buffer(
-                data,
-                offset,
-                element,
-                span,
-                overflow_message,
-            );
-            self.end_runtime_list_dynamic_index_guard(skip);
+            _ => {
+                for (index, element) in elements.into_iter().enumerate() {
+                    let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
+                    if index > 0 {
+                        self.emit_append_text_to_runtime_buffer(
+                            data,
+                            offset,
+                            ", ",
+                            span,
+                            overflow_message,
+                        );
+                    }
+                    self.emit_append_compiled_literal_display_to_runtime_buffer(
+                        data,
+                        offset,
+                        element,
+                        span,
+                        overflow_message,
+                    );
+                    self.end_runtime_list_dynamic_index_guard(skip);
+                }
+            }
         }
-        self.emit_append_text_to_runtime_buffer(data, offset, "]", span, overflow_message);
+        self.emit_append_text_to_runtime_buffer(data, offset, close, span, overflow_message);
     }
 
     fn emit_static_string_list_join_runtime_delimiter(
@@ -22712,17 +22771,44 @@ impl NativeCodeGenerator {
     }
 
     fn emit_print_runtime_list(&mut self, fd: u64, label: RuntimeListLabel) {
+        let kind = self.runtime_list_kind(label);
         let elements = self.runtime_list_elements(label).unwrap_or_default();
-        self.emit_write_data(fd, self.list_open, 1);
-        for (index, element) in elements.into_iter().enumerate() {
-            let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
-            if index > 0 {
-                self.emit_write_data(fd, self.comma_space, 2);
+        let (open_label, open_len, close_label, close_len) = match kind {
+            RuntimeListKind::List => (self.list_open, 1usize, self.list_close, 1usize),
+            RuntimeListKind::Set => (self.set_open, 2, self.paren_close, 1),
+            RuntimeListKind::Map => (self.map_open, 2, self.list_close, 1),
+        };
+        self.emit_write_data(fd, open_label, open_len);
+        match kind {
+            RuntimeListKind::Map => {
+                for (pair_index, pair) in elements.chunks(2).enumerate() {
+                    let element_index = pair_index * 2;
+                    let skip = self.begin_runtime_list_dynamic_index_guard(label, element_index);
+                    if pair_index > 0 {
+                        self.emit_write_data(fd, self.comma_space, 2);
+                    }
+                    if let Some(key) = pair.first() {
+                        self.emit_print_compiled_literal_value_fragment(fd, key.clone());
+                    }
+                    self.emit_write_data(fd, self.colon_space, 2);
+                    if let Some(value) = pair.get(1) {
+                        self.emit_print_compiled_literal_value_fragment(fd, value.clone());
+                    }
+                    self.end_runtime_list_dynamic_index_guard(skip);
+                }
             }
-            self.emit_print_compiled_literal_value_fragment(fd, element);
-            self.end_runtime_list_dynamic_index_guard(skip);
+            _ => {
+                for (index, element) in elements.into_iter().enumerate() {
+                    let skip = self.begin_runtime_list_dynamic_index_guard(label, index);
+                    if index > 0 {
+                        self.emit_write_data(fd, self.comma_space, 2);
+                    }
+                    self.emit_print_compiled_literal_value_fragment(fd, element);
+                    self.end_runtime_list_dynamic_index_guard(skip);
+                }
+            }
         }
-        self.emit_write_data(fd, self.list_close, 1);
+        self.emit_write_data(fd, close_label, close_len);
     }
 
     fn emit_print_compiled_literal_value_fragment(&mut self, fd: u64, value: CompiledLiteralValue) {
