@@ -9094,6 +9094,93 @@ impl NativeCodeGenerator {
                         label: output.label,
                     }))
                 }
+                NativeValue::StaticMap { label } => {
+                    let entries = self
+                        .static_maps
+                        .get(label.0)
+                        .map(|map| map.entries.clone())
+                        .ok_or_else(|| {
+                            unsupported(span, "native if runtime-list static-map branch value")
+                        })?;
+                    let mut flattened = Vec::with_capacity(entries.len() * 2);
+                    for (key, value) in &entries {
+                        flattened.push(key.clone());
+                        flattened.push(value.clone());
+                    }
+                    let mut inner_compiled = self.compile_static_literal_values(&flattened);
+                    let inner_target = match (min_inner_capacity, deep_min_capacity) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (Some(a), None) | (None, Some(a)) => Some(a),
+                        (None, None) => None,
+                    };
+                    if let Some(target) = inner_target {
+                        if target > inner_compiled.len() {
+                            if let Some(padded) = self.pad_runtime_list_branch_elements_with_stride(
+                                inner_compiled.clone(),
+                                target,
+                                2,
+                            ) {
+                                inner_compiled = padded;
+                            }
+                        }
+                    }
+                    let inner_output = inner_compiled
+                        .into_iter()
+                        .map(|value| {
+                            self.prepare_compiled_literal_branch_output_with_min_inner_capacity(
+                                value,
+                                deep_min_capacity,
+                                deep_min_capacity,
+                                span,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let length = RuntimeListLength::Dynamic(self.asm.data_label_with_i64s(&[0]));
+                    let new_label = self.intern_runtime_list_with_length(inner_output, length);
+                    self.set_runtime_list_kind(new_label, RuntimeListKind::Map);
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeList {
+                        label: new_label,
+                    }))
+                }
+                NativeValue::StaticSet { label } => {
+                    let elements = self
+                        .static_sets
+                        .get(label.0)
+                        .map(|set| set.elements.clone())
+                        .ok_or_else(|| {
+                            unsupported(span, "native if runtime-list static-set branch value")
+                        })?;
+                    let mut inner_compiled = self.compile_static_literal_values(&elements);
+                    let cap = match (min_inner_capacity, deep_min_capacity) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (Some(a), None) | (None, Some(a)) => Some(a),
+                        (None, None) => None,
+                    };
+                    if let Some(cap) = cap {
+                        if let Some(padded) =
+                            self.pad_runtime_list_branch_elements(inner_compiled.clone(), cap)
+                        {
+                            inner_compiled = padded;
+                        }
+                    }
+                    let inner_output = inner_compiled
+                        .into_iter()
+                        .map(|value| {
+                            self.prepare_compiled_literal_branch_output_with_min_inner_capacity(
+                                value,
+                                deep_min_capacity,
+                                deep_min_capacity,
+                                span,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let length = RuntimeListLength::Dynamic(self.asm.data_label_with_i64s(&[0]));
+                    let new_label = self.intern_runtime_list_with_length(inner_output, length);
+                    self.set_runtime_list_kind(new_label, RuntimeListKind::Set);
+                    Ok(CompiledLiteralValue::Native(NativeValue::RuntimeList {
+                        label: new_label,
+                    }))
+                }
                 value => Ok(CompiledLiteralValue::Native(value)),
             },
         }
@@ -20041,6 +20128,30 @@ impl NativeCodeGenerator {
                     .unwrap_or(0);
                 Some(self_len.max(inner_max))
             }
+            Expr::MapLiteral { entries, .. } => {
+                let self_flat = entries.len().saturating_mul(2);
+                let inner_max = entries
+                    .iter()
+                    .flat_map(|(key, value)| {
+                        [
+                            self.expr_max_nested_list_length(key),
+                            self.expr_max_nested_list_length(value),
+                        ]
+                    })
+                    .flatten()
+                    .max()
+                    .unwrap_or(0);
+                Some(self_flat.max(inner_max))
+            }
+            Expr::SetLiteral { elements, .. } => {
+                let self_len = elements.len();
+                let inner_max = elements
+                    .iter()
+                    .filter_map(|e| self.expr_max_nested_list_length(e))
+                    .max()
+                    .unwrap_or(0);
+                Some(self_len.max(inner_max))
+            }
             Expr::Block { expressions, .. } => expressions
                 .last()
                 .and_then(|e| self.expr_max_nested_list_length(e)),
@@ -20066,7 +20177,7 @@ impl NativeCodeGenerator {
         match expr {
             Expr::ListLiteral { elements, .. } => elements
                 .iter()
-                .map(|e| self.expr_static_list_length_hint(e))
+                .map(|e| self.expr_inner_collection_capacity_hint(e))
                 .collect(),
             Expr::Block { expressions, .. } => expressions
                 .last()
@@ -20092,6 +20203,19 @@ impl NativeCodeGenerator {
             }
             _ => None,
         }
+    }
+
+    fn expr_inner_collection_capacity_hint(&self, expr: &Expr) -> Option<usize> {
+        if let Some(len) = self.expr_static_list_length_hint(expr) {
+            return Some(len);
+        }
+        if let Some(entries) = self.expr_static_map_entries_hint(expr) {
+            return Some(entries.saturating_mul(2));
+        }
+        if let Some(size) = self.expr_static_set_size_hint(expr) {
+            return Some(size);
+        }
+        None
     }
 
     fn expr_static_list_length_hint(&self, expr: &Expr) -> Option<usize> {

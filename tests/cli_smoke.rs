@@ -3975,6 +3975,136 @@ println(Set#size(s))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_list_of_maps_branch() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-list-of-maps-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-list-of-maps-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val xs = if(arg == "a") [%["x": 1, "y": 2], %["z": 9]] else [%["a": 100, "b": 200, "c": 300]]
+println(xs)
+println(size(xs))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "list of maps branch build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&a_run.stdout),
+        "[%[x: 1, y: 2], %[z: 9]]\n2\n"
+    );
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&b_run.stdout),
+        "[%[a: 100, b: 200, c: 300]]\n1\n"
+    );
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_list_of_sets_branch() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-list-of-sets-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-list-of-sets-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val xs = if(arg == "a") [%(1 2 3), %(4 5)] else [%(99 100 200 300)]
+println(xs)
+println(size(xs))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "list of sets branch build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&a_run.stdout),
+        "[%(1, 2, 3), %(4, 5)]\n2\n"
+    );
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&b_run.stdout),
+        "[%(99, 100, 200, 300)]\n1\n"
+    );
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_runtime_collection_display() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
