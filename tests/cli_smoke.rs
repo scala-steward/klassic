@@ -4078,6 +4078,118 @@ println(count)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_pinned_root_survives_collection() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-pin-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-pin-{unique}"));
+    // Allocate a small block, write a sentinel, pin it, then run a loop
+    // whose unpinned allocations force the bump allocator to overflow and
+    // trigger collections. The pinned block should survive the sweep — its
+    // sentinel must read back unchanged.
+    fs::write(
+        &source_path,
+        r#"val a = __gc_alloc(16)
+__gc_write(a, 0, 12345)
+__gc_pin(a)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  __gc_alloc(200000)
+}
+__gc_collect()
+println(__gc_read(a, 0))
+__gc_unpin(a)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc pin build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "12345\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_unpinned_block_is_reclaimed() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-unpinned-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-unpinned-{unique}"));
+    // Same shape as the pinned test but without `__gc_pin`. The sentinel
+    // we wrote into the heap must NOT read back as 12345 — the sweep
+    // should have linked the block into the free list, where the next-
+    // free pointer overwrites the first qword of the user payload.
+    fs::write(
+        &source_path,
+        r#"val a = __gc_alloc(16)
+__gc_write(a, 0, 12345)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  __gc_alloc(200000)
+}
+__gc_collect()
+println(__gc_read(a, 0) == 12345)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc unpinned build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "false\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_list_of_maps_branch() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

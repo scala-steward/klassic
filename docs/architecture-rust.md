@@ -560,17 +560,24 @@ cargo run -- -e "1 + 2"
     collection it writes `klassic gc: out of memory` to stderr and
     exits with status 1.
 
-  Two debug builtins drive the GC end-to-end without touching the
+  Six debug builtins drive the GC end-to-end without touching the
   existing static-buffer paths: `__gc_alloc(size)` returns the heap
-  address as `Int`, and `__gc_collect()` triggers a collection cycle.
-  The integration test `builds_native_executable_for_gc_reclaims_dead_allocations`
-  exercises reclamation by allocating 200,000 bytes ten times into a
-  1 MiB heap; the bump allocator's first overflow triggers a
-  collection that reclaims every previously-allocated block since none
-  are reachable from any registered root, so all ten calls succeed.
-  Tracking precise stack-frame and per-type roots so that real
-  language values (runtime strings, lists, records) can live on the
-  heap is the next phase of GC work.
+  address as `Int`; `__gc_collect()` triggers a collection cycle;
+  `__gc_pin(addr)` registers an address in a 1024-entry static root
+  table so the next mark phase keeps it alive; `__gc_unpin(addr)`
+  clears the matching root slot; `__gc_read(addr, offset)` reads an
+  i64 from `addr + offset`; `__gc_write(addr, offset, value)` writes
+  the corresponding qword. The mark phase walks the static root
+  table and ORs the mark bit into each referent's header. Three
+  integration tests cover the lifecycle: one allocates 200,000 bytes
+  ten times into a 1 MiB heap to exercise reclamation when nothing
+  is rooted, another pins a block before stressing the heap and
+  reads back its sentinel after a collect to prove the pinned block
+  survived, and a third skips the pin and verifies the same sentinel
+  no longer reads back — the freelist insertion overwrote the first
+  qword of the user payload. Tracking precise stack-frame and
+  per-type roots so that real language values (runtime strings,
+  lists, records) can live on the heap is the next phase of GC work.
 
 ### `klassic-runtime`
 - Shared runtime crate scaffold for behavior that should move out of `klassic-eval`

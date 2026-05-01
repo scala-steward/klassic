@@ -1927,6 +1927,29 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)
         }
+        "__gc_pin" => {
+            ensure_arity(name, arguments, 1, span)?;
+            // Pretend pinning is a no-op for the evaluator; pass the address
+            // through unchanged.
+            match &arguments[0] {
+                Value::Int(addr) => Ok(Value::Int(*addr)),
+                _ => Err(Diagnostic::runtime(span, "__gc_pin expects an Int address")),
+            }
+        }
+        "__gc_unpin" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Unit)
+        }
+        "__gc_read" => {
+            // The evaluator has no heap to read; return 0 as a stable
+            // sentinel so source programs remain evaluable.
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_write" => {
+            ensure_arity(name, arguments, 3, span)?;
+            Ok(Value::Unit)
+        }
         "thread" => {
             ensure_arity(name, arguments, 1, span)?;
             let callable = snapshot_value_for_thread(&arguments[0]);

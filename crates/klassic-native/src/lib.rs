@@ -632,9 +632,13 @@ struct NativeCodeGenerator {
     gc_heap_top: DataLabel,
     gc_heap_end: DataLabel,
     gc_free_list_head: DataLabel,
+    gc_root_table: DataLabel,
     gc_alloc: TextLabel,
     gc_collect: TextLabel,
+    gc_pin: TextLabel,
+    gc_unpin: TextLabel,
     gc_oom_text: DataLabel,
+    gc_root_overflow_text: DataLabel,
     scopes: Vec<HashMap<String, VarSlot>>,
     static_scopes: Vec<HashMap<String, StaticValue>>,
     scope_base_offsets: Vec<i32>,
@@ -690,9 +694,13 @@ impl NativeCodeGenerator {
         let gc_heap_top = asm.data_label_with_i64s(&[0]);
         let gc_heap_end = asm.data_label_with_i64s(&[0]);
         let gc_free_list_head = asm.data_label_with_i64s(&[0]);
+        let gc_root_table = asm.data_label_with_i64s(&[0; Self::GC_ROOT_TABLE_LEN]);
         let gc_alloc = asm.create_text_label();
         let gc_collect = asm.create_text_label();
+        let gc_pin = asm.create_text_label();
+        let gc_unpin = asm.create_text_label();
         let gc_oom_text = asm.data_label_with_bytes(b"klassic gc: out of memory\n");
+        let gc_root_overflow_text = asm.data_label_with_bytes(b"klassic gc: root table overflow\n");
         let mut record_schemas = HashMap::new();
         record_schemas.insert(
             "Point".to_string(),
@@ -732,9 +740,13 @@ impl NativeCodeGenerator {
             gc_heap_top,
             gc_heap_end,
             gc_free_list_head,
+            gc_root_table,
             gc_alloc,
             gc_collect,
+            gc_pin,
+            gc_unpin,
             gc_oom_text,
+            gc_root_overflow_text,
             scopes: vec![HashMap::new()],
             static_scopes: vec![HashMap::new()],
             scope_base_offsets: vec![0],
@@ -780,6 +792,8 @@ impl NativeCodeGenerator {
         self.emit_print_i64_runtime();
         self.emit_gc_alloc_runtime();
         self.emit_gc_collect_runtime();
+        self.emit_gc_pin_runtime();
+        self.emit_gc_unpin_runtime();
         Ok(self.asm.finish())
     }
 
@@ -2690,6 +2704,10 @@ impl NativeCodeGenerator {
             "stopwatch" => self.compile_stopwatch(arguments, span),
             "__gc_alloc" => self.compile_gc_alloc(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
+            "__gc_pin" => self.compile_gc_pin(arguments, span),
+            "__gc_unpin" => self.compile_gc_unpin(arguments, span),
+            "__gc_read" => self.compile_gc_read(arguments, span),
+            "__gc_write" => self.compile_gc_write(arguments, span),
             "assert" => {
                 if arguments.len() != 1 {
                     return Err(Diagnostic::compile(
@@ -3385,6 +3403,10 @@ impl NativeCodeGenerator {
             "stopwatch" => self.compile_stopwatch(arguments, span).map(Some),
             "__gc_alloc" => self.compile_gc_alloc(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
+            "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
+            "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
+            "__gc_read" => self.compile_gc_read(arguments, span).map(Some),
+            "__gc_write" => self.compile_gc_write(arguments, span).map(Some),
             "head" => self.compile_static_head(arguments, span).map(Some),
             "FileOutput#write" => self
                 .compile_file_output_write(arguments, false, span)
@@ -7412,6 +7434,138 @@ impl NativeCodeGenerator {
             ));
         }
         self.asm.call_label(self.gc_collect);
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_pin(addr)` registers a heap pointer in the static root table
+    /// so it survives subsequent collections. Returns the address.
+    fn compile_gc_pin(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_pin expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_pin for non-Int address argument",
+            ));
+        }
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.call_label(self.gc_pin);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_unpin(addr)` removes the first matching root entry.
+    fn compile_gc_unpin(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_unpin expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_unpin for non-Int address argument",
+            ));
+        }
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.call_label(self.gc_unpin);
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_read(addr, byte_offset)` reads an i64 from `addr + byte_offset`.
+    fn compile_gc_read(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_read expects 2 arguments but got {}", arguments.len()),
+            ));
+        }
+        let addr = self.compile_expr(&arguments[0])?;
+        if addr != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_read for non-Int address argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let offset = self.compile_expr(&arguments[1])?;
+        if offset != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_read for non-Int byte_offset argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        self.asm.add_reg_reg(Reg::Rax, Reg::Rcx);
+        // rax = address + offset; load *(rax)
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_write(addr, byte_offset, value)` writes `value` (i64) at
+    /// `addr + byte_offset`.
+    fn compile_gc_write(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 3 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_write expects 3 arguments but got {}", arguments.len()),
+            ));
+        }
+        let addr = self.compile_expr(&arguments[0])?;
+        if addr != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_write for non-Int address argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let offset = self.compile_expr(&arguments[1])?;
+        if offset != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_write for non-Int byte_offset argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        self.asm.add_reg_reg(Reg::Rcx, Reg::Rax); // rcx = addr + offset
+        self.asm.push_reg(Reg::Rcx);
+        self.next_stack_offset += 8;
+        let value = self.compile_expr(&arguments[2])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_write for non-Int value argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        self.asm.store_ptr_disp32(Reg::Rcx, 0, Reg::Rax);
         Ok(NativeValue::Unit)
     }
 
@@ -26706,6 +26860,9 @@ impl NativeCodeGenerator {
     /// Heap size used by the GC. Picked small so unit tests can exercise GC
     /// reclamation without needing to allocate megabytes.
     const GC_HEAP_SIZE: u64 = 1 << 20; // 1 MiB
+    /// Number of pointer slots in the static GC root table. Each slot is
+    /// either zero (free) or holds a heap pointer pinned via `__gc_pin`.
+    const GC_ROOT_TABLE_LEN: usize = 1024;
 
     /// Initialize the GC heap: mmap a private anonymous region and seed the
     /// heap_base / heap_top / heap_end globals.
@@ -26865,7 +27022,34 @@ impl NativeCodeGenerator {
         self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
 
         // ---- Mark phase ----
-        // No roots yet, so nothing to mark.
+        // Walk the static root table; for every non-zero entry mark the
+        // referent block. Phase 2 supports raw-bytes objects only, so
+        // marking is non-recursive.
+        // r10 = &table[i], r11 = end of table
+        self.asm.mov_data_addr(Reg::R10, self.gc_root_table);
+        self.asm.mov_reg_reg(Reg::R11, Reg::R10);
+        self.asm
+            .add_reg_imm32(Reg::R11, (Self::GC_ROOT_TABLE_LEN * 8) as i32);
+        let mark_loop = self.asm.create_text_label();
+        let mark_done = self.asm.create_text_label();
+        let mark_skip = self.asm.create_text_label();
+        self.asm.bind_text_label(mark_loop);
+        self.asm.cmp_reg_reg(Reg::R10, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, mark_done);
+        // ptr = [r10]
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::Rax, Reg::Rax);
+        self.asm.jcc_label(Condition::Equal, mark_skip);
+        // header_word at [ptr - 16]
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rax, -16);
+        // header_word |= MARK_BIT
+        self.asm.mov_imm64(Reg::Rdi, 1_u64 << 63);
+        self.asm.or_reg_reg(Reg::Rcx, Reg::Rdi);
+        self.asm.store_ptr_disp32(Reg::Rax, -16, Reg::Rcx);
+        self.asm.bind_text_label(mark_skip);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.jmp_label(mark_loop);
+        self.asm.bind_text_label(mark_done);
 
         // ---- Sweep phase ----
         // Walk heap linearly using sizes; rebuild free list of unmarked
@@ -26922,6 +27106,83 @@ impl NativeCodeGenerator {
         self.asm.mov_data_addr(Reg::R10, self.gc_free_list_head);
         self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
 
+        self.asm.leave();
+        self.asm.ret();
+    }
+
+    /// `gc_pin(addr)` (rdi = addr): registers `addr` in the static root
+    /// table, returning the table index in rax. Aborts if the table is full.
+    fn emit_gc_pin_runtime(&mut self) {
+        self.asm.bind_text_label(self.gc_pin);
+        self.asm.push_reg(Reg::Rbp);
+        self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+
+        // r10 = &table[i], r11 = end-of-table sentinel
+        self.asm.mov_data_addr(Reg::R10, self.gc_root_table);
+        self.asm.mov_reg_reg(Reg::R11, Reg::R10);
+        self.asm
+            .add_reg_imm32(Reg::R11, (Self::GC_ROOT_TABLE_LEN * 8) as i32);
+
+        let scan = self.asm.create_text_label();
+        let next = self.asm.create_text_label();
+        let overflow = self.asm.create_text_label();
+        self.asm.bind_text_label(scan);
+        self.asm.cmp_reg_reg(Reg::R10, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, overflow);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::Rax, Reg::Rax);
+        self.asm.jcc_label(Condition::NotEqual, next);
+        // table[i] = rdi
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        // return rdi (the address) so callers can chain reads through it.
+        self.asm.mov_reg_reg(Reg::Rax, Reg::Rdi);
+        self.asm.leave();
+        self.asm.ret();
+        self.asm.bind_text_label(next);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.jmp_label(scan);
+
+        self.asm.bind_text_label(overflow);
+        self.emit_write_data(
+            2,
+            self.gc_root_overflow_text,
+            b"klassic gc: root table overflow\n".len(),
+        );
+        self.emit_exit_code(1);
+    }
+
+    /// `gc_unpin(addr)` (rdi = addr): clears the first table slot whose
+    /// value matches `addr`. Returns rdi unchanged. A no-op when the
+    /// address is not currently pinned, so callers don't have to track
+    /// pinning state separately.
+    fn emit_gc_unpin_runtime(&mut self) {
+        self.asm.bind_text_label(self.gc_unpin);
+        self.asm.push_reg(Reg::Rbp);
+        self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+
+        self.asm.mov_data_addr(Reg::R10, self.gc_root_table);
+        self.asm.mov_reg_reg(Reg::R11, Reg::R10);
+        self.asm
+            .add_reg_imm32(Reg::R11, (Self::GC_ROOT_TABLE_LEN * 8) as i32);
+
+        let scan = self.asm.create_text_label();
+        let next = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.asm.bind_text_label(scan);
+        self.asm.cmp_reg_reg(Reg::R10, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, done);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rdi);
+        self.asm.jcc_label(Condition::NotEqual, next);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(next);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.jmp_label(scan);
+
+        self.asm.bind_text_label(done);
+        self.asm.mov_reg_reg(Reg::Rax, Reg::Rdi);
         self.asm.leave();
         self.asm.ret();
     }
