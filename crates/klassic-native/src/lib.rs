@@ -8596,9 +8596,14 @@ impl NativeCodeGenerator {
             span,
             "native if runtime-list branch value",
         )?;
+        let stride = if matches!(value, NativeValue::StaticMap { .. }) {
+            2
+        } else {
+            1
+        };
         let elements = match min_capacity {
             Some(cap) if cap > elements.len() => self
-                .pad_runtime_list_branch_elements(elements, cap)
+                .pad_runtime_list_branch_elements_with_stride(elements, cap, stride)
                 .ok_or_else(|| {
                     unsupported(
                         span,
@@ -8632,29 +8637,48 @@ impl NativeCodeGenerator {
 
     fn pad_runtime_list_branch_elements(
         &mut self,
+        elements: Vec<CompiledLiteralValue>,
+        capacity: usize,
+    ) -> Option<Vec<CompiledLiteralValue>> {
+        self.pad_runtime_list_branch_elements_with_stride(elements, capacity, 1)
+    }
+
+    fn pad_runtime_list_branch_elements_with_stride(
+        &mut self,
         mut elements: Vec<CompiledLiteralValue>,
         capacity: usize,
+        stride: usize,
     ) -> Option<Vec<CompiledLiteralValue>> {
         if elements.len() >= capacity {
             return Some(elements);
         }
-        let template = *elements.first()?;
+        if stride == 0 || elements.len() < stride {
+            return None;
+        }
+        let templates: Vec<CompiledLiteralValue> = elements[..stride].to_vec();
         while elements.len() < capacity {
-            let extra = match template {
-                CompiledLiteralValue::Scalar { value, .. } => {
-                    let slot = self.asm.data_label_with_i64s(&[0]);
-                    CompiledLiteralValue::Scalar { value, slot }
+            for template in &templates {
+                if elements.len() >= capacity {
+                    break;
                 }
-                CompiledLiteralValue::Native(value) if self.native_string_ref(value).is_some() => {
-                    let label = self.asm.data_label_with_bytes(b"");
-                    CompiledLiteralValue::Native(NativeValue::StaticString { label, len: 0 })
-                }
-                CompiledLiteralValue::Native(NativeValue::StaticRecord { .. })
-                | CompiledLiteralValue::Native(NativeValue::StaticIntList { .. })
-                | CompiledLiteralValue::Native(NativeValue::StaticList { .. }) => template,
-                CompiledLiteralValue::Native(_) => return None,
-            };
-            elements.push(extra);
+                let extra = match *template {
+                    CompiledLiteralValue::Scalar { value, .. } => {
+                        let slot = self.asm.data_label_with_i64s(&[0]);
+                        CompiledLiteralValue::Scalar { value, slot }
+                    }
+                    CompiledLiteralValue::Native(value)
+                        if self.native_string_ref(value).is_some() =>
+                    {
+                        let label = self.asm.data_label_with_bytes(b"");
+                        CompiledLiteralValue::Native(NativeValue::StaticString { label, len: 0 })
+                    }
+                    CompiledLiteralValue::Native(NativeValue::StaticRecord { .. })
+                    | CompiledLiteralValue::Native(NativeValue::StaticIntList { .. })
+                    | CompiledLiteralValue::Native(NativeValue::StaticList { .. }) => *template,
+                    CompiledLiteralValue::Native(_) => return None,
+                };
+                elements.push(extra);
+            }
         }
         Some(elements)
     }

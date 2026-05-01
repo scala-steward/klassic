@@ -196,13 +196,13 @@ cargo run -- -e "1 + 2"
   `isEmpty` / `contains` answering from the per-branch dynamic length and
   slot contents; the user observes a list-style `[...]` rendering rather
   than `%(...)` but membership and size semantics match the source set.
-  Divergent static-map branches with the same entry count
-  (`if(...) %["x": 1, "y": 2] else %["a": 3, "b": 4]`) also merge through
-  a runtime-list buffer where keys and values alternate, with the buffer
+  Divergent static-map branches (any entry count, including
+  `if(...) %["x": 1] else %["y": 2, "z": 3]`) also merge through a
+  runtime-list buffer where keys and values alternate, with the buffer
   tagged so `Map#size` (and `size`) divide the dynamic length by 2 to
-  return the entry count; mismatched-entry-count map branches still fail
-  with a clear diagnostic because the alternating key/value template is
-  not uniform across branches.
+  return the entry count. The branch buffer padding uses a stride of 2
+  so the alternating key/value pattern survives even when one branch has
+  fewer entries than the other.
   The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
