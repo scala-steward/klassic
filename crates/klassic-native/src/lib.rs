@@ -10182,14 +10182,28 @@ impl NativeCodeGenerator {
         };
         let elements = self.runtime_list_elements(label).unwrap_or_default();
         let dyn_len = self.runtime_list_dynamic_len(label);
-        let result_kind = match elements.get(1) {
-            Some(CompiledLiteralValue::Scalar { value, .. }) => *value,
-            _ => {
-                return Err(unsupported(
-                    span,
-                    "native runtime Map#get for non-scalar value type",
-                ));
-            }
+        let value_is_string = matches!(
+            elements.get(1),
+            Some(CompiledLiteralValue::Native(value)) if self.native_string_ref(*value).is_some()
+        );
+        let result_kind_scalar = match elements.get(1) {
+            Some(CompiledLiteralValue::Scalar { value, .. }) => Some(*value),
+            _ => None,
+        };
+        if !value_is_string && result_kind_scalar.is_none() {
+            return Err(unsupported(
+                span,
+                "native runtime Map#get for non-scalar value type",
+            ));
+        }
+        let result_string_buffer = if value_is_string {
+            let (data, len) = self.runtime_record_branch_string_buffer();
+            self.asm.mov_data_addr(Reg::R10, len);
+            self.asm.mov_imm64(Reg::R8, 0);
+            self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R8);
+            Some((data, len))
+        } else {
+            None
         };
 
         let key_value = self.compile_expr(key_expr)?;
@@ -10285,6 +10299,23 @@ impl NativeCodeGenerator {
                     self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
                     self.emit_store_rax_to_data_slot(result_slot);
                 }
+                CompiledLiteralValue::Native(slot_value) if value_is_string => {
+                    let Some(slot_ref) = self.native_string_ref(slot_value) else {
+                        return Err(unsupported(
+                            span,
+                            "native runtime Map#get for non-string value slot",
+                        ));
+                    };
+                    let (data, len) = result_string_buffer
+                        .expect("string result buffer should exist when value is string");
+                    self.emit_copy_native_string_to_runtime_string_buffer(
+                        data,
+                        len,
+                        slot_ref,
+                        span,
+                        "Map#get string result exceeds 65536 bytes",
+                    );
+                }
                 _ => {
                     return Err(unsupported(
                         span,
@@ -10301,9 +10332,12 @@ impl NativeCodeGenerator {
         }
 
         self.asm.bind_text_label(done);
+        if let Some((data, len)) = result_string_buffer {
+            return Ok(NativeValue::RuntimeString { data, len });
+        }
         self.asm.mov_data_addr(Reg::R10, result_slot);
         self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
-        Ok(result_kind)
+        Ok(result_kind_scalar.unwrap_or(NativeValue::Int))
     }
 
     fn compile_static_map_get_direct(

@@ -3843,6 +3843,69 @@ println(Map#get(m, "x") != null)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_map_get_with_string_values() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-map-strings-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-map-strings-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val m = if(arg == "a") %["x": "alpha", "y": "beta"] else %["a": "gamma", "b": "delta"]
+println(Map#get(m, "x"))
+println(Map#get(m, "y"))
+println(Map#get(m, "a"))
+println(Map#get(m, "b"))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime map string values build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(String::from_utf8_lossy(&a_run.stdout), "alpha\nbeta\n\n\n");
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(String::from_utf8_lossy(&b_run.stdout), "\n\ngamma\ndelta\n");
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
