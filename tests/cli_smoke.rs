@@ -4135,17 +4135,17 @@ __gc_unpin(a)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
-fn builds_native_executable_for_gc_unpinned_block_is_reclaimed() {
+fn builds_native_executable_for_gc_stack_slot_auto_rooted() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time should be monotonic")
         .as_nanos();
-    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-unpinned-{unique}.kl"));
-    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-unpinned-{unique}"));
-    // Same shape as the pinned test but without `__gc_pin`. The sentinel
-    // we wrote into the heap must NOT read back as 12345 — the sweep
-    // should have linked the block into the free list, where the next-
-    // free pointer overwrites the first qword of the user payload.
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-auto-root-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-auto-root-{unique}"));
+    // No explicit __gc_pin: the val binding's stack slot itself is
+    // registered with the GC's shadow stack because __gc_alloc returns a
+    // tagged heap pointer. The sentinel we wrote must read back unchanged
+    // after the heap-stress loop forces multiple collections.
     fs::write(
         &source_path,
         r#"val a = __gc_alloc(16)
@@ -4171,7 +4171,7 @@ println(__gc_read(a, 0) == 12345)
 
     assert!(
         build.status.success(),
-        "gc unpinned build failed\nstdout:\n{}\nstderr:\n{}",
+        "gc auto-root build failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&build.stdout),
         String::from_utf8_lossy(&build.stderr)
     );
@@ -4184,7 +4184,7 @@ println(__gc_read(a, 0) == 12345)
     let _ = fs::remove_file(&output_path);
 
     assert!(run.status.success());
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "false\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\n");
     assert!(run.stderr.is_empty());
 }
 

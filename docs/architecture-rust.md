@@ -560,28 +560,47 @@ cargo run -- -e "1 + 2"
     collection it writes `klassic gc: out of memory` to stderr and
     exits with status 1.
 
-  Seven debug builtins drive the GC end-to-end without touching the
-  existing static-buffer paths: `__gc_alloc(size)` allocates raw
-  bytes (type tag 1) and returns the heap address as `Int`;
-  `__gc_record(num_fields)` allocates a "pointer record" (type
-  tag 2) whose payload the mark phase recurses into; `__gc_collect()`
-  triggers a collection cycle; `__gc_pin(addr)` registers an
-  address in a 1024-entry static root table; `__gc_unpin(addr)`
-  clears the matching root slot; `__gc_read(addr, offset)` reads
-  an i64; `__gc_write(addr, offset, value)` stores one. Marking
-  uses an iterative worklist keyed off the type-tag header field:
-  the `gc_mark_visit` subroutine sets the mark bit and pushes the
-  block onto a 4096-entry trace stack; the trace loop pops each
-  block and, when its tag is "pointer record", walks the payload
-  qword by qword recursively visiting every non-null pointer field.
-  Four integration tests now cover the lifecycle: reclamation when
-  nothing is rooted, pinned-block survival across the heap stress
-  loop, sentinel disappearance when the same block is left
-  unpinned, and a fifth that pins only a parent record and verifies
-  the recursive mark keeps two child blocks reachable through the
-  record's pointer fields. Tracking precise stack-frame roots so
-  that real language values (runtime strings, lists, records) can
-  live on the heap is the next phase of GC work.
+  The allocator and collector are tagged into the language through
+  a `NativeValue::HeapPointer` variant. `__gc_alloc(size)` and
+  `__gc_record(num_fields)` return that variant rather than a plain
+  `Int`, so a `val a = __gc_alloc(...)` binding tells the codegen
+  the slot it just emitted holds a tracked GC pointer. The
+  `allocate_slot` helper then zero-initializes the slot and pushes
+  its rbp-relative address onto a precise shadow stack — an 8192-
+  entry data buffer with its own top-of-stack global. Each scope
+  remembers how many entries it pushed so `pop_scope` can drop
+  exactly that many entries on its way out, and
+  `pop_scope_preserving_allocations` transfers the count up to the
+  parent so entries belonging to slots whose stack memory survives
+  are never lost. The GC mark phase walks the shadow stack as a
+  second pass after the static root table, dereferencing each entry
+  to read the slot's current heap pointer and feeding it into the
+  shared `gc_mark_visit` worklist. Identifier loads, val/mutable
+  bindings, function-argument binding sites, assertions, binary
+  comparisons, and printing now all treat `HeapPointer` like `Int`
+  so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
+
+  Seven debug builtins drive the GC end-to-end:
+  `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
+  (type tag 2, packed heap pointers); `__gc_collect()`;
+  `__gc_pin(addr)` / `__gc_unpin(addr)` for explicit static-table
+  registration alongside the automatic shadow-stack tracking; and
+  `__gc_read(addr, offset)` / `__gc_write(addr, offset, value)` for
+  raw qword access. Marking uses an iterative worklist keyed off
+  the type-tag header field: the `gc_mark_visit` subroutine sets
+  the mark bit and pushes the block onto a 4096-entry trace stack;
+  the trace loop pops each block and, when its tag is "pointer
+  record", walks the payload qword by qword recursively visiting
+  every non-null pointer field.
+
+  Five integration tests cover the lifecycle: reclamation when
+  nothing is rooted, explicit-pin survival across a heap stress
+  loop, recursive marking through a pointer record's two child
+  blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
+  binding survives a heap-stress collection without any explicit
+  `__gc_pin`, and a basic `__gc_alloc` / `__gc_collect` smoke
+  check. Migrating real language values (runtime strings, lists,
+  records) onto the heap is the next phase of GC work.
 
 ### `klassic-runtime`
 - Shared runtime crate scaffold for behavior that should move out of `klassic-eval`
