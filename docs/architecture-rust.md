@@ -560,24 +560,28 @@ cargo run -- -e "1 + 2"
     collection it writes `klassic gc: out of memory` to stderr and
     exits with status 1.
 
-  Six debug builtins drive the GC end-to-end without touching the
-  existing static-buffer paths: `__gc_alloc(size)` returns the heap
-  address as `Int`; `__gc_collect()` triggers a collection cycle;
-  `__gc_pin(addr)` registers an address in a 1024-entry static root
-  table so the next mark phase keeps it alive; `__gc_unpin(addr)`
-  clears the matching root slot; `__gc_read(addr, offset)` reads an
-  i64 from `addr + offset`; `__gc_write(addr, offset, value)` writes
-  the corresponding qword. The mark phase walks the static root
-  table and ORs the mark bit into each referent's header. Three
-  integration tests cover the lifecycle: one allocates 200,000 bytes
-  ten times into a 1 MiB heap to exercise reclamation when nothing
-  is rooted, another pins a block before stressing the heap and
-  reads back its sentinel after a collect to prove the pinned block
-  survived, and a third skips the pin and verifies the same sentinel
-  no longer reads back — the freelist insertion overwrote the first
-  qword of the user payload. Tracking precise stack-frame and
-  per-type roots so that real language values (runtime strings,
-  lists, records) can live on the heap is the next phase of GC work.
+  Seven debug builtins drive the GC end-to-end without touching the
+  existing static-buffer paths: `__gc_alloc(size)` allocates raw
+  bytes (type tag 1) and returns the heap address as `Int`;
+  `__gc_record(num_fields)` allocates a "pointer record" (type
+  tag 2) whose payload the mark phase recurses into; `__gc_collect()`
+  triggers a collection cycle; `__gc_pin(addr)` registers an
+  address in a 1024-entry static root table; `__gc_unpin(addr)`
+  clears the matching root slot; `__gc_read(addr, offset)` reads
+  an i64; `__gc_write(addr, offset, value)` stores one. Marking
+  uses an iterative worklist keyed off the type-tag header field:
+  the `gc_mark_visit` subroutine sets the mark bit and pushes the
+  block onto a 4096-entry trace stack; the trace loop pops each
+  block and, when its tag is "pointer record", walks the payload
+  qword by qword recursively visiting every non-null pointer field.
+  Four integration tests now cover the lifecycle: reclamation when
+  nothing is rooted, pinned-block survival across the heap stress
+  loop, sentinel disappearance when the same block is left
+  unpinned, and a fifth that pins only a parent record and verifies
+  the recursive mark keeps two child blocks reachable through the
+  record's pointer fields. Tracking precise stack-frame roots so
+  that real language values (runtime strings, lists, records) can
+  live on the heap is the next phase of GC work.
 
 ### `klassic-runtime`
 - Shared runtime crate scaffold for behavior that should move out of `klassic-eval`

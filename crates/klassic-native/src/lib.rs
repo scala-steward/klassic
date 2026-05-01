@@ -633,12 +633,16 @@ struct NativeCodeGenerator {
     gc_heap_end: DataLabel,
     gc_free_list_head: DataLabel,
     gc_root_table: DataLabel,
+    gc_mark_worklist: DataLabel,
+    gc_mark_worklist_top: DataLabel,
     gc_alloc: TextLabel,
     gc_collect: TextLabel,
     gc_pin: TextLabel,
     gc_unpin: TextLabel,
+    gc_mark_visit: TextLabel,
     gc_oom_text: DataLabel,
     gc_root_overflow_text: DataLabel,
+    gc_worklist_overflow_text: DataLabel,
     scopes: Vec<HashMap<String, VarSlot>>,
     static_scopes: Vec<HashMap<String, StaticValue>>,
     scope_base_offsets: Vec<i32>,
@@ -695,12 +699,17 @@ impl NativeCodeGenerator {
         let gc_heap_end = asm.data_label_with_i64s(&[0]);
         let gc_free_list_head = asm.data_label_with_i64s(&[0]);
         let gc_root_table = asm.data_label_with_i64s(&[0; Self::GC_ROOT_TABLE_LEN]);
+        let gc_mark_worklist = asm.data_label_with_i64s(&[0; Self::GC_MARK_WORKLIST_LEN]);
+        let gc_mark_worklist_top = asm.data_label_with_i64s(&[0]);
         let gc_alloc = asm.create_text_label();
         let gc_collect = asm.create_text_label();
         let gc_pin = asm.create_text_label();
         let gc_unpin = asm.create_text_label();
+        let gc_mark_visit = asm.create_text_label();
         let gc_oom_text = asm.data_label_with_bytes(b"klassic gc: out of memory\n");
         let gc_root_overflow_text = asm.data_label_with_bytes(b"klassic gc: root table overflow\n");
+        let gc_worklist_overflow_text =
+            asm.data_label_with_bytes(b"klassic gc: mark worklist overflow\n");
         let mut record_schemas = HashMap::new();
         record_schemas.insert(
             "Point".to_string(),
@@ -741,12 +750,16 @@ impl NativeCodeGenerator {
             gc_heap_end,
             gc_free_list_head,
             gc_root_table,
+            gc_mark_worklist,
+            gc_mark_worklist_top,
             gc_alloc,
             gc_collect,
             gc_pin,
             gc_unpin,
+            gc_mark_visit,
             gc_oom_text,
             gc_root_overflow_text,
+            gc_worklist_overflow_text,
             scopes: vec![HashMap::new()],
             static_scopes: vec![HashMap::new()],
             scope_base_offsets: vec![0],
@@ -790,6 +803,7 @@ impl NativeCodeGenerator {
         self.emit_exit_success();
         self.emit_functions()?;
         self.emit_print_i64_runtime();
+        self.emit_gc_mark_visit_runtime();
         self.emit_gc_alloc_runtime();
         self.emit_gc_collect_runtime();
         self.emit_gc_pin_runtime();
@@ -2703,6 +2717,7 @@ impl NativeCodeGenerator {
             "thread" => self.compile_thread(arguments, span),
             "stopwatch" => self.compile_stopwatch(arguments, span),
             "__gc_alloc" => self.compile_gc_alloc(arguments, span),
+            "__gc_record" => self.compile_gc_record(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3402,6 +3417,7 @@ impl NativeCodeGenerator {
             "thread" => self.compile_thread(arguments, span).map(Some),
             "stopwatch" => self.compile_stopwatch(arguments, span).map(Some),
             "__gc_alloc" => self.compile_gc_alloc(arguments, span).map(Some),
+            "__gc_record" => self.compile_gc_record(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -7413,8 +7429,56 @@ impl NativeCodeGenerator {
         }
         self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
         // Type tag 1 = "raw bytes" (no pointer fields).
-        self.asm.mov_imm64(Reg::Rsi, 1);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
         self.asm.call_label(self.gc_alloc);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_record(num_fields)` allocates a heap object whose payload
+    /// is interpreted as `num_fields` heap pointers. The mark phase
+    /// recurses through these fields, so writing other heap addresses
+    /// into them via `__gc_write` keeps the referents alive even when
+    /// the only root is the parent record itself.
+    fn compile_gc_record(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_record expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_record for non-Int field-count argument",
+            ));
+        }
+        // size in bytes = field_count * 8
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_RECORD);
+        self.asm.call_label(self.gc_alloc);
+        // Zero-initialize the payload. rax = pointer, rdi = size in bytes.
+        // Note: the bump path leaves zeroed mmap memory; the free-list
+        // path may have stale next-free bytes at offset 0. Memset the
+        // whole payload to be safe.
+        let init_loop = self.asm.create_text_label();
+        let init_done = self.asm.create_text_label();
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::Rdi);
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.bind_text_label(init_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, init_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 8);
+        self.asm.jmp_label(init_loop);
+        self.asm.bind_text_label(init_done);
         Ok(NativeValue::Int)
     }
 
@@ -26863,6 +26927,16 @@ impl NativeCodeGenerator {
     /// Number of pointer slots in the static GC root table. Each slot is
     /// either zero (free) or holds a heap pointer pinned via `__gc_pin`.
     const GC_ROOT_TABLE_LEN: usize = 1024;
+    /// Maximum number of objects that can be queued for tracing during a
+    /// single mark phase. Marking aborts with an error message if the
+    /// worklist overflows.
+    const GC_MARK_WORKLIST_LEN: usize = 4096;
+    /// Type tag stored in the second header word. 0 marks a free block,
+    /// 1 marks a raw-bytes payload (no pointer fields), and 2 marks a
+    /// "pointer record" whose payload is interpreted as a packed array
+    /// of heap pointers that the mark phase recurses into.
+    const GC_TYPE_RAW_BYTES: u64 = 1;
+    const GC_TYPE_POINTER_RECORD: u64 = 2;
 
     /// Initialize the GC heap: mmap a private anonymous region and seed the
     /// heap_base / heap_top / heap_end globals.
@@ -27020,36 +27094,94 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(self.gc_collect);
         self.asm.push_reg(Reg::Rbp);
         self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+        // Reserve four qword locals (rbp-relative addressing). These hold
+        // mark-phase iterator state that must survive intervening calls.
+        //   [rbp -  8]: root_cursor (current &gc_root_table[i])
+        //   [rbp - 16]: root_end    (sentinel = end of root table)
+        //   [rbp - 24]: trace_cursor (current pointer into payload)
+        //   [rbp - 32]: trace_end    (end of current payload)
+        self.asm.sub_reg_imm8(Reg::Rsp, 32);
 
         // ---- Mark phase ----
-        // Walk the static root table; for every non-zero entry mark the
-        // referent block. Phase 2 supports raw-bytes objects only, so
-        // marking is non-recursive.
-        // r10 = &table[i], r11 = end of table
+        // Reset the worklist top pointer.
+        self.asm.mov_data_addr(Reg::R10, self.gc_mark_worklist_top);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+        // Initialize the root cursor / end.
         self.asm.mov_data_addr(Reg::R10, self.gc_root_table);
-        self.asm.mov_reg_reg(Reg::R11, Reg::R10);
+        self.asm.store_rbp_slot(8, Reg::R10);
         self.asm
-            .add_reg_imm32(Reg::R11, (Self::GC_ROOT_TABLE_LEN * 8) as i32);
-        let mark_loop = self.asm.create_text_label();
-        let mark_done = self.asm.create_text_label();
-        let mark_skip = self.asm.create_text_label();
-        self.asm.bind_text_label(mark_loop);
+            .add_reg_imm32(Reg::R10, (Self::GC_ROOT_TABLE_LEN * 8) as i32);
+        self.asm.store_rbp_slot(16, Reg::R10);
+
+        let root_loop = self.asm.create_text_label();
+        let root_done = self.asm.create_text_label();
+        let root_skip = self.asm.create_text_label();
+        self.asm.bind_text_label(root_loop);
+        self.asm.load_rbp_slot(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::R11, 16);
         self.asm.cmp_reg_reg(Reg::R10, Reg::R11);
-        self.asm.jcc_label(Condition::AboveOrEqual, mark_done);
-        // ptr = [r10]
-        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
-        self.asm.test_reg_reg(Reg::Rax, Reg::Rax);
-        self.asm.jcc_label(Condition::Equal, mark_skip);
-        // header_word at [ptr - 16]
-        self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rax, -16);
-        // header_word |= MARK_BIT
-        self.asm.mov_imm64(Reg::Rdi, 1_u64 << 63);
-        self.asm.or_reg_reg(Reg::Rcx, Reg::Rdi);
-        self.asm.store_ptr_disp32(Reg::Rax, -16, Reg::Rcx);
-        self.asm.bind_text_label(mark_skip);
+        self.asm.jcc_label(Condition::AboveOrEqual, root_done);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::Rdi, Reg::Rdi);
+        self.asm.jcc_label(Condition::Equal, root_skip);
+        self.asm.call_label(self.gc_mark_visit);
+        self.asm.bind_text_label(root_skip);
+        self.asm.load_rbp_slot(Reg::R10, 8);
         self.asm.add_reg_imm32(Reg::R10, 8);
-        self.asm.jmp_label(mark_loop);
-        self.asm.bind_text_label(mark_done);
+        self.asm.store_rbp_slot(8, Reg::R10);
+        self.asm.jmp_label(root_loop);
+        self.asm.bind_text_label(root_done);
+
+        // ---- Trace loop: drain the worklist, recursing through
+        //      pointer-record fields. ----
+        let trace_loop = self.asm.create_text_label();
+        let trace_done = self.asm.create_text_label();
+        let trace_field_loop = self.asm.create_text_label();
+        let trace_skip_field = self.asm.create_text_label();
+        self.asm.bind_text_label(trace_loop);
+        self.asm.mov_data_addr(Reg::R10, self.gc_mark_worklist_top);
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, trace_done);
+        // top--, fetch worklist[top]
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rcx);
+        self.asm.mov_data_addr(Reg::R8, self.gc_mark_worklist);
+        self.asm.mov_reg_reg(Reg::R9, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R9, 3);
+        self.asm.add_reg_reg(Reg::R8, Reg::R9);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R8, 0);
+        // type at [rax - 8]
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rax, -8);
+        self.asm
+            .cmp_reg_imm8(Reg::Rcx, Self::GC_TYPE_POINTER_RECORD as i8);
+        self.asm.jcc_label(Condition::NotEqual, trace_loop);
+        // Pointer record: walk payload. payload_size = (size & ~MARK) - 16
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rax, -16);
+        self.asm.mov_imm64(Reg::Rdx, !((1_u64) << 63));
+        self.asm.and_reg_reg(Reg::Rcx, Reg::Rdx);
+        self.asm.sub_reg_imm8(Reg::Rcx, 16);
+        // trace_end = rax + payload_size; trace_cursor = rax
+        self.asm.mov_reg_reg(Reg::R9, Reg::Rax);
+        self.asm.add_reg_reg(Reg::R9, Reg::Rcx);
+        self.asm.store_rbp_slot(32, Reg::R9);
+        self.asm.store_rbp_slot(24, Reg::Rax);
+        self.asm.bind_text_label(trace_field_loop);
+        self.asm.load_rbp_slot(Reg::R10, 24);
+        self.asm.load_rbp_slot(Reg::R11, 32);
+        self.asm.cmp_reg_reg(Reg::R10, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, trace_loop);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::Rdi, Reg::Rdi);
+        self.asm.jcc_label(Condition::Equal, trace_skip_field);
+        self.asm.call_label(self.gc_mark_visit);
+        self.asm.bind_text_label(trace_skip_field);
+        self.asm.load_rbp_slot(Reg::R10, 24);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.store_rbp_slot(24, Reg::R10);
+        self.asm.jmp_label(trace_field_loop);
+        self.asm.bind_text_label(trace_done);
 
         // ---- Sweep phase ----
         // Walk heap linearly using sizes; rebuild free list of unmarked
@@ -27108,6 +27240,58 @@ impl NativeCodeGenerator {
 
         self.asm.leave();
         self.asm.ret();
+    }
+
+    /// `gc_mark_visit(addr)` (rdi = addr): if addr points to an unmarked
+    /// heap block, sets its mark bit and pushes it onto the trace
+    /// worklist. A no-op when addr is null or already marked. Aborts if
+    /// the worklist is full.
+    fn emit_gc_mark_visit_runtime(&mut self) {
+        self.asm.bind_text_label(self.gc_mark_visit);
+        self.asm.push_reg(Reg::Rbp);
+        self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+
+        let bail = self.asm.create_text_label();
+        let overflow = self.asm.create_text_label();
+
+        // Null check.
+        self.asm.test_reg_reg(Reg::Rdi, Reg::Rdi);
+        self.asm.jcc_label(Condition::Equal, bail);
+        // header_word = [rdi - 16]
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rdi, -16);
+        // Already marked? (top bit set)
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Less, bail);
+        // Set mark.
+        self.asm.mov_imm64(Reg::Rcx, 1_u64 << 63);
+        self.asm.or_reg_reg(Reg::Rax, Reg::Rcx);
+        self.asm.store_ptr_disp32(Reg::Rdi, -16, Reg::Rax);
+        // Push onto worklist: worklist[top++] = rdi
+        self.asm.mov_data_addr(Reg::R10, self.gc_mark_worklist_top);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm
+            .cmp_reg_imm32(Reg::Rax, Self::GC_MARK_WORKLIST_LEN as i32);
+        self.asm.jcc_label(Condition::AboveOrEqual, overflow);
+        self.asm.mov_data_addr(Reg::R8, self.gc_mark_worklist);
+        // r9 = base + rax*8
+        self.asm.mov_reg_reg(Reg::R9, Reg::Rax);
+        self.asm.shl_reg_imm8(Reg::R9, 3);
+        self.asm.add_reg_reg(Reg::R8, Reg::R9);
+        self.asm.store_ptr_disp32(Reg::R8, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::Rax, 1);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+
+        self.asm.bind_text_label(bail);
+        self.asm.leave();
+        self.asm.ret();
+
+        self.asm.bind_text_label(overflow);
+        self.emit_write_data(
+            2,
+            self.gc_worklist_overflow_text,
+            b"klassic gc: mark worklist overflow\n".len(),
+        );
+        self.emit_exit_code(1);
     }
 
     /// `gc_pin(addr)` (rdi = addr): registers `addr` in the static root
@@ -29313,6 +29497,13 @@ impl Assembler {
         self.rex_w(Reg::Rax, reg);
         self.byte(0xc1);
         self.modrm(5, reg as u8);
+        self.byte(imm);
+    }
+
+    fn shl_reg_imm8(&mut self, reg: Reg, imm: u8) {
+        self.rex_w(Reg::Rax, reg);
+        self.byte(0xc1);
+        self.modrm(4, reg as u8);
         self.byte(imm);
     }
 

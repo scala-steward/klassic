@@ -4190,6 +4190,68 @@ println(__gc_read(a, 0) == 12345)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_pointer_record_keeps_children_alive() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-record-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-record-{unique}"));
+    // The mark phase must recurse through the parent's pointer fields:
+    // pin only the parent, store the two child blocks as fields, then
+    // stress the heap and read back the children's sentinels.
+    fs::write(
+        &source_path,
+        r#"val parent = __gc_record(2)
+val child1 = __gc_alloc(16)
+__gc_write(child1, 0, 1111)
+val child2 = __gc_alloc(16)
+__gc_write(child2, 0, 2222)
+__gc_write(parent, 0, child1)
+__gc_write(parent, 8, child2)
+__gc_pin(parent)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+println(__gc_read(child1, 0))
+println(__gc_read(child2, 0))
+__gc_unpin(parent)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc pointer-record build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "1111\n2222\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_list_of_maps_branch() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -1923,6 +1923,11 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             let _ = expect_non_negative_int(&arguments[0], "__gc_alloc", span)?;
             Ok(Value::Int(1))
         }
+        "__gc_record" => {
+            ensure_arity(name, arguments, 1, span)?;
+            let _ = expect_non_negative_int(&arguments[0], "__gc_record", span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)
