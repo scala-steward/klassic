@@ -3906,6 +3906,75 @@ println(Map#get(m, "b"))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_map_and_set_is_empty() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-isempty-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-runtime-isempty-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val m = if(arg == "full") %["a": 1, "b": 2] else %["x": 9]
+val s = if(arg == "full") %(1 2 3) else %(7)
+println(Map#isEmpty(m))
+println(Set#isEmpty(s))
+println(Map#size(m))
+println(Set#size(s))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime map/set isEmpty build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let full_run = Command::new(&output_path)
+        .arg("full")
+        .output()
+        .expect("generated executable should run full");
+    let other_run = Command::new(&output_path)
+        .arg("other")
+        .output()
+        .expect("generated executable should run other");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(full_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&full_run.stdout),
+        "false\nfalse\n2\n3\n"
+    );
+    assert!(full_run.stderr.is_empty());
+
+    assert!(other_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&other_run.stdout),
+        "false\nfalse\n1\n1\n"
+    );
+    assert!(other_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

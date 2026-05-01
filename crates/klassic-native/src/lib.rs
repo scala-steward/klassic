@@ -2778,7 +2778,7 @@ impl NativeCodeGenerator {
                     self.asm.movzx_rax_al();
                     return Ok(NativeValue::Bool);
                 }
-                if name == "isEmpty"
+                if matches!(name.as_str(), "isEmpty" | "Map#isEmpty" | "Set#isEmpty")
                     && let NativeValue::RuntimeList { label } = value
                 {
                     self.emit_runtime_list_len_to_rax(label);
