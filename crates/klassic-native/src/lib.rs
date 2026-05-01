@@ -488,6 +488,15 @@ struct RuntimeRecord {
 struct RuntimeList {
     elements: Vec<CompiledLiteralValue>,
     length: RuntimeListLength,
+    kind: RuntimeListKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum RuntimeListKind {
+    #[default]
+    List,
+    Set,
+    Map,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2706,10 +2715,14 @@ impl NativeCodeGenerator {
                     });
                     return Ok(NativeValue::Int);
                 }
-                if matches!(name.as_str(), "size" | "Set#size")
+                if matches!(name.as_str(), "size" | "Set#size" | "Map#size")
                     && let NativeValue::RuntimeList { label } = value
                 {
+                    let kind = self.runtime_list_kind(label);
                     self.emit_runtime_list_len_to_rax(label);
+                    if matches!(kind, RuntimeListKind::Map) {
+                        self.asm.shr_reg_imm8(Reg::Rax, 1);
+                    }
                     return Ok(NativeValue::Int);
                 }
                 let len = match (name.as_str(), value) {
@@ -8492,7 +8505,10 @@ impl NativeCodeGenerator {
     fn native_value_can_copy_to_runtime_list(value: NativeValue) -> bool {
         matches!(value, NativeValue::RuntimeList { .. })
             || Self::native_value_is_static_list_like(value)
-            || matches!(value, NativeValue::StaticSet { .. })
+            || matches!(
+                value,
+                NativeValue::StaticSet { .. } | NativeValue::StaticMap { .. }
+            )
     }
 
     fn stabilize_native_list_to_runtime_list_label_with_length(
@@ -9017,6 +9033,19 @@ impl NativeCodeGenerator {
                     .map(|set| set.elements.clone())
                     .ok_or_else(|| unsupported(span, context))?;
                 Ok(self.compile_static_literal_values(&elements))
+            }
+            NativeValue::StaticMap { label } => {
+                let entries = self
+                    .static_maps
+                    .get(label.0)
+                    .map(|map| map.entries.clone())
+                    .ok_or_else(|| unsupported(span, context))?;
+                let mut flattened = Vec::with_capacity(entries.len() * 2);
+                for (key, value) in entries {
+                    flattened.push(key);
+                    flattened.push(value);
+                }
+                Ok(self.compile_static_literal_values(&flattened))
             }
             _ => Err(unsupported(span, context)),
         }
@@ -17587,8 +17616,25 @@ impl NativeCodeGenerator {
         length: RuntimeListLength,
     ) -> RuntimeListLabel {
         let label = RuntimeListLabel(self.runtime_lists.len());
-        self.runtime_lists.push(RuntimeList { elements, length });
+        self.runtime_lists.push(RuntimeList {
+            elements,
+            length,
+            kind: RuntimeListKind::List,
+        });
         label
+    }
+
+    fn set_runtime_list_kind(&mut self, label: RuntimeListLabel, kind: RuntimeListKind) {
+        if let Some(list) = self.runtime_lists.get_mut(label.0) {
+            list.kind = kind;
+        }
+    }
+
+    fn runtime_list_kind(&self, label: RuntimeListLabel) -> RuntimeListKind {
+        self.runtime_lists
+            .get(label.0)
+            .map(|list| list.kind)
+            .unwrap_or_default()
     }
 
     fn intern_static_map(&mut self, entries: Vec<(StaticValue, StaticValue)>) -> MapLabel {
@@ -19726,6 +19772,64 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn expr_may_yield_static_map(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr)
+                .or_else(|| native_value_hint_from_expr(expr)),
+            Some(NativeValue::StaticMap { .. })
+        ) {
+            return true;
+        }
+        match expr {
+            Expr::MapLiteral { .. } => true,
+            Expr::Identifier { name, .. } => self
+                .lookup_var(name)
+                .is_some_and(|slot| matches!(slot.value, NativeValue::StaticMap { .. })),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .is_some_and(|expr| self.expr_may_yield_static_map(expr)),
+            Expr::Cleanup { body, .. } => self.expr_may_yield_static_map(body),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_may_yield_static_map(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|branch| self.expr_may_yield_static_map(branch))
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_static_map_entries_hint(&self, expr: &Expr) -> Option<usize> {
+        match expr {
+            Expr::MapLiteral { entries, .. } => Some(entries.len()),
+            Expr::Identifier { name, .. } => {
+                let slot = self.lookup_var(name)?;
+                if let NativeValue::StaticMap { label } = slot.value {
+                    return self.static_maps.get(label.0).map(|map| map.entries.len());
+                }
+                None
+            }
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|e| self.expr_static_map_entries_hint(e)),
+            Expr::Cleanup { body, .. } => self.expr_static_map_entries_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let t = self.expr_static_map_entries_hint(then_branch)?;
+                let e = self.expr_static_map_entries_hint(else_branch)?;
+                Some(t.max(e))
+            }
+            _ => None,
+        }
+    }
+
     fn expr_static_set_size_hint(&self, expr: &Expr) -> Option<usize> {
         match expr {
             Expr::SetLiteral { elements, .. } => Some(elements.len()),
@@ -20887,10 +20991,13 @@ impl NativeCodeGenerator {
             let else_is_null = matches!(else_branch, Expr::Null { .. });
             let branches_yield_static_set = self.expr_may_yield_static_set(then_branch)
                 && self.expr_may_yield_static_set(else_branch);
+            let branches_yield_static_map = self.expr_may_yield_static_map(then_branch)
+                && self.expr_may_yield_static_map(else_branch);
             let branch_may_yield_list_like = branch_may_yield_runtime_list
                 || (self.expr_may_yield_static_list_like(then_branch)
                     && self.expr_may_yield_static_list_like(else_branch))
                 || branches_yield_static_set
+                || branches_yield_static_map
                 || (then_is_null
                     && (self.expr_may_yield_static_list_like(else_branch)
                         || self.expr_may_yield_runtime_list(else_branch)))
@@ -20901,10 +21008,18 @@ impl NativeCodeGenerator {
                 let then_len_hint = self
                     .native_value_list_length_hint(then_value)
                     .or_else(|| self.expr_static_list_length_hint(then_branch))
-                    .or_else(|| self.expr_static_set_size_hint(then_branch));
+                    .or_else(|| self.expr_static_set_size_hint(then_branch))
+                    .or_else(|| {
+                        self.expr_static_map_entries_hint(then_branch)
+                            .map(|n| n * 2)
+                    });
                 let else_len_hint = self
                     .expr_static_list_length_hint(else_branch)
-                    .or_else(|| self.expr_static_set_size_hint(else_branch));
+                    .or_else(|| self.expr_static_set_size_hint(else_branch))
+                    .or_else(|| {
+                        self.expr_static_map_entries_hint(else_branch)
+                            .map(|n| n * 2)
+                    });
                 let lengths_differ = matches!(
                     (then_len_hint, else_len_hint),
                     (Some(then_len), Some(else_len)) if then_len != else_len
@@ -20942,14 +21057,26 @@ impl NativeCodeGenerator {
                         (None, None) => None,
                     }
                 };
-                self.prepare_native_list_branch_output_with_min_capacity_and_inner_caps(
-                    then_value,
-                    branch_may_yield_runtime_list || lengths_differ || then_is_null || else_is_null,
-                    min_capacity,
-                    inner_capacities.as_deref(),
-                    deep_min_capacity,
-                    span,
-                )?
+                let buffer = self
+                    .prepare_native_list_branch_output_with_min_capacity_and_inner_caps(
+                        then_value,
+                        branch_may_yield_runtime_list
+                            || lengths_differ
+                            || then_is_null
+                            || else_is_null,
+                        min_capacity,
+                        inner_capacities.as_deref(),
+                        deep_min_capacity,
+                        span,
+                    )?;
+                if let Some(label) = buffer {
+                    if branches_yield_static_map {
+                        self.set_runtime_list_kind(label, RuntimeListKind::Map);
+                    } else if branches_yield_static_set {
+                        self.set_runtime_list_kind(label, RuntimeListKind::Set);
+                    }
+                }
+                buffer
             } else {
                 None
             }
@@ -28024,6 +28151,13 @@ impl Assembler {
         self.byte(0x83);
         self.modrm(5, reg as u8);
         self.byte(imm as u8);
+    }
+
+    fn shr_reg_imm8(&mut self, reg: Reg, imm: u8) {
+        self.rex_w(Reg::Rax, reg);
+        self.byte(0xc1);
+        self.modrm(5, reg as u8);
+        self.byte(imm);
     }
 
     fn add_reg_imm32(&mut self, reg: Reg, imm: i32) {
