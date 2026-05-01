@@ -628,6 +628,13 @@ struct NativeCodeGenerator {
     command_line_argc: DataLabel,
     command_line_argv1_base: DataLabel,
     environment_base: DataLabel,
+    gc_heap_base: DataLabel,
+    gc_heap_top: DataLabel,
+    gc_heap_end: DataLabel,
+    gc_free_list_head: DataLabel,
+    gc_alloc: TextLabel,
+    gc_collect: TextLabel,
+    gc_oom_text: DataLabel,
     scopes: Vec<HashMap<String, VarSlot>>,
     static_scopes: Vec<HashMap<String, StaticValue>>,
     scope_base_offsets: Vec<i32>,
@@ -679,6 +686,13 @@ impl NativeCodeGenerator {
         let command_line_argc = asm.data_label_with_i64s(&[0]);
         let command_line_argv1_base = asm.data_label_with_i64s(&[0]);
         let environment_base = asm.data_label_with_i64s(&[0]);
+        let gc_heap_base = asm.data_label_with_i64s(&[0]);
+        let gc_heap_top = asm.data_label_with_i64s(&[0]);
+        let gc_heap_end = asm.data_label_with_i64s(&[0]);
+        let gc_free_list_head = asm.data_label_with_i64s(&[0]);
+        let gc_alloc = asm.create_text_label();
+        let gc_collect = asm.create_text_label();
+        let gc_oom_text = asm.data_label_with_bytes(b"klassic gc: out of memory\n");
         let mut record_schemas = HashMap::new();
         record_schemas.insert(
             "Point".to_string(),
@@ -714,6 +728,13 @@ impl NativeCodeGenerator {
             command_line_argc,
             command_line_argv1_base,
             environment_base,
+            gc_heap_base,
+            gc_heap_top,
+            gc_heap_end,
+            gc_free_list_head,
+            gc_alloc,
+            gc_collect,
+            gc_oom_text,
             scopes: vec![HashMap::new()],
             static_scopes: vec![HashMap::new()],
             scope_base_offsets: vec![0],
@@ -751,11 +772,14 @@ impl NativeCodeGenerator {
         self.asm.push_reg(Reg::Rbp);
         self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
         self.emit_store_command_line_state();
+        self.emit_initialize_gc_heap();
         self.compile_top_level(expr)?;
         self.emit_queued_threads()?;
         self.emit_exit_success();
         self.emit_functions()?;
         self.emit_print_i64_runtime();
+        self.emit_gc_alloc_runtime();
+        self.emit_gc_collect_runtime();
         Ok(self.asm.finish())
     }
 
@@ -2664,6 +2688,8 @@ impl NativeCodeGenerator {
             "sleep" => self.compile_sleep(arguments, span),
             "thread" => self.compile_thread(arguments, span),
             "stopwatch" => self.compile_stopwatch(arguments, span),
+            "__gc_alloc" => self.compile_gc_alloc(arguments, span),
+            "__gc_collect" => self.compile_gc_collect(arguments, span),
             "assert" => {
                 if arguments.len() != 1 {
                     return Err(Diagnostic::compile(
@@ -3357,6 +3383,8 @@ impl NativeCodeGenerator {
             "sleep" => self.compile_sleep(arguments, span).map(Some),
             "thread" => self.compile_thread(arguments, span).map(Some),
             "stopwatch" => self.compile_stopwatch(arguments, span).map(Some),
+            "__gc_alloc" => self.compile_gc_alloc(arguments, span).map(Some),
+            "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "head" => self.compile_static_head(arguments, span).map(Some),
             "FileOutput#write" => self
                 .compile_file_output_write(arguments, false, span)
@@ -7337,6 +7365,53 @@ impl NativeCodeGenerator {
         self.asm.mov_imm64(Reg::Rsi, 0);
         self.asm.syscall();
         self.asm.add_reg_imm32(Reg::Rsp, 16);
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_alloc(size)` returns the heap address of a freshly allocated
+    /// object with `size` bytes of payload. Implemented as a debugging /
+    /// stress-testing builtin so tests can exercise the GC end-to-end.
+    fn compile_gc_alloc(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_alloc expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_alloc for non-Int size argument",
+            ));
+        }
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        // Type tag 1 = "raw bytes" (no pointer fields).
+        self.asm.mov_imm64(Reg::Rsi, 1);
+        self.asm.call_label(self.gc_alloc);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_collect()` triggers a stop-the-world mark-and-sweep cycle.
+    fn compile_gc_collect(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if !arguments.is_empty() {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_collect expects 0 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        self.asm.call_label(self.gc_collect);
         Ok(NativeValue::Unit)
     }
 
@@ -26628,6 +26703,229 @@ impl NativeCodeGenerator {
         self.asm.ret();
     }
 
+    /// Heap size used by the GC. Picked small so unit tests can exercise GC
+    /// reclamation without needing to allocate megabytes.
+    const GC_HEAP_SIZE: u64 = 1 << 20; // 1 MiB
+
+    /// Initialize the GC heap: mmap a private anonymous region and seed the
+    /// heap_base / heap_top / heap_end globals.
+    fn emit_initialize_gc_heap(&mut self) {
+        // mmap(NULL, GC_HEAP_SIZE, PROT_READ | PROT_WRITE,
+        //      MAP_ANON | MAP_PRIVATE, -1, 0)
+        self.asm.mov_imm64(Reg::Rax, 9); // sys_mmap
+        self.asm.mov_imm64(Reg::Rdi, 0); // addr = NULL
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_HEAP_SIZE);
+        self.asm.mov_imm64(Reg::Rdx, 3); // PROT_READ|PROT_WRITE
+        self.asm.mov_imm64(Reg::R10, 0x22); // MAP_ANON|MAP_PRIVATE
+        self.asm.mov_imm64(Reg::R8, (-1_i64) as u64); // fd = -1
+        self.asm.mov_imm64(Reg::R9, 0); // offset = 0
+        self.asm.syscall();
+
+        // Bail out hard if mmap returned a negative errno value.
+        let mmap_ok = self.asm.create_text_label();
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::GreaterEqual, mmap_ok);
+        let label = self.asm.data_label_with_bytes(b"klassic gc: mmap failed\n");
+        self.emit_write_data(2, label, b"klassic gc: mmap failed\n".len());
+        self.emit_exit_code(1);
+        self.asm.bind_text_label(mmap_ok);
+
+        // heap_base = rax
+        self.asm.mov_data_addr(Reg::R10, self.gc_heap_base);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+
+        // heap_top = rax
+        self.asm.mov_data_addr(Reg::R10, self.gc_heap_top);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+
+        // heap_end = rax + GC_HEAP_SIZE
+        self.asm.mov_imm64(Reg::Rcx, Self::GC_HEAP_SIZE);
+        self.asm.add_reg_reg(Reg::Rax, Reg::Rcx);
+        self.asm.mov_data_addr(Reg::R10, self.gc_heap_end);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+
+        // free_list_head = 0 (already zero-initialized, but be explicit)
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.mov_data_addr(Reg::R10, self.gc_free_list_head);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+    }
+
+    /// Subroutine signature: rdi = payload size in bytes, rsi = type tag.
+    /// Returns rax = pointer to user data (16-byte object header sits at
+    /// rax-16). On allocation failure, runs the collector once and retries.
+    ///
+    /// Stack frame layout after prologue (offsets relative to rbp):
+    ///   [rbp +  0]: saved rbp
+    ///   [rbp -  8]: saved rbx
+    ///   [rbp - 16]: total block size (header + payload, 16-byte aligned)
+    ///   [rbp - 24]: type tag
+    fn emit_gc_alloc_runtime(&mut self) {
+        self.asm.bind_text_label(self.gc_alloc);
+        self.asm.push_reg(Reg::Rbp);
+        self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+        self.asm.push_reg(Reg::Rbx);
+        // Reserve two qwords for locals.
+        self.asm.sub_reg_imm8(Reg::Rsp, 16);
+        // total = align_up(rdi + 16, 16)
+        self.asm.add_reg_imm32(Reg::Rdi, 16 + 15);
+        self.asm.and_reg_imm32(Reg::Rdi, -16);
+        self.asm.store_rbp_slot(16, Reg::Rdi);
+        self.asm.store_rbp_slot(24, Reg::Rsi);
+
+        let success = self.asm.create_text_label();
+        let do_collect = self.asm.create_text_label();
+        let oom = self.asm.create_text_label();
+        let after_collect = self.asm.create_text_label();
+
+        self.emit_gc_alloc_attempt(do_collect, success);
+        // First attempt failed; run collector then retry.
+        self.asm.bind_text_label(do_collect);
+        self.asm.call_label(self.gc_collect);
+        self.asm.bind_text_label(after_collect);
+        self.emit_gc_alloc_attempt(oom, success);
+
+        self.asm.bind_text_label(oom);
+        self.emit_write_data(2, self.gc_oom_text, b"klassic gc: out of memory\n".len());
+        self.emit_exit_code(1);
+
+        self.asm.bind_text_label(success);
+        // Tear down locals and return.
+        self.asm.add_reg_imm32(Reg::Rsp, 16);
+        self.asm.pop_reg(Reg::Rbx);
+        self.asm.leave();
+        self.asm.ret();
+    }
+
+    /// Inline body of an allocation attempt: free-list first-fit, then bump.
+    /// Jumps to `fail` when neither path can satisfy the request and to
+    /// `success` (with rax holding the user pointer) on success.
+    fn emit_gc_alloc_attempt(&mut self, fail: TextLabel, success: TextLabel) {
+        // ---- Free list first-fit walk ----
+        // r10 = &prev_link (initially &free_list_head)
+        self.asm.mov_data_addr(Reg::R10, self.gc_free_list_head);
+        // r11 = current = *r10
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        let free_loop = self.asm.create_text_label();
+        let free_done = self.asm.create_text_label();
+        let too_small = self.asm.create_text_label();
+        self.asm.bind_text_label(free_loop);
+        self.asm.test_reg_reg(Reg::R11, Reg::R11);
+        self.asm.jcc_label(Condition::Equal, free_done);
+        // size = [r11]
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R11, 0);
+        // total = [rbp - 16]
+        self.asm.load_rbp_slot(Reg::Rdi, 16);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rdi);
+        self.asm.jcc_label(Condition::Less, too_small);
+        // Hit. Unlink: *prev = [r11 + 16]
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::R11, 16);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rcx);
+        // type tag = [rbp - 24]
+        self.asm.load_rbp_slot(Reg::Rsi, 24);
+        self.asm.store_ptr_disp32(Reg::R11, 8, Reg::Rsi);
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R11);
+        self.asm.add_reg_imm32(Reg::Rax, 16);
+        self.asm.jmp_label(success);
+        self.asm.bind_text_label(too_small);
+        // prev = &block.next_free (r11 + 16); current = [prev]
+        self.asm.mov_reg_reg(Reg::R10, Reg::R11);
+        self.asm.add_reg_imm32(Reg::R10, 16);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.jmp_label(free_loop);
+        self.asm.bind_text_label(free_done);
+
+        // ---- Bump allocate ----
+        self.asm.mov_data_addr(Reg::R10, self.gc_heap_top);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::Rdi, 16);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.add_reg_reg(Reg::Rcx, Reg::Rdi);
+        self.asm.mov_data_addr(Reg::R8, self.gc_heap_end);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R8, 0);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.jcc_label(Condition::Above, fail);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rcx);
+        self.asm.store_ptr_disp32(Reg::R11, 0, Reg::Rdi);
+        self.asm.load_rbp_slot(Reg::Rsi, 24);
+        self.asm.store_ptr_disp32(Reg::R11, 8, Reg::Rsi);
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R11);
+        self.asm.add_reg_imm32(Reg::Rax, 16);
+        self.asm.jmp_label(success);
+    }
+
+    /// Stop-the-world mark-and-sweep.
+    ///
+    /// Phase 1 only honors statically-registered roots, of which there are
+    /// none yet — so a collection cycle frees every heap object that has
+    /// been allocated up to this point. Future phases will register stack
+    /// frame descriptors and per-type pointer-field tables.
+    fn emit_gc_collect_runtime(&mut self) {
+        self.asm.bind_text_label(self.gc_collect);
+        self.asm.push_reg(Reg::Rbp);
+        self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+
+        // ---- Mark phase ----
+        // No roots yet, so nothing to mark.
+
+        // ---- Sweep phase ----
+        // Walk heap linearly using sizes; rebuild free list of unmarked
+        // (= every object in Phase 1) blocks.
+        // ptr = heap_base
+        self.asm.mov_data_addr(Reg::R10, self.gc_heap_base);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        // end = heap_top
+        self.asm.mov_data_addr(Reg::R10, self.gc_heap_top);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        // free_head = 0
+        self.asm.mov_imm64(Reg::R9, 0);
+
+        let sweep_loop = self.asm.create_text_label();
+        let sweep_done = self.asm.create_text_label();
+        let block_dead = self.asm.create_text_label();
+        self.asm.bind_text_label(sweep_loop);
+        // if ptr >= end: break
+        self.asm.cmp_reg_reg(Reg::R11, Reg::R8);
+        self.asm.jcc_label(Condition::AboveOrEqual, sweep_done);
+
+        // header_word = [ptr]
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R11, 0);
+        // size = header_word & ~MARK_BIT (clear top bit)
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rdi, !((1_u64) << 63));
+        self.asm.and_reg_reg(Reg::Rcx, Reg::Rdi);
+        // marked = (header_word >> 63) (but we just need the bit test)
+        // test top bit by comparing rax against 0 (signed): if rax < 0, marked.
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::GreaterEqual, block_dead);
+        // Marked: clear mark bit and continue.
+        self.asm.store_ptr_disp32(Reg::R11, 0, Reg::Rcx);
+        // ptr += size
+        self.asm.add_reg_reg(Reg::R11, Reg::Rcx);
+        self.asm.jmp_label(sweep_loop);
+
+        self.asm.bind_text_label(block_dead);
+        // Add to free list:
+        //   [ptr]    = size (already cleared mark)
+        //   [ptr+8]  = 0  (type tag = free)
+        //   [ptr+16] = free_head
+        //   free_head = ptr
+        self.asm.store_ptr_disp32(Reg::R11, 0, Reg::Rcx);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R11, 8, Reg::Rdi);
+        self.asm.store_ptr_disp32(Reg::R11, 16, Reg::R9);
+        self.asm.mov_reg_reg(Reg::R9, Reg::R11);
+        self.asm.add_reg_reg(Reg::R11, Reg::Rcx);
+        self.asm.jmp_label(sweep_loop);
+
+        self.asm.bind_text_label(sweep_done);
+        // free_list_head = r9
+        self.asm.mov_data_addr(Reg::R10, self.gc_free_list_head);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R9);
+
+        self.asm.leave();
+        self.asm.ret();
+    }
+
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
         self.static_scopes.push(HashMap::new());
@@ -28353,6 +28651,7 @@ enum Reg {
     R8 = 8,
     R9 = 9,
     R10 = 10,
+    R11 = 11,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28367,6 +28666,7 @@ enum Condition {
     NotEqual,
     Below,
     Above,
+    AboveOrEqual,
     Less,
     LessEqual,
     Greater,
@@ -28380,6 +28680,7 @@ impl Condition {
             Self::NotEqual => 0x95,
             Self::Below => 0x92,
             Self::Above => 0x97,
+            Self::AboveOrEqual => 0x93,
             Self::Less => 0x9c,
             Self::LessEqual => 0x9e,
             Self::Greater => 0x9f,
@@ -28393,6 +28694,7 @@ impl Condition {
             Self::NotEqual => 0x85,
             Self::Below => 0x82,
             Self::Above => 0x87,
+            Self::AboveOrEqual => 0x83,
             Self::Less => 0x8c,
             Self::LessEqual => 0x8e,
             Self::Greater => 0x8f,
@@ -28751,6 +29053,13 @@ impl Assembler {
         self.byte(0xc1);
         self.modrm(5, reg as u8);
         self.byte(imm);
+    }
+
+    fn and_reg_imm32(&mut self, reg: Reg, imm: i32) {
+        self.rex_w(Reg::Rax, reg);
+        self.byte(0x81);
+        self.modrm(4, reg as u8);
+        self.text.extend_from_slice(&imm.to_le_bytes());
     }
 
     fn add_reg_imm32(&mut self, reg: Reg, imm: i32) {

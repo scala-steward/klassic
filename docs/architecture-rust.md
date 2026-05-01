@@ -540,6 +540,38 @@ cargo run -- -e "1 + 2"
   Ordinary `==` / `!=` covers runtime integers/booleans and static aggregate
   values. `ToDo()` emits the evaluator-compatible native runtime failure text.
 
+  The native runtime owns a dedicated GC heap that is separate from the
+  static `.data` buffers used by the rest of the codegen. At program
+  startup, the prologue invokes `mmap(NULL, 1 MiB,
+  PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0)` and stores the
+  returned base/top/end pointers in dedicated globals. Two emitted
+  subroutines back the heap:
+  - `gc_alloc(size, type_tag)` aligns the request up to a 16-byte
+    boundary, walks the singly-linked free list using a first-fit
+    policy, and falls back to a bump pointer when no free block fits.
+    Each block carries a 16-byte header — word 0 is the total block
+    size with the GC mark bit reused as the top bit, word 1 is the
+    type tag (0 marks a free block).
+  - `gc_collect()` performs stop-the-world mark-and-sweep. The mark
+    phase walks compile-time-registered roots; the sweep phase walks
+    the heap linearly using each header's size, clears mark bits on
+    survivors, and threads dead blocks onto a freshly rebuilt free
+    list. If `gc_alloc` cannot satisfy a request even after a
+    collection it writes `klassic gc: out of memory` to stderr and
+    exits with status 1.
+
+  Two debug builtins drive the GC end-to-end without touching the
+  existing static-buffer paths: `__gc_alloc(size)` returns the heap
+  address as `Int`, and `__gc_collect()` triggers a collection cycle.
+  The integration test `builds_native_executable_for_gc_reclaims_dead_allocations`
+  exercises reclamation by allocating 200,000 bytes ten times into a
+  1 MiB heap; the bump allocator's first overflow triggers a
+  collection that reclaims every previously-allocated block since none
+  are reachable from any registered root, so all ten calls succeed.
+  Tracking precise stack-frame and per-type roots so that real
+  language values (runtime strings, lists, records) can live on the
+  heap is the next phase of GC work.
+
 ### `klassic-runtime`
 - Shared runtime crate scaffold for behavior that should move out of `klassic-eval`
   as the implementation is split further.

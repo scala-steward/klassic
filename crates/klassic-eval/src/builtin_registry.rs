@@ -83,6 +83,8 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "Set#contains" => Some("Set#contains"),
         "Set#isEmpty" => Some("Set#isEmpty"),
         "Set#size" => Some("Set#size"),
+        "__gc_alloc" => Some("__gc_alloc"),
+        "__gc_collect" => Some("__gc_collect"),
         _ => None,
     }
 }
@@ -92,7 +94,8 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         "println" | "printlnError" | "assert" | "thread" | "sleep" | "stopwatch" | "double"
         | "int" | "floor" | "ceil" | "abs" | "sqrt" | "toString" | "trim" | "trimLeft"
         | "trimRight" | "toLowerCase" | "toUpperCase" | "isEmptyString" | "length" | "reverse"
-        | "head" | "tail" | "size" | "isEmpty" => Some(1),
+        | "head" | "tail" | "size" | "isEmpty" | "__gc_alloc" => Some(1),
+        "__gc_collect" => Some(0),
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
         "substring" | "replace" | "replaceAll" | "foldLeft" => Some(3),

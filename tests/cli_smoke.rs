@@ -3975,6 +3975,109 @@ println(Set#size(s))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_alloc_and_collect() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-basic-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-basic-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val a = __gc_alloc(100)
+println(a > 0)
+__gc_collect()
+val b = __gc_alloc(100)
+println(b > 0)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc basic build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "true\ntrue\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_reclaims_dead_allocations() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-stress-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-stress-{unique}"));
+    // Allocate 200_000 bytes 10 times = 2 MiB total but the heap is only
+    // 1 MiB. Each iteration's allocation is unreachable (the result is
+    // discarded), so a GC trigger on the bump-allocator's first overflow
+    // reclaims previous blocks and every subsequent call succeeds.
+    fs::write(
+        &source_path,
+        r#"mutable count = 0
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  __gc_alloc(200000)
+  count = count + 1
+}
+println(count)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc stress build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "10\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_list_of_maps_branch() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -1915,6 +1915,18 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             thread::sleep(Duration::from_millis(millis));
             Ok(Value::Unit)
         }
+        "__gc_alloc" => {
+            // The evaluator doesn't have a heap; surface a non-zero address-
+            // shaped sentinel so source programs that branch on the result
+            // can be evaluated and then native-compiled with identical shape.
+            ensure_arity(name, arguments, 1, span)?;
+            let _ = expect_non_negative_int(&arguments[0], "__gc_alloc", span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_collect" => {
+            ensure_arity(name, arguments, 0, span)?;
+            Ok(Value::Unit)
+        }
         "thread" => {
             ensure_arity(name, arguments, 1, span)?;
             let callable = snapshot_value_for_thread(&arguments[0]);

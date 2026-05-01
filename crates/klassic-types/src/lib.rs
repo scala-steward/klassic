@@ -1829,6 +1829,16 @@ impl TypeChecker {
             Type::Function(vec![Type::Int], Box::new(Type::Unit)),
         );
         self.declare_poly(
+            "__gc_alloc".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_collect".to_string(),
+            false,
+            Type::Function(vec![], Box::new(Type::Unit)),
+        );
+        self.declare_poly(
             "stopwatch".to_string(),
             false,
             Type::Function(
