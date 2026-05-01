@@ -1949,7 +1949,10 @@ impl NativeCodeGenerator {
                     }
                     _ => {}
                 }
-                if !matches!(slot.value, NativeValue::Int | NativeValue::Bool) {
+                if !matches!(
+                    slot.value,
+                    NativeValue::Int | NativeValue::Bool | NativeValue::HeapPointer
+                ) {
                     return Err(unsupported(*span, "native assignment to this value type"));
                 }
                 let compiled = self.compile_expr(value)?;
