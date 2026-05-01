@@ -215,9 +215,12 @@ cargo run -- -e "1 + 2"
   `%[k: v, ...]` for runtime maps, matching the static-collection display
   rather than falling back to the bracketed list form.
   The per-element branch buffer also promotes static
-  inner lists and static record elements into runtime list / runtime record
-  buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
-  `[#Pt(3, 4)]` join through the same runtime list of nested buffers. The
+  inner lists, static records, static maps, and static sets into runtime
+  list / runtime record / kind-tagged runtime list buffers, so
+  `[[1, 2], [3, 4]]` versus `[[5, 6]]`, `[#Pt(1, 2)]` versus `[#Pt(3, 4)]`,
+  `[%["x": 1, "y": 2], %["z": 9]]` versus `[%["a": 100, "b": 200, "c": 300]]`,
+  and `[%(1, 2), %(3, 4, 5)]` versus `[%(99)]` all join through the same
+  runtime list of nested buffers. The
   per-position inner-length predictor pairs each outer-list position from
   both branches, takes the maximum inner length, and sizes the inner runtime
   list buffer accordingly, so `[[1, 2, 3], [4]]` and `[[5], [6, 7, 8]]` join
@@ -228,10 +231,12 @@ cargo run -- -e "1 + 2"
   static records, static int-lists, and static lists, so divergent
   record-list and nested-list branches with different outer lengths can use
   the same padding path. A separate global `deep_min_capacity` tracks the
-  maximum list length found anywhere in either branch's nested list literals
+  maximum capacity found anywhere in either branch's nested list, set, or
+  map literals (counting map entries with the alternating key-value stride)
   and propagates uniformly to every nested level, so three-or-more-level
   nested list branches with mismatched deepest inner lengths (such as
-  `[[[1, 2]]]` versus `[[[3, 4, 5]]]`) join through one padded buffer too.
+  `[[[1, 2]]]` versus `[[[3, 4, 5]]]`), and lists of maps or sets with
+  different inner sizes, all join through one padded buffer.
   Function values are merged by structural lambda equality or canonical builtin identity rather than
   raw label identity, so equivalent branch-local function values remain usable.
   When both dynamic branches return equivalent closures that capture branch-local
