@@ -193,24 +193,27 @@ cargo run -- -e "1 + 2"
   the actual length on the non-null path. Divergent static-set branches
   (`if(...) %(1, 2) else %(3, 4, 5)`) also merge through a runtime-list
   buffer that holds each branch's elements, with `size` / `Set#size` /
-  `isEmpty` / `contains` answering from the per-branch dynamic length and
-  slot contents; the user observes a list-style `[...]` rendering rather
-  than `%(...)` but membership and size semantics match the source set.
+  `isEmpty` / `Set#isEmpty` / `contains` answering from the per-branch
+  dynamic length and slot contents.
   Divergent static-map branches (any entry count, including
   `if(...) %["x": 1] else %["y": 2, "z": 3]`) also merge through a
   runtime-list buffer where keys and values alternate, with the buffer
   tagged so `Map#size` (and `size`) divide the dynamic length by 2 to
-  return the entry count. The branch buffer padding uses a stride of 2
-  so the alternating key/value pattern survives even when one branch has
-  fewer entries than the other. `Map#get` over a runtime map uses an
-  unrolled linear search that compares each key slot (gated by the dynamic
-  length so unused entries are skipped) and returns the corresponding
-  value when matched, or zero/null when not found, for static-string and
-  scalar key/value pairs. `Map#containsKey`, `Map#containsValue`, and
+  return the entry count, and `Map#isEmpty` reuses the same length probe.
+  The branch buffer padding uses a stride of 2 so the alternating
+  key/value pattern survives even when one branch has fewer entries than
+  the other. `Map#get` over a runtime map uses an unrolled linear search
+  that compares each key slot (gated by the dynamic length so unused
+  entries are skipped) and returns the corresponding value when matched,
+  or zero/null/empty-string when not found, for static-string keys and
+  scalar/string values. `Map#containsKey`, `Map#containsValue`, and
   `Map#get(...) == null` / `!= null` reuse the same unrolled search and
   cache the lookup needle in a fresh data slot so the comparison loop can
   reload the needle between iterations without losing it to register
-  reuse.
+  reuse. The kind tag also drives display: `println` and string
+  interpolation emit `%(v1, v2, ...)` for runtime sets and
+  `%[k: v, ...]` for runtime maps, matching the static-collection display
+  rather than falling back to the bracketed list form.
   The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
