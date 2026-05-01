@@ -202,7 +202,11 @@ cargo run -- -e "1 + 2"
   tagged so `Map#size` (and `size`) divide the dynamic length by 2 to
   return the entry count. The branch buffer padding uses a stride of 2
   so the alternating key/value pattern survives even when one branch has
-  fewer entries than the other.
+  fewer entries than the other. `Map#get` over a runtime map uses an
+  unrolled linear search that compares each key slot (gated by the dynamic
+  length so unused entries are skipped) and returns the corresponding
+  value when matched, or zero/null when not found, for static-string and
+  scalar key/value pairs.
   The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
