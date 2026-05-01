@@ -206,7 +206,11 @@ cargo run -- -e "1 + 2"
   unrolled linear search that compares each key slot (gated by the dynamic
   length so unused entries are skipped) and returns the corresponding
   value when matched, or zero/null when not found, for static-string and
-  scalar key/value pairs.
+  scalar key/value pairs. `Map#containsKey`, `Map#containsValue`, and
+  `Map#get(...) == null` / `!= null` reuse the same unrolled search and
+  cache the lookup needle in a fresh data slot so the comparison loop can
+  reload the needle between iterations without losing it to register
+  reuse.
   The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus

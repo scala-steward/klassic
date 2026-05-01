@@ -7869,6 +7869,15 @@ impl NativeCodeGenerator {
         let Some((map, key)) = self.map_get_arguments_from_expr(expr) else {
             return Ok(None);
         };
+        if self.expr_yields_runtime_map(map) {
+            self.compile_runtime_map_contains_key(map, key, span)?;
+            if equal {
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.setcc_al(Condition::Equal);
+                self.asm.movzx_rax_al();
+            }
+            return Ok(Some(NativeValue::Bool));
+        }
         if let Some(value) = self.compile_map_literal_get_null_equality(map, key, equal, span)? {
             return Ok(Some(value));
         }
@@ -9877,6 +9886,13 @@ impl NativeCodeGenerator {
                 "Map#containsKey expects one map and one key",
             ));
         }
+        if self.expr_yields_runtime_map(&map_arguments[0]) {
+            return self.compile_runtime_map_contains_key(
+                &map_arguments[0],
+                &key_arguments[0],
+                span,
+            );
+        }
         if let Some(value) =
             self.compile_map_literal_contains_key(&map_arguments[0], &key_arguments[0], span)?
         {
@@ -9947,6 +9963,13 @@ impl NativeCodeGenerator {
                 "Map#containsValue expects one map and one value",
             ));
         }
+        if self.expr_yields_runtime_map(&map_arguments[0]) {
+            return self.compile_runtime_map_contains_value(
+                &map_arguments[0],
+                &value_arguments[0],
+                span,
+            );
+        }
         if let Some(value) =
             self.compile_map_literal_contains_value(&map_arguments[0], &value_arguments[0], span)?
         {
@@ -10001,6 +10024,149 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn compile_runtime_map_contains_key(
+        &mut self,
+        map_expr: &Expr,
+        key_expr: &Expr,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.compile_runtime_map_search(map_expr, key_expr, span, true)
+    }
+
+    fn compile_runtime_map_contains_value(
+        &mut self,
+        map_expr: &Expr,
+        value_expr: &Expr,
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.compile_runtime_map_search(map_expr, value_expr, span, false)
+    }
+
+    fn compile_runtime_map_search(
+        &mut self,
+        map_expr: &Expr,
+        needle_expr: &Expr,
+        span: Span,
+        match_keys: bool,
+    ) -> Result<NativeValue, Diagnostic> {
+        let map_value = self.compile_expr(map_expr)?;
+        let NativeValue::RuntimeList { label } = map_value else {
+            return Err(unsupported(
+                span,
+                "native runtime Map#contains for non-runtime map",
+            ));
+        };
+        let elements = self.runtime_list_elements(label).unwrap_or_default();
+        let dyn_len = self.runtime_list_dynamic_len(label);
+
+        let needle_value = self.compile_expr(needle_expr)?;
+        let needle_str_ref = self.native_string_ref(needle_value);
+        let needle_scalar = matches!(needle_value, NativeValue::Int | NativeValue::Bool);
+
+        if needle_str_ref.is_none() && !needle_scalar {
+            return Err(unsupported(
+                span,
+                "native runtime Map#contains for this value type",
+            ));
+        }
+
+        let needle_scalar_slot = if needle_scalar {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            Some(slot)
+        } else {
+            None
+        };
+
+        let result_slot = self.asm.data_label_with_i64s(&[0]);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.emit_store_rax_to_data_slot(result_slot);
+
+        let done = self.asm.create_text_label();
+
+        for i in (0..elements.len()).step_by(2) {
+            if i + 1 >= elements.len() {
+                break;
+            }
+            let target_slot = if match_keys {
+                elements[i]
+            } else {
+                elements[i + 1]
+            };
+            let target_index = if match_keys { i } else { i + 1 };
+
+            let skip = if let Some(len_label) = dyn_len {
+                let skip = self.asm.create_text_label();
+                self.asm.mov_data_addr(Reg::R10, len_label);
+                self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+                self.asm.cmp_reg_imm32(Reg::R8, target_index as i32);
+                self.asm.jcc_label(Condition::LessEqual, skip);
+                Some(skip)
+            } else {
+                None
+            };
+
+            let next = self.asm.create_text_label();
+
+            if let Some(needle_ref) = needle_str_ref {
+                let CompiledLiteralValue::Native(slot_value) = target_slot else {
+                    if let Some(skip) = skip {
+                        self.asm.bind_text_label(skip);
+                    }
+                    continue;
+                };
+                let Some(slot_ref) = self.native_string_ref(slot_value) else {
+                    if let Some(skip) = skip {
+                        self.asm.bind_text_label(skip);
+                    }
+                    continue;
+                };
+                self.emit_native_string_equality(needle_ref, slot_ref);
+                self.asm.cmp_reg_imm8(Reg::Rax, 0);
+                self.asm.jcc_label(Condition::Equal, next);
+            } else {
+                let CompiledLiteralValue::Scalar {
+                    value: slot_kind,
+                    slot,
+                } = target_slot
+                else {
+                    if let Some(skip) = skip {
+                        self.asm.bind_text_label(skip);
+                    }
+                    continue;
+                };
+                if slot_kind != needle_value {
+                    if let Some(skip) = skip {
+                        self.asm.bind_text_label(skip);
+                    }
+                    continue;
+                }
+                self.asm.mov_data_addr(Reg::R10, slot);
+                self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+                if let Some(needle_slot) = needle_scalar_slot {
+                    self.asm.mov_data_addr(Reg::R10, needle_slot);
+                    self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                }
+                self.asm.cmp_reg_reg(Reg::R8, Reg::Rax);
+                self.asm.jcc_label(Condition::NotEqual, next);
+            }
+
+            self.asm.mov_imm64(Reg::Rax, 1);
+            self.emit_store_rax_to_data_slot(result_slot);
+            self.asm.jmp_label(done);
+
+            self.asm.bind_text_label(next);
+            if let Some(skip) = skip {
+                self.asm.bind_text_label(skip);
+            }
+        }
+
+        self.asm.bind_text_label(done);
+        self.asm.mov_data_addr(Reg::R10, result_slot);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        Ok(NativeValue::Bool)
+    }
+
     fn compile_runtime_map_get(
         &mut self,
         map_expr: &Expr,
@@ -10028,6 +10194,13 @@ impl NativeCodeGenerator {
 
         let key_value = self.compile_expr(key_expr)?;
         let key_str_ref = self.native_string_ref(key_value);
+        let key_scalar_slot = if matches!(key_value, NativeValue::Int | NativeValue::Bool) {
+            let slot = self.asm.data_label_with_i64s(&[0]);
+            self.emit_store_rax_to_data_slot(slot);
+            Some(slot)
+        } else {
+            None
+        };
 
         let result_slot = self.asm.data_label_with_i64s(&[0]);
         self.asm.mov_imm64(Reg::Rax, 0);
@@ -10090,6 +10263,10 @@ impl NativeCodeGenerator {
                 }
                 self.asm.mov_data_addr(Reg::R10, slot);
                 self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+                if let Some(needle_slot) = key_scalar_slot {
+                    self.asm.mov_data_addr(Reg::R10, needle_slot);
+                    self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+                }
                 self.asm.cmp_reg_reg(Reg::R8, Reg::Rax);
                 self.asm.jcc_label(Condition::NotEqual, next);
             } else {

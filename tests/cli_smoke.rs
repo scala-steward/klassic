@@ -3769,6 +3769,80 @@ println(Map#get(m, "b"))
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_runtime_map_contains_and_null_check() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-map-contains-{unique}.kl"));
+    let output_path =
+        std::env::temp_dir().join(format!("klassic-native-runtime-map-contains-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val arg = head(args())
+val m = if(arg == "a") %["x": 1, "y": 2] else %["a": 3, "b": 4]
+println(Map#containsKey(m, "x"))
+println(Map#containsKey(m, "a"))
+println(Map#containsKey(m, "z"))
+println(Map#containsValue(m, 1))
+println(Map#containsValue(m, 3))
+println(Map#containsValue(m, 99))
+println(Map#get(m, "x") == null)
+println(Map#get(m, "z") == null)
+println(Map#get(m, "x") != null)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "runtime map contains build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(build.stdout.is_empty());
+    assert!(build.stderr.is_empty());
+
+    let a_run = Command::new(&output_path)
+        .arg("a")
+        .output()
+        .expect("generated executable should run a");
+    let b_run = Command::new(&output_path)
+        .arg("b")
+        .output()
+        .expect("generated executable should run b");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(a_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&a_run.stdout),
+        "true\nfalse\nfalse\ntrue\nfalse\nfalse\nfalse\ntrue\ntrue\n"
+    );
+    assert!(a_run.stderr.is_empty());
+
+    assert!(b_run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&b_run.stdout),
+        "false\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\nfalse\n"
+    );
+    assert!(b_run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_dynamic_if_with_method_map_results() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
