@@ -190,7 +190,13 @@ cargo run -- -e "1 + 2"
   sentinel of `-1` for the null branch, and answers `xs == null` /
   `null == xs` (and the `!=` variants) by checking the dynamic length for
   that sentinel; downstream operations (`size`, `head`, iteration) observe
-  the actual length on the non-null path. The per-element branch buffer also promotes static
+  the actual length on the non-null path. Divergent static-set branches
+  (`if(...) %(1, 2) else %(3, 4, 5)`) also merge through a runtime-list
+  buffer that holds each branch's elements, with `size` / `Set#size` /
+  `isEmpty` / `contains` answering from the per-branch dynamic length and
+  slot contents; the user observes a list-style `[...]` rendering rather
+  than `%(...)` but membership and size semantics match the source set.
+  The per-element branch buffer also promotes static
   inner lists and static record elements into runtime list / runtime record
   buffers, so `[[1, 2], [3, 4]]` versus `[[5, 6]]` and `[#Pt(1, 2)]` versus
   `[#Pt(3, 4)]` join through the same runtime list of nested buffers. The

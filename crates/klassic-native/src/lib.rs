@@ -2706,7 +2706,7 @@ impl NativeCodeGenerator {
                     });
                     return Ok(NativeValue::Int);
                 }
-                if name == "size"
+                if matches!(name.as_str(), "size" | "Set#size")
                     && let NativeValue::RuntimeList { label } = value
                 {
                     self.emit_runtime_list_len_to_rax(label);
@@ -8492,6 +8492,7 @@ impl NativeCodeGenerator {
     fn native_value_can_copy_to_runtime_list(value: NativeValue) -> bool {
         matches!(value, NativeValue::RuntimeList { .. })
             || Self::native_value_is_static_list_like(value)
+            || matches!(value, NativeValue::StaticSet { .. })
     }
 
     fn stabilize_native_list_to_runtime_list_label_with_length(
@@ -9008,6 +9009,14 @@ impl NativeCodeGenerator {
                     .static_list_values_from_value(&value)
                     .ok_or_else(|| unsupported(span, context))?;
                 Ok(self.compile_static_literal_values(&values))
+            }
+            NativeValue::StaticSet { label } => {
+                let elements = self
+                    .static_sets
+                    .get(label.0)
+                    .map(|set| set.elements.clone())
+                    .ok_or_else(|| unsupported(span, context))?;
+                Ok(self.compile_static_literal_values(&elements))
             }
             _ => Err(unsupported(span, context)),
         }
@@ -19686,6 +19695,64 @@ impl NativeCodeGenerator {
         }
     }
 
+    fn expr_may_yield_static_set(&self, expr: &Expr) -> bool {
+        if matches!(
+            self.native_value_hint_for_expr(expr)
+                .or_else(|| native_value_hint_from_expr(expr)),
+            Some(NativeValue::StaticSet { .. })
+        ) {
+            return true;
+        }
+        match expr {
+            Expr::SetLiteral { .. } => true,
+            Expr::Identifier { name, .. } => self
+                .lookup_var(name)
+                .is_some_and(|slot| matches!(slot.value, NativeValue::StaticSet { .. })),
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .is_some_and(|expr| self.expr_may_yield_static_set(expr)),
+            Expr::Cleanup { body, .. } => self.expr_may_yield_static_set(body),
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_may_yield_static_set(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .is_some_and(|branch| self.expr_may_yield_static_set(branch))
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_static_set_size_hint(&self, expr: &Expr) -> Option<usize> {
+        match expr {
+            Expr::SetLiteral { elements, .. } => Some(elements.len()),
+            Expr::Identifier { name, .. } => {
+                let slot = self.lookup_var(name)?;
+                if let NativeValue::StaticSet { label } = slot.value {
+                    return self.static_sets.get(label.0).map(|set| set.elements.len());
+                }
+                None
+            }
+            Expr::Block { expressions, .. } => expressions
+                .last()
+                .and_then(|e| self.expr_static_set_size_hint(e)),
+            Expr::Cleanup { body, .. } => self.expr_static_set_size_hint(body),
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_branch),
+                ..
+            } => {
+                let t = self.expr_static_set_size_hint(then_branch)?;
+                let e = self.expr_static_set_size_hint(else_branch)?;
+                Some(t.max(e))
+            }
+            _ => None,
+        }
+    }
+
     fn expr_may_yield_static_list_like(&self, expr: &Expr) -> bool {
         if matches!(
             self.native_value_hint_for_expr(expr)
@@ -20818,9 +20885,12 @@ impl NativeCodeGenerator {
                 || self.expr_may_yield_runtime_list(else_branch);
             let then_is_null = matches!(then_branch, Expr::Null { .. });
             let else_is_null = matches!(else_branch, Expr::Null { .. });
+            let branches_yield_static_set = self.expr_may_yield_static_set(then_branch)
+                && self.expr_may_yield_static_set(else_branch);
             let branch_may_yield_list_like = branch_may_yield_runtime_list
                 || (self.expr_may_yield_static_list_like(then_branch)
                     && self.expr_may_yield_static_list_like(else_branch))
+                || branches_yield_static_set
                 || (then_is_null
                     && (self.expr_may_yield_static_list_like(else_branch)
                         || self.expr_may_yield_runtime_list(else_branch)))
@@ -20830,8 +20900,11 @@ impl NativeCodeGenerator {
             if branch_may_yield_list_like {
                 let then_len_hint = self
                     .native_value_list_length_hint(then_value)
-                    .or_else(|| self.expr_static_list_length_hint(then_branch));
-                let else_len_hint = self.expr_static_list_length_hint(else_branch);
+                    .or_else(|| self.expr_static_list_length_hint(then_branch))
+                    .or_else(|| self.expr_static_set_size_hint(then_branch));
+                let else_len_hint = self
+                    .expr_static_list_length_hint(else_branch)
+                    .or_else(|| self.expr_static_set_size_hint(else_branch));
                 let lengths_differ = matches!(
                     (then_len_hint, else_len_hint),
                     (Some(then_len), Some(else_len)) if then_len != else_len
