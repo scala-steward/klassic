@@ -682,11 +682,13 @@ struct NativeCodeGenerator {
     gc_unpin: TextLabel,
     gc_mark_visit: TextLabel,
     gc_grow_heap: TextLabel,
+    gc_bounds_error: TextLabel,
     gc_oom_text: DataLabel,
     gc_root_overflow_text: DataLabel,
     gc_worklist_overflow_text: DataLabel,
     gc_shadow_overflow_text: DataLabel,
     gc_segment_overflow_text: DataLabel,
+    gc_bounds_error_text: DataLabel,
     /// Per-scope counter parallel to scope_base_offsets — number of GC
     /// pointer slots pushed onto the shadow stack in this scope.
     scope_gc_root_counts: Vec<usize>,
@@ -758,6 +760,7 @@ impl NativeCodeGenerator {
         let gc_unpin = asm.create_text_label();
         let gc_mark_visit = asm.create_text_label();
         let gc_grow_heap = asm.create_text_label();
+        let gc_bounds_error = asm.create_text_label();
         let gc_oom_text = asm.data_label_with_bytes(b"klassic gc: out of memory\n");
         let gc_root_overflow_text = asm.data_label_with_bytes(b"klassic gc: root table overflow\n");
         let gc_worklist_overflow_text =
@@ -766,6 +769,7 @@ impl NativeCodeGenerator {
             asm.data_label_with_bytes(b"klassic gc: shadow stack overflow\n");
         let gc_segment_overflow_text =
             asm.data_label_with_bytes(b"klassic gc: heap segment limit reached\n");
+        let gc_bounds_error_text = asm.data_label_with_bytes(b"klassic gc: index out of bounds\n");
         let mut record_schemas = HashMap::new();
         record_schemas.insert(
             "Point".to_string(),
@@ -818,11 +822,13 @@ impl NativeCodeGenerator {
             gc_unpin,
             gc_mark_visit,
             gc_grow_heap,
+            gc_bounds_error,
             gc_oom_text,
             gc_root_overflow_text,
             gc_worklist_overflow_text,
             gc_shadow_overflow_text,
             gc_segment_overflow_text,
+            gc_bounds_error_text,
             scope_gc_root_counts: vec![0],
             scopes: vec![HashMap::new()],
             static_scopes: vec![HashMap::new()],
@@ -873,6 +879,7 @@ impl NativeCodeGenerator {
         self.emit_gc_pin_runtime();
         self.emit_gc_unpin_runtime();
         self.emit_gc_grow_heap_runtime();
+        self.emit_gc_bounds_error_runtime();
         Ok(self.asm.finish())
     }
 
@@ -7924,6 +7931,9 @@ impl NativeCodeGenerator {
         self.next_stack_offset -= 8;
         self.asm.pop_reg(Reg::R10); // r10 = list addr
         self.next_stack_offset -= 8;
+        // Bounds check against the length stored at offset 0.
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.emit_gc_bounds_check(Reg::Rcx, Reg::R11);
         // addr = list + 8 + idx*8
         self.asm.shl_reg_imm8(Reg::Rcx, 3);
         self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
@@ -7967,6 +7977,9 @@ impl NativeCodeGenerator {
         // rax = idx
         self.asm.pop_reg(Reg::R10); // r10 = list addr
         self.next_stack_offset -= 8;
+        // Bounds check against the length stored at offset 0.
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.emit_gc_bounds_check(Reg::Rax, Reg::R11);
         self.asm.shl_reg_imm8(Reg::Rax, 3);
         self.asm.add_reg_reg(Reg::R10, Reg::Rax);
         self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 8);
@@ -8171,6 +8184,9 @@ impl NativeCodeGenerator {
         }
         self.asm.pop_reg(Reg::R10);
         self.next_stack_offset -= 8;
+        // Bounds check against the length stored at offset 0.
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.emit_gc_bounds_check(Reg::Rax, Reg::R11);
         // r10 = s; rax = idx. Address of byte = r10 + 8 + idx.
         self.asm.add_reg_imm32(Reg::R10, 8);
         self.asm.movzx_byte_indexed(Reg::Rax, Reg::R10, Reg::Rax);
@@ -8223,6 +8239,9 @@ impl NativeCodeGenerator {
         self.next_stack_offset -= 8;
         self.asm.pop_reg(Reg::R10);
         self.next_stack_offset -= 8;
+        // Bounds check against the length stored at offset 0.
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.emit_gc_bounds_check(Reg::Rcx, Reg::R11);
         // Address = r10 + 8 + rcx.
         self.asm.add_reg_imm32(Reg::R10, 8);
         self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
@@ -8482,6 +8501,9 @@ impl NativeCodeGenerator {
         self.next_stack_offset -= 8;
         self.asm.pop_reg(Reg::R10);
         self.next_stack_offset -= 8;
+        // Bounds check against the length stored at offset 0.
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.emit_gc_bounds_check(Reg::Rcx, Reg::R11);
         // addr = lst + 8 + idx*8
         self.asm.shl_reg_imm8(Reg::Rcx, 3);
         self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
@@ -8524,6 +8546,9 @@ impl NativeCodeGenerator {
         }
         self.asm.pop_reg(Reg::R10);
         self.next_stack_offset -= 8;
+        // Bounds check against the length stored at offset 0.
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.emit_gc_bounds_check(Reg::Rax, Reg::R11);
         self.asm.shl_reg_imm8(Reg::Rax, 3);
         self.asm.add_reg_reg(Reg::R10, Reg::Rax);
         self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 8);
@@ -28672,6 +28697,32 @@ impl NativeCodeGenerator {
         self.asm.add_reg_imm32(Reg::Rsp, 16);
         self.asm.leave();
         self.asm.ret();
+    }
+
+    /// `gc_bounds_error` is a non-returning subroutine that prints a
+    /// fixed diagnostic and exits with status 1. The list / string
+    /// builtins jump here directly when they detect an index outside
+    /// the stored length range.
+    fn emit_gc_bounds_error_runtime(&mut self) {
+        self.asm.bind_text_label(self.gc_bounds_error);
+        self.emit_write_data(
+            2,
+            self.gc_bounds_error_text,
+            b"klassic gc: index out of bounds\n".len(),
+        );
+        self.emit_exit_code(1);
+    }
+
+    /// Emit two compares against the just-loaded `idx_reg` and `len_reg`
+    /// that jump to `gc_bounds_error` when `idx < 0` or `idx >= len`.
+    /// Caller is responsible for placing idx in `idx_reg` (signed) and
+    /// the canonical length in `len_reg` (unsigned non-negative).
+    fn emit_gc_bounds_check(&mut self, idx_reg: Reg, len_reg: Reg) {
+        self.asm.cmp_reg_imm8(idx_reg, 0);
+        self.asm.jcc_label(Condition::Less, self.gc_bounds_error);
+        self.asm.cmp_reg_reg(idx_reg, len_reg);
+        self.asm
+            .jcc_label(Condition::AboveOrEqual, self.gc_bounds_error);
     }
 
     fn push_scope(&mut self) {

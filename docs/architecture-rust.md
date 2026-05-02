@@ -637,7 +637,7 @@ cargo run -- -e "1 + 2"
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Twelve integration tests cover the lifecycle: reclamation when
+  Fourteen integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -663,12 +663,16 @@ cargo run -- -e "1 + 2"
   intermediate heap-pressure collection, and a final introspection
   test for `__gc_pointer_count` on a record and an array plus
   `__gc_segment_count` increasing past one once the heap grows,
-  and a `__gc_list_ptr` test that builds four sentinel children,
+  a `__gc_list_ptr` test that builds four sentinel children,
   stores them through the indexed setter, drops the direct
   references, pins only the list, and forces a heap-pressure
   collection — every child must still be reachable through the
   list's slots, proving the new tag-4 trace branch correctly
-  skips the leading length and walks the rest as pointers.
+  skips the leading length and walks the rest as pointers, and
+  two bounds-check tests (one for a negative index, one for
+  index >= length) that confirm the shared `gc_bounds_error`
+  subroutine prints `klassic gc: index out of bounds` and exits
+  with status 1 instead of writing past the payload.
   The next phase of integration is wiring the existing
   structural string / list / record builtins onto the heap so
   any source program participates in GC without going through
