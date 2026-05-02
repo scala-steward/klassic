@@ -2793,6 +2793,10 @@ impl NativeCodeGenerator {
             "__gc_string" => self.compile_gc_string(arguments, span),
             "__gc_string_concat" => self.compile_gc_string_concat(arguments, span),
             "__gc_string_println" => self.compile_gc_string_println(arguments, span),
+            "__gc_list_int" => self.compile_gc_list_int(arguments, span),
+            "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span),
+            "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span),
+            "__gc_list_int_println" => self.compile_gc_list_int_println(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3497,6 +3501,10 @@ impl NativeCodeGenerator {
             "__gc_string" => self.compile_gc_string(arguments, span).map(Some),
             "__gc_string_concat" => self.compile_gc_string_concat(arguments, span).map(Some),
             "__gc_string_println" => self.compile_gc_string_println(arguments, span).map(Some),
+            "__gc_list_int" => self.compile_gc_list_int(arguments, span).map(Some),
+            "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span).map(Some),
+            "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span).map(Some),
+            "__gc_list_int_println" => self.compile_gc_list_int_println(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -7785,6 +7793,240 @@ impl NativeCodeGenerator {
         self.asm.mov_data_addr(Reg::Rsi, self.newline);
         self.asm.mov_imm64(Reg::Rdx, 1);
         self.asm.syscall();
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_list_int(n)` allocates a heap-backed integer list of length
+    /// `n`. The payload starts with an `n` qword and is followed by `n`
+    /// 64-bit element slots, all zero-initialized. Returned as a
+    /// `HeapPointer` so the binding site auto-roots the list. The element
+    /// type is plain `Int`, so the GC walks the payload as raw bytes
+    /// (type tag 1) — no inner pointers to trace.
+    fn compile_gc_list_int(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_int expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int for non-Int length argument",
+            ));
+        }
+        // rax holds n. Spill so we can recover it after gc_alloc.
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        // payload_size = 8 + n * 8
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+        // rax = heap pointer.
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        // Store length.
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+        // Zero-initialize the n element slots so a free-list reuse cannot
+        // surface stale bytes in user-visible reads.
+        let init_loop = self.asm.create_text_label();
+        let init_done = self.asm.create_text_label();
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.bind_text_label(init_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, init_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.jmp_label(init_loop);
+        self.asm.bind_text_label(init_done);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_int_set(lst, idx, value)` writes `value` into slot
+    /// `idx` of the heap list. No bounds check — same trust model as
+    /// `__gc_write`.
+    fn compile_gc_list_int_set(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 3 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_int_set expects 3 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_set for non-address list argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let idx = self.compile_expr(&arguments[1])?;
+        if idx != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_set for non-Int index argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let value = self.compile_expr(&arguments[2])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_set for non-Int value argument",
+            ));
+        }
+        // rax = value
+        self.asm.pop_reg(Reg::Rcx); // rcx = idx
+        self.next_stack_offset -= 8;
+        self.asm.pop_reg(Reg::R10); // r10 = list addr
+        self.next_stack_offset -= 8;
+        // addr = list + 8 + idx*8
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.store_ptr_disp32(Reg::R10, 8, Reg::Rax);
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_list_int_get(lst, idx)` reads slot `idx` and returns it as
+    /// a plain `Int`. The list itself remains alive through the caller's
+    /// rooting; the returned value is just a copy.
+    fn compile_gc_list_int_get(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_int_get expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_get for non-address list argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let idx = self.compile_expr(&arguments[1])?;
+        if idx != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_get for non-Int index argument",
+            ));
+        }
+        // rax = idx
+        self.asm.pop_reg(Reg::R10); // r10 = list addr
+        self.next_stack_offset -= 8;
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 8);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_list_int_println(lst)` prints the list as `[a, b, c]\n`,
+    /// using the existing `print_i64` helper for each element. Two
+    /// anonymous stack slots are reserved (and released) for the list
+    /// pointer and loop counter so the body stays correct across the
+    /// `print_i64` calls that may clobber scratch registers.
+    fn compile_gc_list_int_println(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_int_println expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_println for non-address argument",
+            ));
+        }
+        // Two non-rooted scratch slots: list pointer and index counter.
+        let list_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        self.asm.store_rbp_slot(list_slot.offset, Reg::Rax);
+        let idx_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_rbp_slot(idx_slot.offset, Reg::Rax);
+
+        self.emit_write_data(1, self.list_open, 1);
+
+        let loop_start = self.asm.create_text_label();
+        let loop_end = self.asm.create_text_label();
+        let after_comma = self.asm.create_text_label();
+
+        self.asm.bind_text_label(loop_start);
+        self.asm.load_rbp_slot(Reg::R10, list_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::R8, idx_slot.offset);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::R11);
+        self.asm.jcc_label(Condition::GreaterEqual, loop_end);
+
+        // i > 0 ⇒ write ", ".
+        self.asm.test_reg_reg(Reg::R8, Reg::R8);
+        self.asm.jcc_label(Condition::Equal, after_comma);
+        self.emit_write_data(1, self.comma_space, 2);
+        self.asm.bind_text_label(after_comma);
+
+        // value = [list + 8 + i*8]
+        self.asm.load_rbp_slot(Reg::R10, list_slot.offset);
+        self.asm.load_rbp_slot(Reg::R8, idx_slot.offset);
+        self.asm.shl_reg_imm8(Reg::R8, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::R8);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R10, 8);
+        self.asm.mov_imm64(Reg::Rsi, 1);
+        self.asm.mov_imm64(Reg::Rdx, 0);
+        self.asm.call_label(self.print_i64);
+
+        // i++
+        self.asm.load_rbp_slot(Reg::R10, idx_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 1);
+        self.asm.store_rbp_slot(idx_slot.offset, Reg::R10);
+        self.asm.jmp_label(loop_start);
+
+        self.asm.bind_text_label(loop_end);
+        self.emit_write_data(1, self.list_close, 1);
+        self.emit_write_data(1, self.newline, 1);
+
+        // Release the two anonymous slots so subsequent calls do not
+        // accumulate stack residue.
+        self.asm.add_reg_imm32(Reg::Rsp, 16);
+        self.next_stack_offset -= 16;
         Ok(NativeValue::Unit)
     }
 

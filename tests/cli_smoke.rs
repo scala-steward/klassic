@@ -4314,6 +4314,70 @@ __gc_unpin(parent)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_list_int_round_trip() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-listint-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-listint-{unique}"));
+    // Allocate a heap-backed Int list, populate it, force a heap pressure
+    // collection while the list is rooted only by its stack slot, then
+    // verify both the per-element get path and the println path read the
+    // original values back.
+    fs::write(
+        &source_path,
+        r#"val xs = __gc_list_int(5)
+__gc_list_int_set(xs, 0, 10)
+__gc_list_int_set(xs, 1, 20)
+__gc_list_int_set(xs, 2, 30)
+__gc_list_int_set(xs, 3, 40)
+__gc_list_int_set(xs, 4, 50)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+println(__gc_list_int_get(xs, 0))
+println(__gc_list_int_get(xs, 4))
+__gc_list_int_println(xs)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc list-int build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "10\n50\n[10, 20, 30, 40, 50]\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_string_concat_under_heap_pressure() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
