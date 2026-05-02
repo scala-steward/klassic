@@ -2789,6 +2789,7 @@ impl NativeCodeGenerator {
             "stopwatch" => self.compile_stopwatch(arguments, span),
             "__gc_alloc" => self.compile_gc_alloc(arguments, span),
             "__gc_record" => self.compile_gc_record(arguments, span),
+            "__gc_array" => self.compile_gc_array(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3489,6 +3490,7 @@ impl NativeCodeGenerator {
             "stopwatch" => self.compile_stopwatch(arguments, span).map(Some),
             "__gc_alloc" => self.compile_gc_alloc(arguments, span).map(Some),
             "__gc_record" => self.compile_gc_record(arguments, span).map(Some),
+            "__gc_array" => self.compile_gc_array(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -7537,6 +7539,54 @@ impl NativeCodeGenerator {
         // Note: the bump path leaves zeroed mmap memory; the free-list
         // path may have stale next-free bytes at offset 0. Memset the
         // whole payload to be safe.
+        let init_loop = self.asm.create_text_label();
+        let init_done = self.asm.create_text_label();
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::Rdi);
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.bind_text_label(init_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, init_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 8);
+        self.asm.jmp_label(init_loop);
+        self.asm.bind_text_label(init_done);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_array(num_slots)` allocates a heap object whose payload is a
+    /// packed array of `num_slots` heap pointer slots (8 bytes each). The
+    /// allocator returns a `HeapPointer` and the GC tag is set to
+    /// `GC_TYPE_POINTER_ARRAY`, so the mark phase recurses through every
+    /// payload qword exactly the way it does for `__gc_record` — but the
+    /// distinct tag keeps the conceptual contract clear (variable-length
+    /// indexed slots versus a fixed-shape record).
+    fn compile_gc_array(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_array expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_array for non-Int slot-count argument",
+            ));
+        }
+        // size in bytes = slot_count * 8
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_ARRAY);
+        self.asm.call_label(self.gc_alloc);
+        // Zero-initialize the payload so leftover free-list bytes do not
+        // look like stale pointers to the mark phase.
         let init_loop = self.asm.create_text_label();
         let init_done = self.asm.create_text_label();
         self.asm.mov_reg_reg(Reg::Rcx, Reg::Rdi);

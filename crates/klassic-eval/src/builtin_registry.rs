@@ -85,6 +85,7 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "Set#size" => Some("Set#size"),
         "__gc_alloc" => Some("__gc_alloc"),
         "__gc_record" => Some("__gc_record"),
+        "__gc_array" => Some("__gc_array"),
         "__gc_collect" => Some("__gc_collect"),
         "__gc_pin" => Some("__gc_pin"),
         "__gc_unpin" => Some("__gc_unpin"),
@@ -99,8 +100,8 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         "println" | "printlnError" | "assert" | "thread" | "sleep" | "stopwatch" | "double"
         | "int" | "floor" | "ceil" | "abs" | "sqrt" | "toString" | "trim" | "trimLeft"
         | "trimRight" | "toLowerCase" | "toUpperCase" | "isEmptyString" | "length" | "reverse"
-        | "head" | "tail" | "size" | "isEmpty" | "__gc_alloc" | "__gc_record" | "__gc_pin"
-        | "__gc_unpin" => Some(1),
+        | "head" | "tail" | "size" | "isEmpty" | "__gc_alloc" | "__gc_record" | "__gc_array"
+        | "__gc_pin" | "__gc_unpin" => Some(1),
         "__gc_collect" => Some(0),
         "__gc_read" => Some(2),
         "__gc_write" => Some(3),

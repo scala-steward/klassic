@@ -4314,6 +4314,74 @@ __gc_unpin(parent)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_array_traces_packed_pointer_payload() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-array-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-array-{unique}"));
+    // __gc_array(n) allocates n pointer slots tagged GC_TYPE_POINTER_ARRAY.
+    // The mark phase must walk every payload qword identically to a record:
+    // pin only the array, drop the direct child slots, and push the heap
+    // hard so a collection runs. Both children must still hold their
+    // sentinels afterwards, proving tag-3 trace coverage.
+    fs::write(
+        &source_path,
+        r#"val arr = __gc_array(3)
+val c0 = __gc_alloc(16)
+__gc_write(c0, 0, 100)
+val c1 = __gc_alloc(16)
+__gc_write(c1, 0, 200)
+val c2 = __gc_alloc(16)
+__gc_write(c2, 0, 300)
+__gc_write(arr, 0, c0)
+__gc_write(arr, 8, c1)
+__gc_write(arr, 16, c2)
+__gc_pin(arr)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+println(__gc_read(c0, 0))
+println(__gc_read(c1, 0))
+println(__gc_read(c2, 0))
+__gc_unpin(arr)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc array build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "100\n200\n300\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_heap_growth_when_roots_outlive_initial_segment() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
