@@ -2804,6 +2804,10 @@ impl NativeCodeGenerator {
             "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span),
             "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span),
             "__gc_list_int_println" => self.compile_gc_list_int_println(arguments, span),
+            "__gc_list_ptr" => self.compile_gc_list_ptr(arguments, span),
+            "__gc_list_ptr_len" => self.compile_gc_list_ptr_len(arguments, span),
+            "__gc_list_ptr_set" => self.compile_gc_list_ptr_set(arguments, span),
+            "__gc_list_ptr_get" => self.compile_gc_list_ptr_get(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3519,6 +3523,10 @@ impl NativeCodeGenerator {
             "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span).map(Some),
             "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span).map(Some),
             "__gc_list_int_println" => self.compile_gc_list_int_println(arguments, span).map(Some),
+            "__gc_list_ptr" => self.compile_gc_list_ptr(arguments, span).map(Some),
+            "__gc_list_ptr_len" => self.compile_gc_list_ptr_len(arguments, span).map(Some),
+            "__gc_list_ptr_set" => self.compile_gc_list_ptr_set(arguments, span).map(Some),
+            "__gc_list_ptr_get" => self.compile_gc_list_ptr_get(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -8342,6 +8350,184 @@ impl NativeCodeGenerator {
         self.asm.mov_data_addr(Reg::Rax, self.gc_segment_count);
         self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
         Ok(NativeValue::Int)
+    }
+
+    /// `__gc_list_ptr(n)` allocates a heap-backed list of `n` heap-
+    /// pointer slots. Layout: `[len: i64, ptr_0, ptr_1, ...]` under a
+    /// 16-byte GC header with type tag `GC_TYPE_POINTER_LIST`. The mark
+    /// phase skips the leading length qword and walks the rest as
+    /// pointers, so storing other heap addresses into the slots
+    /// transitively keeps them alive.
+    fn compile_gc_list_ptr(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr for non-Int length argument",
+            ));
+        }
+        // Spill n.
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        // payload_size = 8 + n*8
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        // Store length at offset 0.
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+        // Zero-init the n pointer slots so the mark phase never sees
+        // stale addresses inherited from a free-list reuse.
+        let init_loop = self.asm.create_text_label();
+        let init_done = self.asm.create_text_label();
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.bind_text_label(init_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, init_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.jmp_label(init_loop);
+        self.asm.bind_text_label(init_done);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_ptr_len(lst)` returns the length stored at offset 0.
+    fn compile_gc_list_ptr_len(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_len expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_len for non-address argument",
+            ));
+        }
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_list_ptr_set(lst, idx, ptr)` writes a heap pointer into
+    /// slot `idx`. The mark phase walks the slot, so the stored
+    /// pointer keeps its referent alive until overwritten.
+    fn compile_gc_list_ptr_set(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 3 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_set expects 3 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_set for non-address list argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let idx = self.compile_expr(&arguments[1])?;
+        if idx != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_set for non-Int index argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let value = self.compile_expr(&arguments[2])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_set for non-address value argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        self.asm.pop_reg(Reg::R10);
+        self.next_stack_offset -= 8;
+        // addr = lst + 8 + idx*8
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.store_ptr_disp32(Reg::R10, 8, Reg::Rax);
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_list_ptr_get(lst, idx)` reads slot `idx` and returns a
+    /// `HeapPointer`. The slot is shared with the list, so the returned
+    /// value's lifetime is at least as long as the list's.
+    fn compile_gc_list_ptr_get(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_get expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_get for non-address list argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let idx = self.compile_expr(&arguments[1])?;
+        if idx != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_get for non-Int index argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::R10);
+        self.next_stack_offset -= 8;
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 8);
+        Ok(NativeValue::HeapPointer)
     }
 
     /// `__gc_collect()` triggers a stop-the-world mark-and-sweep cycle.
@@ -27814,6 +28000,11 @@ impl NativeCodeGenerator {
     const GC_TYPE_RAW_BYTES: u64 = 1;
     const GC_TYPE_POINTER_RECORD: u64 = 2;
     const GC_TYPE_POINTER_ARRAY: u64 = 3;
+    /// Heap-backed pointer list: payload is `[len: i64, ptr_0, ptr_1,
+    /// ...]`. The first qword is an integer length and must be skipped
+    /// by the mark phase; the remaining payload is a packed pointer
+    /// table identical to `GC_TYPE_POINTER_ARRAY` for tracing purposes.
+    const GC_TYPE_POINTER_LIST: u64 = 4;
 
     /// Initialize the GC heap: mmap a private anonymous region and seed the
     /// heap_base / heap_top / heap_end globals.
@@ -28097,17 +28288,31 @@ impl NativeCodeGenerator {
         self.asm.load_ptr_disp32(Reg::Rax, Reg::R8, 0);
         // type at [rax - 8]
         self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rax, -8);
+        // Save the type tag because the upcoming size load reuses rcx.
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
         // Tags below GC_TYPE_POINTER_RECORD (free / raw bytes) carry no
-        // pointer fields; tags >= GC_TYPE_POINTER_RECORD (record, array)
-        // are walked identically as a packed array of heap pointers.
+        // pointer fields; tags >= GC_TYPE_POINTER_RECORD (record, array,
+        // pointer list) are walked as a packed array of heap pointers,
+        // optionally skipping a leading length qword for the list tag.
         self.asm
             .cmp_reg_imm8(Reg::Rcx, Self::GC_TYPE_POINTER_RECORD as i8);
         self.asm.jcc_label(Condition::Below, trace_loop);
-        // Pointer record / array: walk payload. payload_size = (size & ~MARK) - 16
+        // Pointer record / array / list: walk payload. payload_size =
+        // (size & ~MARK) - 16
         self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rax, -16);
         self.asm.mov_imm64(Reg::Rdx, !((1_u64) << 63));
         self.asm.and_reg_reg(Reg::Rcx, Reg::Rdx);
         self.asm.sub_reg_imm8(Reg::Rcx, 16);
+        // GC_TYPE_POINTER_LIST stores an integer length at offset 0 of
+        // the payload — skip it so the mark phase does not try to chase
+        // the length value as a heap pointer.
+        let after_list_skip = self.asm.create_text_label();
+        self.asm
+            .cmp_reg_imm8(Reg::R8, Self::GC_TYPE_POINTER_LIST as i8);
+        self.asm.jcc_label(Condition::NotEqual, after_list_skip);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 8);
+        self.asm.bind_text_label(after_list_skip);
         // trace_end = rax + payload_size; trace_cursor = rax
         self.asm.mov_reg_reg(Reg::R9, Reg::Rax);
         self.asm.add_reg_reg(Reg::R9, Reg::Rcx);

@@ -4462,6 +4462,83 @@ println(__gc_segment_count())
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_list_ptr_traces_skipping_length_qword() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-listptr-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-listptr-{unique}"));
+    // Build four heap blocks, store all into a heap-backed pointer
+    // list (tag 4), pin only the list, then stress the heap. The mark
+    // phase must skip the leading length qword (== 4) — interpreting it
+    // as a heap pointer would dereference an out-of-heap address. The
+    // four children must survive and read back their original
+    // sentinels through __gc_list_ptr_get.
+    fs::write(
+        &source_path,
+        r#"val list = __gc_list_ptr(4)
+val c0 = __gc_alloc(16)
+__gc_write(c0, 0, 1001)
+val c1 = __gc_alloc(16)
+__gc_write(c1, 0, 1002)
+val c2 = __gc_alloc(16)
+__gc_write(c2, 0, 1003)
+val c3 = __gc_alloc(16)
+__gc_write(c3, 0, 1004)
+__gc_list_ptr_set(list, 0, c0)
+__gc_list_ptr_set(list, 1, c1)
+__gc_list_ptr_set(list, 2, c2)
+__gc_list_ptr_set(list, 3, c3)
+__gc_pin(list)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+println(__gc_list_ptr_len(list))
+println(__gc_read(__gc_list_ptr_get(list, 0), 0))
+println(__gc_read(__gc_list_ptr_get(list, 1), 0))
+println(__gc_read(__gc_list_ptr_get(list, 2), 0))
+println(__gc_read(__gc_list_ptr_get(list, 3), 0))
+__gc_unpin(list)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc list-ptr build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "4\n1001\n1002\n1003\n1004\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_list_int_round_trip() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

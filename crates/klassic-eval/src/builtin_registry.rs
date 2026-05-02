@@ -100,6 +100,10 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_list_int_set" => Some("__gc_list_int_set"),
         "__gc_list_int_get" => Some("__gc_list_int_get"),
         "__gc_list_int_println" => Some("__gc_list_int_println"),
+        "__gc_list_ptr" => Some("__gc_list_ptr"),
+        "__gc_list_ptr_len" => Some("__gc_list_ptr_len"),
+        "__gc_list_ptr_set" => Some("__gc_list_ptr_set"),
+        "__gc_list_ptr_get" => Some("__gc_list_ptr_get"),
         "__gc_collect" => Some("__gc_collect"),
         "__gc_pin" => Some("__gc_pin"),
         "__gc_unpin" => Some("__gc_unpin"),
@@ -146,15 +150,20 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_pointer_count"
         | "__gc_list_int"
         | "__gc_list_int_println"
+        | "__gc_list_ptr"
+        | "__gc_list_ptr_len"
         | "__gc_pin"
         | "__gc_unpin" => Some(1),
         "__gc_collect" | "__gc_segment_count" => Some(0),
         "__gc_read"
         | "__gc_string_concat"
         | "__gc_list_int_get"
+        | "__gc_list_ptr_get"
         | "__gc_string_get_byte"
         | "__gc_string_eq" => Some(2),
-        "__gc_write" | "__gc_list_int_set" | "__gc_string_set_byte" => Some(3),
+        "__gc_write" | "__gc_list_int_set" | "__gc_list_ptr_set" | "__gc_string_set_byte" => {
+            Some(3)
+        }
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
         "substring" | "replace" | "replaceAll" | "foldLeft" => Some(3),

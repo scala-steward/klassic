@@ -1995,6 +1995,23 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Int(1))
         }
+        "__gc_list_ptr" => {
+            ensure_arity(name, arguments, 1, span)?;
+            let _ = expect_non_negative_int(&arguments[0], "__gc_list_ptr", span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_list_ptr_len" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_list_ptr_set" => {
+            ensure_arity(name, arguments, 3, span)?;
+            Ok(Value::Unit)
+        }
+        "__gc_list_ptr_get" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)
