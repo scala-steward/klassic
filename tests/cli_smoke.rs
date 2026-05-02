@@ -4314,6 +4314,70 @@ __gc_unpin(parent)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_heap_growth_when_roots_outlive_initial_segment() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-grow-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-grow-{unique}"));
+    // Eight 150_000-byte allocations totalling ~1.2 MiB cannot fit in the
+    // initial 1 MiB segment. Each one is bound to a stack-rooted slot, so
+    // a collection cycle reclaims nothing and the bump allocator must grow
+    // the heap by mmapping a fresh segment. After the second collection,
+    // both segments must still be walked correctly during sweep.
+    fs::write(
+        &source_path,
+        r#"val a0 = __gc_alloc(150000)
+val a1 = __gc_alloc(150000)
+val a2 = __gc_alloc(150000)
+val a3 = __gc_alloc(150000)
+val a4 = __gc_alloc(150000)
+val a5 = __gc_alloc(150000)
+val a6 = __gc_alloc(150000)
+val a7 = __gc_alloc(150000)
+__gc_write(a0, 0, 1)
+__gc_write(a3, 0, 30)
+__gc_write(a7, 0, 700)
+__gc_collect()
+println(__gc_read(a0, 0))
+println(__gc_read(a3, 0))
+println(__gc_read(a7, 0))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc heap-growth build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "1\n30\n700\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_list_of_maps_branch() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -544,7 +544,7 @@ cargo run -- -e "1 + 2"
   static `.data` buffers used by the rest of the codegen. At program
   startup, the prologue invokes `mmap(NULL, 1 MiB,
   PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0)` and stores the
-  returned base/top/end pointers in dedicated globals. Two emitted
+  returned base/top/end pointers in dedicated globals. Three emitted
   subroutines back the heap:
   - `gc_alloc(size, type_tag)` aligns the request up to a 16-byte
     boundary, walks the singly-linked free list using a first-fit
@@ -554,11 +554,22 @@ cargo run -- -e "1 + 2"
     type tag (0 marks a free block).
   - `gc_collect()` performs stop-the-world mark-and-sweep. The mark
     phase walks compile-time-registered roots; the sweep phase walks
-    the heap linearly using each header's size, clears mark bits on
-    survivors, and threads dead blocks onto a freshly rebuilt free
-    list. If `gc_alloc` cannot satisfy a request even after a
-    collection it writes `klassic gc: out of memory` to stderr and
-    exits with status 1.
+    every active segment linearly using each header's size, clears
+    mark bits on survivors, and threads dead blocks onto a freshly
+    rebuilt free list. If `gc_alloc` cannot satisfy a request even
+    after a collection plus a heap growth it writes
+    `klassic gc: out of memory` to stderr and exits with status 1.
+  - `gc_grow_heap(requested_total)` is invoked by `gc_alloc` whenever
+    even a post-collection retry cannot satisfy the bump path. It
+    `mmap`s a fresh segment of at least 1 MiB (page-aligned, larger
+    when the request itself exceeds 1 MiB), appends `{base, top, end}`
+    to a fixed 64-entry segments table, repoints the active
+    `gc_heap_*` globals at the new region, and freezes the previous
+    segment's bump pointer so the next sweep covers it. Past 64
+    segments the runtime exits with `klassic gc: heap segment limit
+    reached`. Tracing handles type tag 2 (`pointer record`) and tag 3
+    (`pointer array`) identically; both walk the entire payload as a
+    packed array of heap pointers.
 
   The allocator and collector are tagged into the language through
   a `NativeValue::HeapPointer` variant. `__gc_alloc(size)` and
@@ -593,13 +604,16 @@ cargo run -- -e "1 + 2"
   record", walks the payload qword by qword recursively visiting
   every non-null pointer field.
 
-  Five integration tests cover the lifecycle: reclamation when
+  Six integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
   binding survives a heap-stress collection without any explicit
-  `__gc_pin`, and a basic `__gc_alloc` / `__gc_collect` smoke
-  check. Migrating real language values (runtime strings, lists,
+  `__gc_pin`, a basic `__gc_alloc` / `__gc_collect` smoke check,
+  and an eight-slot 1.2 MiB workload whose live blocks force the
+  runtime to grow the heap beyond the initial segment and still
+  read back the original sentinels after a follow-up collection.
+  Migrating real language values (runtime strings, lists,
   records) onto the heap is the next phase of GC work.
 
 ### `klassic-runtime`
