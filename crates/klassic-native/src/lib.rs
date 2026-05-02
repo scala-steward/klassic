@@ -2790,6 +2790,9 @@ impl NativeCodeGenerator {
             "__gc_alloc" => self.compile_gc_alloc(arguments, span),
             "__gc_record" => self.compile_gc_record(arguments, span),
             "__gc_array" => self.compile_gc_array(arguments, span),
+            "__gc_string" => self.compile_gc_string(arguments, span),
+            "__gc_string_concat" => self.compile_gc_string_concat(arguments, span),
+            "__gc_string_println" => self.compile_gc_string_println(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3491,6 +3494,9 @@ impl NativeCodeGenerator {
             "__gc_alloc" => self.compile_gc_alloc(arguments, span).map(Some),
             "__gc_record" => self.compile_gc_record(arguments, span).map(Some),
             "__gc_array" => self.compile_gc_array(arguments, span).map(Some),
+            "__gc_string" => self.compile_gc_string(arguments, span).map(Some),
+            "__gc_string_concat" => self.compile_gc_string_concat(arguments, span).map(Some),
+            "__gc_string_println" => self.compile_gc_string_println(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -7601,6 +7607,185 @@ impl NativeCodeGenerator {
         self.asm.jmp_label(init_loop);
         self.asm.bind_text_label(init_done);
         Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_string("static text")` allocates a length-prefixed string on
+    /// the GC heap and copies the static bytes into it. The argument must
+    /// be a compile-time literal so the codegen knows the byte payload.
+    /// The returned `HeapPointer` is auto-rooted at the binding site, so
+    /// `val s = __gc_string("hi")` survives subsequent collections.
+    ///
+    /// Heap layout: [len: i64][bytes...] under a 16-byte GC header
+    /// (type tag = `GC_TYPE_RAW_BYTES`, no inner pointers).
+    fn compile_gc_string(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("__gc_string expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        let (label, len) = match value {
+            NativeValue::StaticString { label, len } => (label, len),
+            _ => {
+                return Err(unsupported(
+                    span,
+                    "native __gc_string only supports static string literal arguments",
+                ));
+            }
+        };
+        let payload_size = (8 + len.next_multiple_of(8)) as u64;
+        self.asm.mov_imm64(Reg::Rdi, payload_size);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+        // rax = heap pointer; store len at offset 0.
+        self.asm.mov_imm64(Reg::Rdi, len as u64);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rdi);
+        if len > 0 {
+            // memcpy bytes from the static label into the payload via
+            // rep movsb. rep movsb leaves rax untouched, so the heap
+            // pointer in rax survives.
+            self.asm.mov_data_addr(Reg::Rsi, label);
+            self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+            self.asm.add_reg_imm32(Reg::Rdi, 8);
+            self.asm.mov_imm64(Reg::Rcx, len as u64);
+            self.asm.rep_movsb();
+        }
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_string_concat(a, b)` allocates a fresh heap string whose
+    /// bytes are the concatenation of `a` and `b`. Both arguments are
+    /// spilled into shadow-stack-tracked slots before the destination
+    /// allocation runs, so a collection triggered by `gc_alloc` cannot
+    /// reclaim the inputs out from under the copy.
+    fn compile_gc_string_concat(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_concat expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+
+        let a_value = self.compile_expr(&arguments[0])?;
+        if !matches!(a_value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_concat for non-address first argument",
+            ));
+        }
+        let a_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(a_slot.offset, Reg::Rax);
+
+        let b_value = self.compile_expr(&arguments[1])?;
+        if !matches!(b_value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_concat for non-address second argument",
+            ));
+        }
+        let b_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(b_slot.offset, Reg::Rax);
+
+        // total_len = len_a + len_b
+        self.asm.load_rbp_slot(Reg::R10, a_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::R10, b_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+
+        // payload_size = 8 + align_up(total_len, 8)
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::R8);
+        self.asm.add_reg_reg(Reg::Rdi, Reg::R9);
+        self.asm.add_reg_imm32(Reg::Rdi, 8 + 7);
+        self.asm.and_reg_imm32(Reg::Rdi, -8);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+
+        // Stash the new pointer in its own tracked slot — defensive in
+        // case future reorganization adds another collection point
+        // before the bytes are written.
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        // Reload len_a / len_b (the heap inputs are unchanged) and write
+        // total_len into the destination's first qword.
+        self.asm.load_rbp_slot(Reg::R10, a_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::R10, b_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+        self.asm.mov_reg_reg(Reg::R11, Reg::R8);
+        self.asm.add_reg_reg(Reg::R11, Reg::R9);
+        self.asm.load_rbp_slot(Reg::R10, new_slot.offset);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::R11);
+
+        // Copy a's bytes: rsi = a + 8, rdi = new + 8, rcx = len_a.
+        self.asm.load_rbp_slot(Reg::Rsi, a_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.rep_movsb();
+
+        // Copy b's bytes: rdi already points at new + 8 + len_a thanks
+        // to the previous rep movsb advancing it.
+        self.asm.load_rbp_slot(Reg::Rsi, b_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R9);
+        self.asm.rep_movsb();
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_string_println(g)` writes the heap string's bytes followed
+    /// by a newline to stdout. Equivalent in user-facing behavior to
+    /// `println(s)` for a regular static string.
+    fn compile_gc_string_println(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_println expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_println for non-address argument",
+            ));
+        }
+        // write(1, addr+8, [addr])
+        self.asm.mov_reg_reg(Reg::Rsi, Reg::Rax);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_ptr_disp32(Reg::Rdx, Reg::Rax, 0);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.mov_imm64(Reg::Rdi, 1);
+        self.asm.syscall();
+        // newline
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.mov_imm64(Reg::Rdi, 1);
+        self.asm.mov_data_addr(Reg::Rsi, self.newline);
+        self.asm.mov_imm64(Reg::Rdx, 1);
+        self.asm.syscall();
+        Ok(NativeValue::Unit)
     }
 
     /// `__gc_collect()` triggers a stop-the-world mark-and-sweep cycle.
@@ -30023,6 +30208,13 @@ impl Assembler {
 
     fn syscall(&mut self) {
         self.bytes(&[0x0f, 0x05]);
+    }
+
+    /// `rep movsb` — copy `rcx` bytes from `[rsi]` to `[rdi]`, advancing
+    /// both pointers and decrementing rcx until it reaches zero. The
+    /// caller is responsible for setting up rsi / rdi / rcx beforehand.
+    fn rep_movsb(&mut self) {
+        self.bytes(&[0xf3, 0xa4]);
     }
 
     fn leave(&mut self) {

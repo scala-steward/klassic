@@ -591,23 +591,29 @@ cargo run -- -e "1 + 2"
   comparisons, and printing now all treat `HeapPointer` like `Int`
   so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
 
-  Eight debug builtins drive the GC end-to-end:
+  Eleven debug builtins drive the GC end-to-end:
   `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
   (type tag 2, packed heap pointers, fixed shape); `__gc_array(num_slots)`
-  (type tag 3, packed heap pointers, indexed); `__gc_collect()`;
-  `__gc_pin(addr)` / `__gc_unpin(addr)` for explicit static-table
-  registration alongside the automatic shadow-stack tracking; and
-  `__gc_read(addr, offset)` / `__gc_write(addr, offset, value)` for
-  raw qword access (which doubles as record-field and array-slot
-  access since both share the same packed-pointer layout). Marking
-  uses an iterative worklist keyed off the type-tag header field:
-  the `gc_mark_visit` subroutine sets the mark bit and pushes the
+  (type tag 3, packed heap pointers, indexed); `__gc_string("text")`
+  (heap-allocated length-prefixed string built from a static literal);
+  `__gc_string_concat(a, b)` (joins two heap strings into a new one,
+  spilling both inputs into shadow-stack-tracked slots so the
+  allocation in the middle cannot reclaim them); `__gc_string_println(g)`
+  (writes the heap string's bytes followed by `\n` to stdout);
+  `__gc_collect()`; `__gc_pin(addr)` / `__gc_unpin(addr)` for
+  explicit static-table registration alongside the automatic
+  shadow-stack tracking; and `__gc_read(addr, offset)` /
+  `__gc_write(addr, offset, value)` for raw qword access (which
+  doubles as record-field and array-slot access since both share
+  the same packed-pointer layout). Marking uses an iterative
+  worklist keyed off the type-tag header field: the
+  `gc_mark_visit` subroutine sets the mark bit and pushes the
   block onto a 4096-entry trace stack; the trace loop pops each
   block and, when its tag is at or above "pointer record", walks
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Seven integration tests cover the lifecycle: reclamation when
+  Eight integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -616,10 +622,16 @@ cargo run -- -e "1 + 2"
   an eight-slot 1.2 MiB workload whose live blocks force the
   runtime to grow the heap beyond the initial segment and still
   read back the original sentinels after a follow-up collection,
-  and a `__gc_array` test that proves tag-3 payloads are walked
-  identically to records. Migrating real language values (runtime
-  strings, lists, records) onto the heap is the next phase of GC
-  work.
+  a `__gc_array` test that proves tag-3 payloads are walked
+  identically to records, and a `__gc_string` concat test that
+  builds heap-allocated strings, joins them with a fresh heap
+  allocation, drops the originals from explicit reach, runs two
+  collections under heap pressure, and prints the survivors via
+  `__gc_string_println` to confirm both copies and tracing work
+  correctly. The next phase of integration is wiring the rest of
+  the runtime string / list / record builtins onto the heap so
+  any source program participates in GC without going through the
+  explicit `__gc_*` interface.
 
 ### `klassic-runtime`
 - Shared runtime crate scaffold for behavior that should move out of `klassic-eval`

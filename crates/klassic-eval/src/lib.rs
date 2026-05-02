@@ -1933,6 +1933,22 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             let _ = expect_non_negative_int(&arguments[0], "__gc_array", span)?;
             Ok(Value::Int(1))
         }
+        "__gc_string" => {
+            ensure_arity(name, arguments, 1, span)?;
+            // The evaluator does not own a GC heap; surface a non-zero
+            // sentinel so source programs that thread the result through
+            // further GC builtins still type-check and run identically
+            // when later native-compiled.
+            Ok(Value::Int(1))
+        }
+        "__gc_string_concat" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_println" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Unit)
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)

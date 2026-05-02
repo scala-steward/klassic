@@ -86,6 +86,9 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_alloc" => Some("__gc_alloc"),
         "__gc_record" => Some("__gc_record"),
         "__gc_array" => Some("__gc_array"),
+        "__gc_string" => Some("__gc_string"),
+        "__gc_string_concat" => Some("__gc_string_concat"),
+        "__gc_string_println" => Some("__gc_string_println"),
         "__gc_collect" => Some("__gc_collect"),
         "__gc_pin" => Some("__gc_pin"),
         "__gc_unpin" => Some("__gc_unpin"),
@@ -97,13 +100,40 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
 
 pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
     match name {
-        "println" | "printlnError" | "assert" | "thread" | "sleep" | "stopwatch" | "double"
-        | "int" | "floor" | "ceil" | "abs" | "sqrt" | "toString" | "trim" | "trimLeft"
-        | "trimRight" | "toLowerCase" | "toUpperCase" | "isEmptyString" | "length" | "reverse"
-        | "head" | "tail" | "size" | "isEmpty" | "__gc_alloc" | "__gc_record" | "__gc_array"
-        | "__gc_pin" | "__gc_unpin" => Some(1),
+        "println"
+        | "printlnError"
+        | "assert"
+        | "thread"
+        | "sleep"
+        | "stopwatch"
+        | "double"
+        | "int"
+        | "floor"
+        | "ceil"
+        | "abs"
+        | "sqrt"
+        | "toString"
+        | "trim"
+        | "trimLeft"
+        | "trimRight"
+        | "toLowerCase"
+        | "toUpperCase"
+        | "isEmptyString"
+        | "length"
+        | "reverse"
+        | "head"
+        | "tail"
+        | "size"
+        | "isEmpty"
+        | "__gc_alloc"
+        | "__gc_record"
+        | "__gc_array"
+        | "__gc_string"
+        | "__gc_string_println"
+        | "__gc_pin"
+        | "__gc_unpin" => Some(1),
         "__gc_collect" => Some(0),
-        "__gc_read" => Some(2),
+        "__gc_read" | "__gc_string_concat" => Some(2),
         "__gc_write" => Some(3),
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
