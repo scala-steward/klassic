@@ -676,6 +676,7 @@ struct NativeCodeGenerator {
     gc_shadow_stack_top: DataLabel,
     gc_segments: DataLabel,
     gc_segment_count: DataLabel,
+    gc_collect_counter: DataLabel,
     gc_alloc: TextLabel,
     gc_collect: TextLabel,
     gc_pin: TextLabel,
@@ -754,6 +755,7 @@ impl NativeCodeGenerator {
         let gc_shadow_stack_top = asm.data_label_with_i64s(&[0]);
         let gc_segments = asm.data_label_with_i64s(&vec![0; 3 * Self::GC_MAX_SEGMENTS]);
         let gc_segment_count = asm.data_label_with_i64s(&[0]);
+        let gc_collect_counter = asm.data_label_with_i64s(&[0]);
         let gc_alloc = asm.create_text_label();
         let gc_collect = asm.create_text_label();
         let gc_pin = asm.create_text_label();
@@ -816,6 +818,7 @@ impl NativeCodeGenerator {
             gc_shadow_stack_top,
             gc_segments,
             gc_segment_count,
+            gc_collect_counter,
             gc_alloc,
             gc_collect,
             gc_pin,
@@ -2807,6 +2810,7 @@ impl NativeCodeGenerator {
             "__gc_string_eq" => self.compile_gc_string_eq(arguments, span),
             "__gc_pointer_count" => self.compile_gc_pointer_count(arguments, span),
             "__gc_segment_count" => self.compile_gc_segment_count(arguments, span),
+            "__gc_collect_count" => self.compile_gc_collect_count(arguments, span),
             "__gc_list_int" => self.compile_gc_list_int(arguments, span),
             "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span),
             "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span),
@@ -3526,6 +3530,7 @@ impl NativeCodeGenerator {
             "__gc_string_eq" => self.compile_gc_string_eq(arguments, span).map(Some),
             "__gc_pointer_count" => self.compile_gc_pointer_count(arguments, span).map(Some),
             "__gc_segment_count" => self.compile_gc_segment_count(arguments, span).map(Some),
+            "__gc_collect_count" => self.compile_gc_collect_count(arguments, span).map(Some),
             "__gc_list_int" => self.compile_gc_list_int(arguments, span).map(Some),
             "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span).map(Some),
             "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span).map(Some),
@@ -8346,6 +8351,30 @@ impl NativeCodeGenerator {
         self.asm.sub_reg_imm8(Reg::Rax, 16);
         // count = payload_bytes / 8
         self.asm.shr_reg_imm8(Reg::Rax, 3);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_collect_count()` returns how many full mark-and-sweep
+    /// cycles the runtime has executed since startup. The counter is
+    /// incremented once per `gc_collect` call (whether the call came
+    /// from `__gc_collect()`, the auto-retry inside `gc_alloc`, or any
+    /// other path that jumps to the entry label).
+    fn compile_gc_collect_count(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if !arguments.is_empty() {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_collect_count expects 0 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        self.asm.mov_data_addr(Reg::Rax, self.gc_collect_counter);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
         Ok(NativeValue::Int)
     }
 
@@ -28216,6 +28245,13 @@ impl NativeCodeGenerator {
         self.asm.bind_text_label(self.gc_collect);
         self.asm.push_reg(Reg::Rbp);
         self.asm.mov_reg_reg(Reg::Rbp, Reg::Rsp);
+        // Increment the global collection counter so user code can
+        // observe how many cycles have run, e.g. for tests that need to
+        // confirm a forced collection actually happened.
+        self.asm.mov_data_addr(Reg::R10, self.gc_collect_counter);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::Rax, 1);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
         // Reserve six qword locals (rbp-relative addressing). The first
         // four are reused across phases; the last pair holds the segment
         // iteration state used by the sweep loop.

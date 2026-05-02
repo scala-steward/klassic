@@ -4462,6 +4462,56 @@ println(__gc_segment_count())
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_collect_counter() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-cc-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-cc-{unique}"));
+    fs::write(
+        &source_path,
+        r#"println(__gc_collect_count())
+__gc_collect()
+println(__gc_collect_count())
+__gc_collect()
+__gc_collect()
+println(__gc_collect_count())
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc collect-counter build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "0\n1\n3\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_list_int_bounds_check_negative() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
