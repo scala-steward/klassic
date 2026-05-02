@@ -89,6 +89,13 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_string" => Some("__gc_string"),
         "__gc_string_concat" => Some("__gc_string_concat"),
         "__gc_string_println" => Some("__gc_string_println"),
+        "__gc_string_len" => Some("__gc_string_len"),
+        "__gc_string_alloc" => Some("__gc_string_alloc"),
+        "__gc_string_get_byte" => Some("__gc_string_get_byte"),
+        "__gc_string_set_byte" => Some("__gc_string_set_byte"),
+        "__gc_string_eq" => Some("__gc_string_eq"),
+        "__gc_pointer_count" => Some("__gc_pointer_count"),
+        "__gc_segment_count" => Some("__gc_segment_count"),
         "__gc_list_int" => Some("__gc_list_int"),
         "__gc_list_int_set" => Some("__gc_list_int_set"),
         "__gc_list_int_get" => Some("__gc_list_int_get"),
@@ -134,13 +141,20 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_array"
         | "__gc_string"
         | "__gc_string_println"
+        | "__gc_string_len"
+        | "__gc_string_alloc"
+        | "__gc_pointer_count"
         | "__gc_list_int"
         | "__gc_list_int_println"
         | "__gc_pin"
         | "__gc_unpin" => Some(1),
-        "__gc_collect" => Some(0),
-        "__gc_read" | "__gc_string_concat" | "__gc_list_int_get" => Some(2),
-        "__gc_write" | "__gc_list_int_set" => Some(3),
+        "__gc_collect" | "__gc_segment_count" => Some(0),
+        "__gc_read"
+        | "__gc_string_concat"
+        | "__gc_list_int_get"
+        | "__gc_string_get_byte"
+        | "__gc_string_eq" => Some(2),
+        "__gc_write" | "__gc_list_int_set" | "__gc_string_set_byte" => Some(3),
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
         "substring" | "replace" | "replaceAll" | "foldLeft" => Some(3),

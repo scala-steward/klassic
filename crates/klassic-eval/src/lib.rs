@@ -1966,6 +1966,35 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 1, span)?;
             Ok(Value::Unit)
         }
+        "__gc_string_len" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_string_alloc" => {
+            ensure_arity(name, arguments, 1, span)?;
+            let _ = expect_non_negative_int(&arguments[0], "__gc_string_alloc", span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_get_byte" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_string_set_byte" => {
+            ensure_arity(name, arguments, 3, span)?;
+            Ok(Value::Unit)
+        }
+        "__gc_string_eq" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Bool(true))
+        }
+        "__gc_pointer_count" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_segment_count" => {
+            ensure_arity(name, arguments, 0, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)

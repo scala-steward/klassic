@@ -1879,6 +1879,41 @@ impl TypeChecker {
             Type::Function(vec![Type::Int], Box::new(Type::Unit)),
         );
         self.declare_poly(
+            "__gc_string_len".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_alloc".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_get_byte".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_set_byte".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int, Type::Int], Box::new(Type::Unit)),
+        );
+        self.declare_poly(
+            "__gc_string_eq".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Bool)),
+        );
+        self.declare_poly(
+            "__gc_pointer_count".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_segment_count".to_string(),
+            false,
+            Type::Function(vec![], Box::new(Type::Int)),
+        );
+        self.declare_poly(
             "__gc_collect".to_string(),
             false,
             Type::Function(vec![], Box::new(Type::Unit)),

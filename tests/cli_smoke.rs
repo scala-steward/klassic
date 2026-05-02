@@ -4314,6 +4314,154 @@ __gc_unpin(parent)
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_string_introspection_and_byte_access() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-strops-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-strops-{unique}"));
+    // Exercise:
+    //   __gc_string_len + __gc_string_eq (true and false cases)
+    //   __gc_string_alloc + __gc_string_set_byte + __gc_string_get_byte
+    //   round-trip building a heap string byte-by-byte and printing it
+    fs::write(
+        &source_path,
+        r#"val a = __gc_string("klassic")
+val b = __gc_string("klassic")
+val c = __gc_string("klassik")
+println(__gc_string_len(a))
+println(__gc_string_eq(a, b))
+println(__gc_string_eq(a, c))
+val d = __gc_string_alloc(5)
+__gc_string_set_byte(d, 0, 72)
+__gc_string_set_byte(d, 1, 101)
+__gc_string_set_byte(d, 2, 108)
+__gc_string_set_byte(d, 3, 108)
+__gc_string_set_byte(d, 4, 111)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+println(__gc_string_len(d))
+println(__gc_string_get_byte(d, 0))
+__gc_string_println(d)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc string introspection build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "7\ntrue\nfalse\n5\n72\nHello\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_introspection_helpers() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-gc-introspect-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-introspect-{unique}"));
+    // __gc_pointer_count infers the number of slots from the GC header
+    // for both __gc_record and __gc_array. __gc_segment_count starts at
+    // 1 and grows when heap pressure forces a fresh mmap.
+    fs::write(
+        &source_path,
+        r#"val rec = __gc_record(7)
+val arr = __gc_array(13)
+println(__gc_pointer_count(rec))
+println(__gc_pointer_count(arr))
+println(__gc_segment_count())
+val a = __gc_alloc(150000)
+val b = __gc_alloc(150000)
+val c = __gc_alloc(150000)
+val d = __gc_alloc(150000)
+val e = __gc_alloc(150000)
+val f = __gc_alloc(150000)
+val g = __gc_alloc(150000)
+val h = __gc_alloc(150000)
+println(__gc_segment_count())
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+
+    assert!(
+        build.status.success(),
+        "gc introspection build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 4);
+    // gc_alloc rounds total size up to a 16-byte boundary, so a record
+    // requested with 7 pointer slots actually owns 8 (one trailing
+    // padding slot) and a 13-slot array owns 14. The header-derived
+    // count exposed via __gc_pointer_count reports those rounded sizes.
+    assert_eq!(lines[0], "8");
+    assert_eq!(lines[1], "14");
+    assert_eq!(lines[2], "1");
+    // After the 8 * 150 KiB allocations exhaust the initial segment and
+    // the runtime grows once, the count should be at least 2.
+    let final_segments: i64 = lines[3].parse().expect("segment count is a number");
+    assert!(
+        final_segments >= 2,
+        "expected segment count >= 2 after growth, got {final_segments}"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_list_int_round_trip() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

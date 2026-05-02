@@ -2793,6 +2793,13 @@ impl NativeCodeGenerator {
             "__gc_string" => self.compile_gc_string(arguments, span),
             "__gc_string_concat" => self.compile_gc_string_concat(arguments, span),
             "__gc_string_println" => self.compile_gc_string_println(arguments, span),
+            "__gc_string_len" => self.compile_gc_string_len(arguments, span),
+            "__gc_string_alloc" => self.compile_gc_string_alloc(arguments, span),
+            "__gc_string_get_byte" => self.compile_gc_string_get_byte(arguments, span),
+            "__gc_string_set_byte" => self.compile_gc_string_set_byte(arguments, span),
+            "__gc_string_eq" => self.compile_gc_string_eq(arguments, span),
+            "__gc_pointer_count" => self.compile_gc_pointer_count(arguments, span),
+            "__gc_segment_count" => self.compile_gc_segment_count(arguments, span),
             "__gc_list_int" => self.compile_gc_list_int(arguments, span),
             "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span),
             "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span),
@@ -3501,6 +3508,13 @@ impl NativeCodeGenerator {
             "__gc_string" => self.compile_gc_string(arguments, span).map(Some),
             "__gc_string_concat" => self.compile_gc_string_concat(arguments, span).map(Some),
             "__gc_string_println" => self.compile_gc_string_println(arguments, span).map(Some),
+            "__gc_string_len" => self.compile_gc_string_len(arguments, span).map(Some),
+            "__gc_string_alloc" => self.compile_gc_string_alloc(arguments, span).map(Some),
+            "__gc_string_get_byte" => self.compile_gc_string_get_byte(arguments, span).map(Some),
+            "__gc_string_set_byte" => self.compile_gc_string_set_byte(arguments, span).map(Some),
+            "__gc_string_eq" => self.compile_gc_string_eq(arguments, span).map(Some),
+            "__gc_pointer_count" => self.compile_gc_pointer_count(arguments, span).map(Some),
+            "__gc_segment_count" => self.compile_gc_segment_count(arguments, span).map(Some),
             "__gc_list_int" => self.compile_gc_list_int(arguments, span).map(Some),
             "__gc_list_int_set" => self.compile_gc_list_int_set(arguments, span).map(Some),
             "__gc_list_int_get" => self.compile_gc_list_int_get(arguments, span).map(Some),
@@ -8028,6 +8042,306 @@ impl NativeCodeGenerator {
         self.asm.add_reg_imm32(Reg::Rsp, 16);
         self.next_stack_offset -= 16;
         Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_string_len(s)` returns the byte length stored at offset 0
+    /// of a heap string. The argument must be a heap pointer; the result
+    /// is a plain Int.
+    fn compile_gc_string_len(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_len expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_len for non-address argument",
+            ));
+        }
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_string_alloc(n)` reserves an n-byte heap string with
+    /// zero-initialized bytes so callers can build a string one byte at
+    /// a time via `__gc_string_set_byte`.
+    fn compile_gc_string_alloc(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_alloc expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if value != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_alloc for non-Int length argument",
+            ));
+        }
+        // Spill n so we can recover it after gc_alloc.
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        // payload_size = 8 + align_up(n, 8)
+        self.asm.add_reg_imm32(Reg::Rax, 8 + 7);
+        self.asm.and_reg_imm32(Reg::Rax, -8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        // Store length at offset 0.
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+        // Zero-fill the byte payload qword by qword. The total qwords to
+        // touch is ceil(n / 8); we recompute by aligning rcx upward.
+        self.asm.add_reg_imm32(Reg::Rcx, 7);
+        self.asm.shr_reg_imm8(Reg::Rcx, 3);
+        let init_loop = self.asm.create_text_label();
+        let init_done = self.asm.create_text_label();
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.bind_text_label(init_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, init_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.jmp_label(init_loop);
+        self.asm.bind_text_label(init_done);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_string_get_byte(s, idx)` reads the byte at `idx` and
+    /// returns it as a non-negative Int (0–255).
+    fn compile_gc_string_get_byte(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_get_byte expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let s = self.compile_expr(&arguments[0])?;
+        if !matches!(s, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_get_byte for non-address argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let idx = self.compile_expr(&arguments[1])?;
+        if idx != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_get_byte for non-Int index argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::R10);
+        self.next_stack_offset -= 8;
+        // r10 = s; rax = idx. Address of byte = r10 + 8 + idx.
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.movzx_byte_indexed(Reg::Rax, Reg::R10, Reg::Rax);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_string_set_byte(s, idx, byte)` writes the low byte of
+    /// `byte` at position `idx` of the heap string. No bounds check.
+    fn compile_gc_string_set_byte(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 3 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_set_byte expects 3 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let s = self.compile_expr(&arguments[0])?;
+        if !matches!(s, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_set_byte for non-address argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let idx = self.compile_expr(&arguments[1])?;
+        if idx != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_set_byte for non-Int index argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let byte = self.compile_expr(&arguments[2])?;
+        if byte != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_set_byte for non-Int byte argument",
+            ));
+        }
+        // rax = byte, top of stack = idx, below = s.
+        self.asm.pop_reg(Reg::Rcx);
+        self.next_stack_offset -= 8;
+        self.asm.pop_reg(Reg::R10);
+        self.next_stack_offset -= 8;
+        // Address = r10 + 8 + rcx.
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.mov_byte_ptr_reg8(Reg::R10, Reg8::Al);
+        Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_string_eq(a, b)` returns 1 iff the two heap strings carry
+    /// identical bytes, 0 otherwise. Uses `repe cmpsb` for the inner
+    /// scan.
+    fn compile_gc_string_eq(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_eq expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let a = self.compile_expr(&arguments[0])?;
+        if !matches!(a, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_eq for non-address first argument",
+            ));
+        }
+        self.asm.push_reg(Reg::Rax);
+        self.next_stack_offset += 8;
+        let b = self.compile_expr(&arguments[1])?;
+        if !matches!(b, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_eq for non-address second argument",
+            ));
+        }
+        self.asm.pop_reg(Reg::R10);
+        self.next_stack_offset -= 8;
+        self.asm.mov_reg_reg(Reg::R11, Reg::Rax);
+
+        let false_branch = self.asm.create_text_label();
+        let true_branch = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        // len_a vs len_b
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R11, 0);
+        self.asm.cmp_reg_reg(Reg::R8, Reg::R9);
+        self.asm.jcc_label(Condition::NotEqual, false_branch);
+        self.asm.test_reg_reg(Reg::R8, Reg::R8);
+        self.asm.jcc_label(Condition::Equal, true_branch);
+        self.asm.mov_reg_reg(Reg::Rsi, Reg::R10);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::R11);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.repe_cmpsb();
+        self.asm.jcc_label(Condition::NotEqual, false_branch);
+        self.asm.bind_text_label(true_branch);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(false_branch);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.bind_text_label(done);
+        Ok(NativeValue::Bool)
+    }
+
+    /// `__gc_pointer_count(addr)` reads the GC header preceding `addr`
+    /// to compute how many qword pointer slots fit in the payload. It
+    /// applies to records and arrays alike — both store the entire
+    /// payload as a packed pointer table.
+    fn compile_gc_pointer_count(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_pointer_count expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_pointer_count for non-address argument",
+            ));
+        }
+        // header_word = [rax - 16]
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, -16);
+        // size = header_word & ~MARK_BIT
+        self.asm.mov_imm64(Reg::Rcx, !((1_u64) << 63));
+        self.asm.and_reg_reg(Reg::Rax, Reg::Rcx);
+        // payload_bytes = size - 16
+        self.asm.sub_reg_imm8(Reg::Rax, 16);
+        // count = payload_bytes / 8
+        self.asm.shr_reg_imm8(Reg::Rax, 3);
+        Ok(NativeValue::Int)
+    }
+
+    /// `__gc_segment_count()` returns the number of mmap'd heap
+    /// segments currently tracked by the runtime (1 at startup; grows
+    /// monotonically as `gc_grow_heap` adds segments).
+    fn compile_gc_segment_count(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if !arguments.is_empty() {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_segment_count expects 0 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        self.asm.mov_data_addr(Reg::Rax, self.gc_segment_count);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+        Ok(NativeValue::Int)
     }
 
     /// `__gc_collect()` triggers a stop-the-world mark-and-sweep cycle.
@@ -30457,6 +30771,14 @@ impl Assembler {
     /// caller is responsible for setting up rsi / rdi / rcx beforehand.
     fn rep_movsb(&mut self) {
         self.bytes(&[0xf3, 0xa4]);
+    }
+
+    /// `repe cmpsb` — compare bytes at `[rsi]` and `[rdi]` while
+    /// `rcx > 0` and the previous comparison was equal. ZF is set when
+    /// the loop ends because a mismatch was found (or rcx hit zero with
+    /// the last comparison still equal). Caller sets rsi/rdi/rcx.
+    fn repe_cmpsb(&mut self) {
+        self.bytes(&[0xf3, 0xa6]);
     }
 
     fn leave(&mut self) {
