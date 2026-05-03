@@ -591,7 +591,7 @@ cargo run -- -e "1 + 2"
   comparisons, and printing now all treat `HeapPointer` like `Int`
   so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
 
-  Twenty-nine debug builtins drive the GC end-to-end:
+  Thirty debug builtins drive the GC end-to-end:
   `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
   (type tag 2, packed heap pointers, fixed shape); `__gc_array(num_slots)`
   (type tag 3, packed heap pointers, indexed); `__gc_string("text")`
@@ -624,7 +624,11 @@ cargo run -- -e "1 + 2"
   cannot surface stale bytes); `__gc_list_int_set(lst, idx, value)`
   and `__gc_list_int_get(lst, idx)` (untrusted-index element
   access, mirroring `__gc_read`/`__gc_write` for the dedicated
-  list layout); `__gc_list_int_println(lst)` (prints `[a, b, c]\n`
+  list layout); `__gc_list_int_push(lst, v)` (returns a fresh
+  list one slot longer with `v` appended — both inputs spill
+  into shadow-stack slots so a collection inside the destination
+  allocation cannot reclaim the source mid-copy);
+  `__gc_list_int_println(lst)` (prints `[a, b, c]\n`
   by driving `print_i64` per element through two anonymous stack
   slots that are released on exit); `__gc_collect()`;
   `__gc_pin(addr)` / `__gc_unpin(addr)` for explicit static-table
@@ -640,7 +644,7 @@ cargo run -- -e "1 + 2"
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Twenty integration tests cover the lifecycle: reclamation when
+  Twenty-two integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -680,7 +684,10 @@ cargo run -- -e "1 + 2"
   bounds happy path (mid / full / empty windows), survival
   across an intervening heap-pressure collection, and the three
   failure modes (negative start, end past length, start > end)
-  that all funnel into the same diagnostic and exit code.
+  that all funnel into the same diagnostic and exit code, and a
+  pair of `__gc_list_int_push` tests that build a five-element
+  list incrementally and confirm it survives interleaved
+  heap-pressure collections that drop every previous version.
   The next phase of integration is wiring the existing
   structural string / list / record builtins onto the heap so
   any source program participates in GC without going through

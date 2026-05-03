@@ -4462,6 +4462,128 @@ println(__gc_segment_count())
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_list_int_push_grows_list() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-push-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-push-{unique}"));
+    fs::write(
+        &source_path,
+        r#"mutable xs = __gc_list_int(0)
+println(__gc_list_int_println(xs))
+xs = __gc_list_int_push(xs, 10)
+__gc_list_int_println(xs)
+xs = __gc_list_int_push(xs, 20)
+xs = __gc_list_int_push(xs, 30)
+__gc_list_int_println(xs)
+xs = __gc_list_int_push(xs, 40)
+xs = __gc_list_int_push(xs, 50)
+__gc_list_int_println(xs)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(
+        build.status.success(),
+        "gc list-push build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "[]\n()\n[10]\n[10, 20, 30]\n[10, 20, 30, 40, 50]\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_list_int_push_survives_collection() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-gc-push-survive-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-push-survive-{unique}"));
+    // Build a list of length 6 incrementally with a heap-pressure
+    // collection between pushes. Each iteration discards the previous
+    // list (the old one is unreachable once xs is reassigned), so the
+    // collector must reclaim only the dropped versions while keeping
+    // the freshly-pushed list intact.
+    fs::write(
+        &source_path,
+        r#"mutable xs = __gc_list_int(0)
+xs = __gc_list_int_push(xs, 1)
+foreach(i in [1, 2, 3, 4, 5, 6, 7]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+xs = __gc_list_int_push(xs, 2)
+xs = __gc_list_int_push(xs, 3)
+foreach(i in [1, 2, 3, 4, 5, 6, 7]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+xs = __gc_list_int_push(xs, 4)
+xs = __gc_list_int_push(xs, 5)
+xs = __gc_list_int_push(xs, 6)
+__gc_collect()
+__gc_list_int_println(xs)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(
+        build.status.success(),
+        "gc list-push (survive) build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "[1, 2, 3, 4, 5, 6]\n");
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_string_substring_in_bounds() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
