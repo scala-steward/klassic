@@ -2922,8 +2922,7 @@ impl TypeChecker {
                 Type::Function(actual_params, actual_result),
             ) if expected_params.len() == actual_params.len() => {
                 let mut params = Vec::with_capacity(expected_params.len());
-                for (expected, actual) in expected_params.into_iter().zip(actual_params)
-                {
+                for (expected, actual) in expected_params.into_iter().zip(actual_params) {
                     params.push(self.match_generic_annotation(
                         expected,
                         actual,
