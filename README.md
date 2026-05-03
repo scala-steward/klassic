@@ -3,6 +3,9 @@
 Klassic is a statically typed object-functional programming language written in
 Rust. The implementation builds a native `klassic` executable with Cargo.
 
+📖 **User documentation:** [The Klassic Book](https://klassic.github.io/klassic/)
+(or build it locally — see [`docs/book/`](docs/book/)).
+
 ## Features
 
 - Hindley-Milner style type inference with annotations and generalized schemes
@@ -14,7 +17,7 @@ Rust. The implementation builds a native `klassic` executable with Cargo.
 - List, map, and set literals with comma, space, or newline separators
 - Pure Rust file, directory, string, list, map, set, time, and thread helpers
 - Native CLI and REPL
-- Precise mark-and-sweep garbage collector with multi-segment heap growth, exposed through 41 `__gc_*` debug builtins
+- Precise mark-and-sweep garbage collector with multi-segment heap growth, exposed through 65+ `__gc_*` debug builtins
 - Standalone Rust macro PEG subsystem
 
 ## Build And Test
@@ -295,7 +298,8 @@ This compiles normally, warns under `--warn-trust`, and fails under
 - `crates/klassic-macro-peg`: Rust macro PEG implementation
 - `tests/`: Rust integration tests and `.kl` golden harnesses
 - `test-programs/`: sample Klassic programs used by the test harness
-- `docs/`: architecture, implementation, and spec notes
+- `docs/`: architecture and native-coverage notes
+- `docs/book/`: mdBook source for [The Klassic Book](https://klassic.github.io/klassic/)
 
 ## Development
 

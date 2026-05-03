@@ -25,3 +25,6 @@ dist
 .sbtglobal/
 .metals/
 .vscode/
+
+# mdBook output
+docs/book/book/

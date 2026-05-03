@@ -1,0 +1,19 @@
+[book]
+title = "The Klassic Book"
+authors = ["Klassic contributors"]
+description = "Statically typed object-functional programming language with a Rust workspace toolchain and a Linux x86_64 native compiler with garbage collection."
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/klassic/klassic"
+edit-url-template = "https://github.com/klassic/klassic/edit/main/docs/book/{path}"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+no-section-label = false
+mathjax-support = false
+fold = { enable = true, level = 1 }
+
+[output.html.playground]
+runnable = false

@@ -1,0 +1,27 @@
+# Native Compiler Coverage
+
+The native compiler lowers a growing slice of the language to ELF.
+The exhaustive feature matrix lives in
+[`docs/native-coverage.md`](https://github.com/klassic/klassic/blob/main/docs/native-coverage.md)
+in the source tree — broken down by section (core surface, function
+calls, static folding, strings, records, runtime lists, file I/O,
+process / environment / streams).
+
+Anything not yet supported fails at build time with a source-located
+diagnostic; there is no silent fallback to the evaluator.
+
+## Highlights
+
+- Core integer / boolean / string / list expressions, control flow,
+  recursive `def`s.
+- Static folding for pure expressions, with mutable side effects
+  preserved when a value can still be recovered statically.
+- Fixed-buffer runtime strings, line lists, runtime lists, and
+  runtime records.
+- Static maps and sets, plus runtime-key lookups that copy entries
+  into runtime storage without losing the selected length.
+- Linux file / directory / process / environment / stdin / argv
+  builtins via direct syscalls.
+- Source-located stderr diagnostics for runtime failures (`assert`,
+  `assertResult`, `head([])`, negative `sleep`, FileOutput / Dir
+  errors).
