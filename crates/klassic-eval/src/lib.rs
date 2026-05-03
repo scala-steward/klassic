@@ -2098,6 +2098,30 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 2, span)?;
             Ok(Value::Int(1))
         }
+        "__gc_string_lines" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_replace" => {
+            ensure_arity(name, arguments, 3, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_trim" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_to_lower" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_to_upper" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_list_int_to_string" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)

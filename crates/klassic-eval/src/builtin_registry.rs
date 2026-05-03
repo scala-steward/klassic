@@ -126,6 +126,12 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_list_int_min" => Some("__gc_list_int_min"),
         "__gc_list_int_max" => Some("__gc_list_int_max"),
         "__gc_string_split" => Some("__gc_string_split"),
+        "__gc_string_lines" => Some("__gc_string_lines"),
+        "__gc_string_replace" => Some("__gc_string_replace"),
+        "__gc_string_trim" => Some("__gc_string_trim"),
+        "__gc_string_to_lower" => Some("__gc_string_to_lower"),
+        "__gc_string_to_upper" => Some("__gc_string_to_upper"),
+        "__gc_list_int_to_string" => Some("__gc_list_int_to_string"),
         "__gc_collect" => Some("__gc_collect"),
         "__gc_pin" => Some("__gc_pin"),
         "__gc_unpin" => Some("__gc_unpin"),
@@ -170,6 +176,10 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_string_len"
         | "__gc_string_alloc"
         | "__gc_string_to_int"
+        | "__gc_string_lines"
+        | "__gc_string_trim"
+        | "__gc_string_to_lower"
+        | "__gc_string_to_upper"
         | "__gc_int_to_string"
         | "__gc_pointer_count"
         | "__gc_list_int"
@@ -196,6 +206,7 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_string_split"
         | "__gc_list_int_get"
         | "__gc_list_int_push"
+        | "__gc_list_int_to_string"
         | "__gc_list_concat"
         | "__gc_list_ptr_get"
         | "__gc_list_ptr_push"
@@ -207,7 +218,8 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_list_int_set"
         | "__gc_list_ptr_set"
         | "__gc_string_set_byte"
-        | "__gc_string_substring" => Some(3),
+        | "__gc_string_substring"
+        | "__gc_string_replace" => Some(3),
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
         "substring" | "replace" | "replaceAll" | "foldLeft" => Some(3),
