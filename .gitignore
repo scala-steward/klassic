@@ -28,3 +28,9 @@ dist
 
 # mdBook output
 docs/book/book/
+
+# Stray native build outputs from local experiments
+/hello
+/hello.kl
+/examples/tc
+

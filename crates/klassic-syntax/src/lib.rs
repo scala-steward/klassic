@@ -899,7 +899,13 @@ impl Parser {
     fn parse_record_declaration(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.bump().span;
         let (name, name_span) = self.expect_identifier()?;
-        let type_params = self.parse_optional_generic_param_names()?;
+        let (type_params, inline_constraints) = self.parse_optional_generic_param_names()?;
+        if let Some(c) = inline_constraints.first() {
+            return Err(Diagnostic::parse(
+                c.span,
+                "record declarations do not accept inline type-class constraints",
+            ));
+        }
         match self.peek().kind {
             TokenKind::LBrace => {
                 self.bump();
@@ -1011,7 +1017,13 @@ impl Parser {
     fn parse_typeclass_declaration(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.bump().span;
         let (name, name_span) = self.expect_identifier()?;
-        let type_params = self.parse_optional_generic_param_names()?;
+        let (type_params, inline_constraints) = self.parse_optional_generic_param_names()?;
+        if let Some(c) = inline_constraints.first() {
+            return Err(Diagnostic::parse(
+                c.span,
+                "typeclass declarations do not accept inline type-class constraints",
+            ));
+        }
         match self.peek().kind {
             TokenKind::Where => {
                 self.bump();
@@ -1384,11 +1396,16 @@ impl Parser {
     fn parse_function_declaration(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.bump().span;
         let (name, name_span) = self.expect_identifier()?;
-        let type_params = self.parse_optional_generic_param_names()?;
+        let (type_params, inline_constraints) = self.parse_optional_generic_param_names()?;
         let (params, param_annotations) = self.parse_parameter_list()?;
         let return_annotation =
             self.parse_optional_type_annotation(&[TokenMarker::Assign, TokenMarker::Where])?;
-        let constraints = self.parse_optional_constraints()?;
+        let mut constraints = self.parse_optional_constraints()?;
+        // Merge inline `<Show 'a>` constraints with any explicit
+        // `where Show<'a>` constraints — they live in the same list.
+        for c in inline_constraints {
+            constraints.push(c);
+        }
         self.expect_assign()?;
         let body = self.parse_expression()?;
         Ok(Expr::DefDecl {
@@ -2553,21 +2570,58 @@ impl Parser {
         Ok((name, span))
     }
 
-    fn parse_optional_generic_param_names(&mut self) -> Result<Vec<String>, Diagnostic> {
+    /// Parse `<...>` after a `def` / `typeclass` / `instance` / `record`
+    /// header. Accepts plain type-variable names (`'a`) and the inline
+    /// constraint shorthand `ClassName 'a`, which lowers to declaring
+    /// `'a` as a parameter and adding a `ClassName<'a>` constraint.
+    fn parse_optional_generic_param_names(
+        &mut self,
+    ) -> Result<(Vec<String>, Vec<TypeClassConstraint>), Diagnostic> {
         if !matches!(self.peek().kind, TokenKind::Less) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         self.bump();
-        let mut params = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+        let mut constraints: Vec<TypeClassConstraint> = Vec::new();
         loop {
             match self.peek().kind {
                 TokenKind::Identifier(_) => {
-                    let (name, _) = self.expect_identifier()?;
-                    params.push(name);
+                    let (first_name, first_span) = self.expect_identifier()?;
+                    // Detect `ClassName 'var` shorthand: the first
+                    // identifier does not start with `'` and the next
+                    // token is another identifier that does. The first
+                    // is the constraint class, the second is the type
+                    // variable that picks it up.
+                    let inline_constraint = if !first_name.starts_with('\'') {
+                        if let TokenKind::Identifier(ref next) = self.peek().kind {
+                            next.starts_with('\'')
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                    if inline_constraint {
+                        let (var_name, var_span) = self.expect_identifier()?;
+                        if !params.contains(&var_name) {
+                            params.push(var_name.clone());
+                        }
+                        let argument = TypeAnnotation {
+                            text: var_name,
+                            span: var_span,
+                        };
+                        constraints.push(TypeClassConstraint {
+                            class_name: first_name,
+                            arguments: vec![argument],
+                            span: first_span.merge(var_span),
+                        });
+                    } else {
+                        params.push(first_name);
+                    }
                 }
                 TokenKind::Greater => {
                     self.bump();
-                    return Ok(params);
+                    return Ok((params, constraints));
                 }
                 TokenKind::Eof => {
                     return Err(Diagnostic::parse(
@@ -2619,7 +2673,7 @@ impl Parser {
                 }
                 TokenKind::Greater => {
                     self.bump();
-                    return Ok(params);
+                    return Ok((params, constraints));
                 }
                 TokenKind::Eof => {
                     return Err(Diagnostic::parse(
@@ -3816,6 +3870,89 @@ mod tests {
                     assert_eq!(constraints[0].class_name, "Show");
                     assert_eq!(constraints[0].arguments.len(), 1);
                     assert_eq!(constraints[0].arguments[0].text, "'a");
+                }
+                other => panic!("unexpected def declaration: {other:?}"),
+            },
+            other => panic!("unexpected program: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_inline_constraint_shorthand() {
+        // `<Show 'a>` is sugar for `<'a> where Show<'a>`.
+        let program = parse_source(&SourceFile::new(
+            "test.kl",
+            "typeclass Show<'a> where {\n  show: ('a) => String\n}\ndef display<Show 'a>(x: 'a): String = show(x)",
+        ))
+        .expect("inline-constraint function should parse");
+        match program {
+            Expr::Block { expressions, .. } => match &expressions[1] {
+                Expr::DefDecl {
+                    type_params,
+                    constraints,
+                    ..
+                } => {
+                    assert_eq!(type_params, &vec!["'a".to_string()]);
+                    assert_eq!(constraints.len(), 1);
+                    assert_eq!(constraints[0].class_name, "Show");
+                    assert_eq!(constraints[0].arguments.len(), 1);
+                    assert_eq!(constraints[0].arguments[0].text, "'a");
+                }
+                other => panic!("unexpected def declaration: {other:?}"),
+            },
+            other => panic!("unexpected program: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_inline_constraint_shorthand_multiple() {
+        // Two constraints on the same type variable, plus another
+        // type variable carrying its own constraint.
+        let program = parse_source(&SourceFile::new(
+            "test.kl",
+            "typeclass Show<'a> where {\n  show: ('a) => String\n}\ntypeclass Eq<'a> where {\n  equals: ('a, 'a) => Boolean\n}\ndef both<Show 'a, Eq 'a, Show 'b>(x: 'a, y: 'a, z: 'b): String = show(x)",
+        ))
+        .expect("multi-constraint function should parse");
+        match program {
+            Expr::Block { expressions, .. } => match &expressions[2] {
+                Expr::DefDecl {
+                    type_params,
+                    constraints,
+                    ..
+                } => {
+                    // 'a appears twice in the source but is only added
+                    // to type_params once; 'b is a separate parameter.
+                    assert_eq!(type_params, &vec!["'a".to_string(), "'b".to_string()]);
+                    assert_eq!(constraints.len(), 3);
+                    assert_eq!(constraints[0].class_name, "Show");
+                    assert_eq!(constraints[0].arguments[0].text, "'a");
+                    assert_eq!(constraints[1].class_name, "Eq");
+                    assert_eq!(constraints[1].arguments[0].text, "'a");
+                    assert_eq!(constraints[2].class_name, "Show");
+                    assert_eq!(constraints[2].arguments[0].text, "'b");
+                }
+                other => panic!("unexpected def declaration: {other:?}"),
+            },
+            other => panic!("unexpected program: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inline_and_where_constraints_compose() {
+        // `<Show 'a>` plus an explicit `where Eq<'a>` clause.
+        let program = parse_source(&SourceFile::new(
+            "test.kl",
+            "typeclass Show<'a> where {\n  show: ('a) => String\n}\ntypeclass Eq<'a> where {\n  equals: ('a, 'a) => Boolean\n}\ndef both<Show 'a>(x: 'a, y: 'a): String where Eq<'a> = show(x)",
+        ))
+        .expect("mixed inline+where function should parse");
+        match program {
+            Expr::Block { expressions, .. } => match &expressions[2] {
+                Expr::DefDecl { constraints, .. } => {
+                    assert_eq!(constraints.len(), 2);
+                    // `where` clauses are parsed first, inline ones
+                    // appended after.
+                    assert_eq!(constraints[0].class_name, "Eq");
+                    assert_eq!(constraints[1].class_name, "Show");
                 }
                 other => panic!("unexpected def declaration: {other:?}"),
             },

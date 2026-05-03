@@ -28,17 +28,50 @@ instance Show<Bool> where {
 
 ## Constrained polymorphism
 
-Functions can require a class constraint with `where`:
+Functions can require a class constraint two ways. Both compile to
+the same thing.
+
+### Inline shorthand (preferred when single-class)
+
+```kl
+def display<Show 'a>(x: 'a): String = show(x)
+```
+
+`<Show 'a>` declares the type variable `'a` and adds a `Show<'a>`
+constraint in one go. Multiple constraints stack naturally:
+
+```kl
+def show_equal<Show 'a, Eq 'a>(x: 'a, y: 'a): String =
+  if (equals(x, y)) show(x) + " equals " + show(y)
+  else show(x) + " not equals " + show(y)
+```
+
+Different type variables can carry their own constraints:
+
+```kl
+def pair<Show 'a, Show 'b>(x: 'a, y: 'b): String =
+  show(x) + " / " + show(y)
+```
+
+### Explicit `where` clause
+
+The longer form is still accepted (and required for multi-argument
+class constraints):
 
 ```kl
 def display<'a>(x: 'a): String where Show<'a> = show(x)
-
-println(display(42))      // Int: 42
-println(display(true))    // yes
 ```
 
-When the type checker sees `display(42)`, it picks `Show<Int>` from the
-available instances and inlines the right `show` implementation.
+Both forms compose — you can mix inline shorthand with extra `where`
+constraints if that reads better:
+
+```kl
+def both<Show 'a>(x: 'a, y: 'a): String where Eq<'a> =
+  if (equals(x, y)) show(x) else show(y)
+```
+
+When the type checker sees `display(42)`, it picks `Show<Int>` from
+the available instances and inlines the right `show` implementation.
 
 ## Higher-kinded constraints
 
