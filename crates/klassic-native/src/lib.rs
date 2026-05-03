@@ -2821,6 +2821,7 @@ impl NativeCodeGenerator {
             "__gc_list_ptr_len" => self.compile_gc_list_ptr_len(arguments, span),
             "__gc_list_ptr_set" => self.compile_gc_list_ptr_set(arguments, span),
             "__gc_list_ptr_get" => self.compile_gc_list_ptr_get(arguments, span),
+            "__gc_list_ptr_push" => self.compile_gc_list_ptr_push(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3543,6 +3544,7 @@ impl NativeCodeGenerator {
             "__gc_list_ptr_len" => self.compile_gc_list_ptr_len(arguments, span).map(Some),
             "__gc_list_ptr_set" => self.compile_gc_list_ptr_set(arguments, span).map(Some),
             "__gc_list_ptr_get" => self.compile_gc_list_ptr_get(arguments, span).map(Some),
+            "__gc_list_ptr_push" => self.compile_gc_list_ptr_push(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -8765,6 +8767,84 @@ impl NativeCodeGenerator {
         self.asm.shl_reg_imm8(Reg::Rax, 3);
         self.asm.add_reg_reg(Reg::R10, Reg::Rax);
         self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 8);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_ptr_push(lst, ptr)` allocates a fresh tag-4 list with
+    /// `ptr` appended after the existing slots. Both inputs are spilled
+    /// into shadow-stack-tracked HeapPointer slots so the destination
+    /// allocation cannot reclaim either of them mid-copy. Returns the
+    /// new list; the original is left intact and becomes reclaimable
+    /// once the caller reassigns its slot.
+    fn compile_gc_list_ptr_push(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_push expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_push for non-address list argument",
+            ));
+        }
+        let lst_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(lst_slot.offset, Reg::Rax);
+
+        let ptr = self.compile_expr(&arguments[1])?;
+        if !matches!(ptr, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_push for non-address value argument",
+            ));
+        }
+        let ptr_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(ptr_slot.offset, Reg::Rax);
+
+        // payload_size = 8 + (old_len + 1) * 8
+        self.asm.load_rbp_slot(Reg::R10, lst_slot.offset);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::Rax, 1);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        // Reload old_len, store new_len = old_len + 1.
+        self.asm.load_rbp_slot(Reg::R10, lst_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+
+        // Copy old slots: rsi = lst+8, rdi = new+8, rcx = old_len*8.
+        self.asm.load_rbp_slot(Reg::Rsi, lst_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.rep_movsb();
+
+        // rdi now points just past the copied slots — append ptr there.
+        self.asm.load_rbp_slot(Reg::Rax, ptr_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rdi, 0, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
         Ok(NativeValue::HeapPointer)
     }
 

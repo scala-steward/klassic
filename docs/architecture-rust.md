@@ -591,7 +591,7 @@ cargo run -- -e "1 + 2"
   comparisons, and printing now all treat `HeapPointer` like `Int`
   so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
 
-  Thirty debug builtins drive the GC end-to-end:
+  Thirty-one debug builtins drive the GC end-to-end:
   `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
   (type tag 2, packed heap pointers, fixed shape); `__gc_array(num_slots)`
   (type tag 3, packed heap pointers, indexed); `__gc_string("text")`
@@ -618,7 +618,11 @@ cargo run -- -e "1 + 2"
   length qword); `__gc_list_ptr_len(lst)` /
   `__gc_list_ptr_set(lst, idx, ptr)` /
   `__gc_list_ptr_get(lst, idx)` (length and indexed pointer access
-  for the new list);
+  for the new list); `__gc_list_ptr_push(lst, ptr)` (returns a
+  fresh tag-4 list with `ptr` appended, spilling both inputs into
+  shadow-stack slots so neither the source list nor an inline
+  `__gc_alloc(...)` argument is reclaimed by the destination's
+  own allocation);
   `__gc_list_int(n)` (a heap-backed integer list of length `n`,
   zero-initialized via a runtime fill loop so a free-list reuse
   cannot surface stale bytes); `__gc_list_int_set(lst, idx, value)`
@@ -644,7 +648,7 @@ cargo run -- -e "1 + 2"
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Twenty-two integration tests cover the lifecycle: reclamation when
+  Twenty-four integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -687,7 +691,12 @@ cargo run -- -e "1 + 2"
   that all funnel into the same diagnostic and exit code, and a
   pair of `__gc_list_int_push` tests that build a five-element
   list incrementally and confirm it survives interleaved
-  heap-pressure collections that drop every previous version.
+  heap-pressure collections that drop every previous version,
+  and a pair of `__gc_list_ptr_push` tests covering the same
+  incremental-grow scenario for tag-4 pointer lists — the second
+  test appends inline `__gc_alloc(...)` results never bound to a
+  `val`, so the only reason the children survive a heap-pressure
+  collection is the list's mark-phase trace through its slots.
   The next phase of integration is wiring the existing
   structural string / list / record builtins onto the heap so
   any source program participates in GC without going through
