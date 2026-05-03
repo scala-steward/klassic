@@ -1904,6 +1904,11 @@ impl TypeChecker {
             Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Bool)),
         );
         self.declare_poly(
+            "__gc_string_substring".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
             "__gc_pointer_count".to_string(),
             false,
             Type::Function(vec![Type::Int], Box::new(Type::Int)),

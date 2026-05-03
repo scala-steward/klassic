@@ -1987,6 +1987,10 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 2, span)?;
             Ok(Value::Bool(true))
         }
+        "__gc_string_substring" => {
+            ensure_arity(name, arguments, 3, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_pointer_count" => {
             ensure_arity(name, arguments, 1, span)?;
             Ok(Value::Int(0))

@@ -2808,6 +2808,7 @@ impl NativeCodeGenerator {
             "__gc_string_get_byte" => self.compile_gc_string_get_byte(arguments, span),
             "__gc_string_set_byte" => self.compile_gc_string_set_byte(arguments, span),
             "__gc_string_eq" => self.compile_gc_string_eq(arguments, span),
+            "__gc_string_substring" => self.compile_gc_string_substring(arguments, span),
             "__gc_pointer_count" => self.compile_gc_pointer_count(arguments, span),
             "__gc_segment_count" => self.compile_gc_segment_count(arguments, span),
             "__gc_collect_count" => self.compile_gc_collect_count(arguments, span),
@@ -3528,6 +3529,7 @@ impl NativeCodeGenerator {
             "__gc_string_get_byte" => self.compile_gc_string_get_byte(arguments, span).map(Some),
             "__gc_string_set_byte" => self.compile_gc_string_set_byte(arguments, span).map(Some),
             "__gc_string_eq" => self.compile_gc_string_eq(arguments, span).map(Some),
+            "__gc_string_substring" => self.compile_gc_string_substring(arguments, span).map(Some),
             "__gc_pointer_count" => self.compile_gc_pointer_count(arguments, span).map(Some),
             "__gc_segment_count" => self.compile_gc_segment_count(arguments, span).map(Some),
             "__gc_collect_count" => self.compile_gc_collect_count(arguments, span).map(Some),
@@ -8252,6 +8254,105 @@ impl NativeCodeGenerator {
         self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
         self.asm.mov_byte_ptr_reg8(Reg::R10, Reg8::Al);
         Ok(NativeValue::Unit)
+    }
+
+    /// `__gc_string_substring(s, start, end)` allocates a fresh heap
+    /// string holding bytes `[start, end)` of `s`. The source is spilled
+    /// into a shadow-stack-tracked slot before allocating the
+    /// destination so a collection inside `gc_alloc` cannot reclaim it
+    /// mid-copy. Three bounds checks (start >= 0, end <= len,
+    /// start <= end) jump to the shared `gc_bounds_error` subroutine on
+    /// failure.
+    fn compile_gc_string_substring(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 3 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_substring expects 3 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+
+        let s = self.compile_expr(&arguments[0])?;
+        if !matches!(s, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_substring for non-address source",
+            ));
+        }
+        let s_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(s_slot.offset, Reg::Rax);
+
+        let start = self.compile_expr(&arguments[1])?;
+        if start != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_substring for non-Int start argument",
+            ));
+        }
+        let start_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        self.asm.store_rbp_slot(start_slot.offset, Reg::Rax);
+
+        let end = self.compile_expr(&arguments[2])?;
+        if end != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_substring for non-Int end argument",
+            ));
+        }
+        let end_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        self.asm.store_rbp_slot(end_slot.offset, Reg::Rax);
+
+        // Validate the index window before any allocation. Three checks:
+        //   start >= 0, end <= len, start <= end.
+        self.asm.load_rbp_slot(Reg::R10, start_slot.offset);
+        self.asm.load_rbp_slot(Reg::R11, end_slot.offset);
+        self.asm.load_rbp_slot(Reg::R8, s_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R8, 0);
+        self.asm.cmp_reg_imm8(Reg::R10, 0);
+        self.asm.jcc_label(Condition::Less, self.gc_bounds_error);
+        self.asm.cmp_reg_reg(Reg::R11, Reg::R9);
+        self.asm.jcc_label(Condition::Greater, self.gc_bounds_error);
+        self.asm.cmp_reg_reg(Reg::R10, Reg::R11);
+        self.asm.jcc_label(Condition::Greater, self.gc_bounds_error);
+
+        // count = end - start; payload_size = 8 + align_up(count, 8)
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.sub_reg_reg(Reg::Rcx, Reg::R10);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rcx);
+        self.asm.add_reg_imm32(Reg::Rdi, 8 + 7);
+        self.asm.and_reg_imm32(Reg::Rdi, -8);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+
+        // Spill the new pointer for safety.
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        // Reload start / end, recompute count, write length.
+        self.asm.load_rbp_slot(Reg::R10, start_slot.offset);
+        self.asm.load_rbp_slot(Reg::R11, end_slot.offset);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.sub_reg_reg(Reg::Rcx, Reg::R10);
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+
+        // Copy bytes via rep movsb. rsi = s + 8 + start, rdi = new + 8.
+        self.asm.load_rbp_slot(Reg::Rsi, s_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.add_reg_reg(Reg::Rsi, Reg::R10);
+        self.asm.load_rbp_slot(Reg::Rdi, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.rep_movsb();
+
+        // Return value in rax.
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
     }
 
     /// `__gc_string_eq(a, b)` returns 1 iff the two heap strings carry

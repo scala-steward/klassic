@@ -591,7 +591,7 @@ cargo run -- -e "1 + 2"
   comparisons, and printing now all treat `HeapPointer` like `Int`
   so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
 
-  Twenty-seven debug builtins drive the GC end-to-end:
+  Twenty-nine debug builtins drive the GC end-to-end:
   `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
   (type tag 2, packed heap pointers, fixed shape); `__gc_array(num_slots)`
   (type tag 3, packed heap pointers, indexed); `__gc_string("text")`
@@ -605,6 +605,9 @@ cargo run -- -e "1 + 2"
   byte-by-byte construction); `__gc_string_get_byte(s, idx)` /
   `__gc_string_set_byte(s, idx, byte)` (single-byte access);
   `__gc_string_eq(a, b)` (length-then-`repe cmpsb` byte equality);
+  `__gc_string_substring(s, start, end)` (allocates a fresh heap
+  string holding bytes `[start, end)` with three bounds checks
+  before the destination allocation runs);
   `__gc_pointer_count(addr)` (derives the slot count of a record or
   array from the GC header — note that the count reflects the
   16-byte-aligned actual allocation, not the user-requested fields);
@@ -637,7 +640,7 @@ cargo run -- -e "1 + 2"
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Fourteen integration tests cover the lifecycle: reclamation when
+  Twenty integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -668,11 +671,16 @@ cargo run -- -e "1 + 2"
   references, pins only the list, and forces a heap-pressure
   collection — every child must still be reachable through the
   list's slots, proving the new tag-4 trace branch correctly
-  skips the leading length and walks the rest as pointers, and
+  skips the leading length and walks the rest as pointers,
   two bounds-check tests (one for a negative index, one for
   index >= length) that confirm the shared `gc_bounds_error`
   subroutine prints `klassic gc: index out of bounds` and exits
-  with status 1 instead of writing past the payload.
+  with status 1 instead of writing past the payload, and a
+  five-test `__gc_string_substring` matrix covering the in-
+  bounds happy path (mid / full / empty windows), survival
+  across an intervening heap-pressure collection, and the three
+  failure modes (negative start, end past length, start > end)
+  that all funnel into the same diagnostic and exit code.
   The next phase of integration is wiring the existing
   structural string / list / record builtins onto the heap so
   any source program participates in GC without going through

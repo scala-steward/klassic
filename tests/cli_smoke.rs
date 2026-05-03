@@ -4462,6 +4462,249 @@ println(__gc_segment_count())
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_string_substring_in_bounds() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-ok-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-ok-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val s = __gc_string("klassic")
+val mid = __gc_string_substring(s, 1, 5)
+__gc_string_println(mid)
+println(__gc_string_len(mid))
+val whole = __gc_string_substring(s, 0, 7)
+__gc_string_println(whole)
+val empty = __gc_string_substring(s, 3, 3)
+println(__gc_string_len(empty))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(
+        build.status.success(),
+        "gc substring build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "lass\n4\nklassic\n0\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_string_substring_survives_collection() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path =
+        std::env::temp_dir().join(format!("klassic-native-gc-sub-survive-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-survive-{unique}"));
+    // The destination allocation can trigger a collection; the source
+    // string must survive because it is bound to an auto-rooted slot.
+    fs::write(
+        &source_path,
+        r#"val s = __gc_string("the quick brown fox jumps over the lazy dog")
+val piece = __gc_string_substring(s, 16, 19)
+foreach(i in [1, 2, 3, 4, 5, 6, 7, 8]) {
+  __gc_alloc(150000)
+}
+__gc_collect()
+__gc_string_println(piece)
+__gc_string_println(s)
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(
+        build.status.success(),
+        "gc substring (survive) build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "fox\nthe quick brown fox jumps over the lazy dog\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_string_substring_negative_start() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-neg-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-neg-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val s = __gc_string("klassic")
+__gc_string_substring(s, -1, 3)
+println("not reached")
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(build.status.success());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert_eq!(run.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "klassic gc: index out of bounds\n"
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_string_substring_end_past_length() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-past-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-past-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val s = __gc_string("klassic")
+__gc_string_substring(s, 0, 8)
+println("not reached")
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(build.status.success());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert_eq!(run.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "klassic gc: index out of bounds\n"
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn builds_native_executable_for_gc_string_substring_start_after_end() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-bad-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-sub-bad-{unique}"));
+    fs::write(
+        &source_path,
+        r#"val s = __gc_string("klassic")
+__gc_string_substring(s, 5, 2)
+println("not reached")
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(build.status.success());
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert_eq!(run.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "klassic gc: index out of bounds\n"
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_collect_counter() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

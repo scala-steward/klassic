@@ -94,6 +94,7 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_string_get_byte" => Some("__gc_string_get_byte"),
         "__gc_string_set_byte" => Some("__gc_string_set_byte"),
         "__gc_string_eq" => Some("__gc_string_eq"),
+        "__gc_string_substring" => Some("__gc_string_substring"),
         "__gc_pointer_count" => Some("__gc_pointer_count"),
         "__gc_segment_count" => Some("__gc_segment_count"),
         "__gc_collect_count" => Some("__gc_collect_count"),
@@ -162,9 +163,11 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_list_ptr_get"
         | "__gc_string_get_byte"
         | "__gc_string_eq" => Some(2),
-        "__gc_write" | "__gc_list_int_set" | "__gc_list_ptr_set" | "__gc_string_set_byte" => {
-            Some(3)
-        }
+        "__gc_write"
+        | "__gc_list_int_set"
+        | "__gc_list_ptr_set"
+        | "__gc_string_set_byte"
+        | "__gc_string_substring" => Some(3),
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
         "substring" | "replace" | "replaceAll" | "foldLeft" => Some(3),
