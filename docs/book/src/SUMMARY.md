@@ -5,7 +5,7 @@
 # Getting Started
 
 - [Installing Klassic](./getting-started/install.md)
-- [Hello World](./getting-started/hello-world.md)
+- [Hello, World](./getting-started/hello-world.md)
 - [The REPL](./getting-started/repl.md)
 
 # Language Tour
@@ -20,6 +20,16 @@
 - [Type Classes](./tour/type-classes.md)
 - [Cleanup Blocks](./tour/cleanup.md)
 - [Trust Surface](./tour/trust.md)
+
+# Cookbook
+
+- [Recipes Overview](./cookbook/index.md)
+  - [Hello, World variations](./cookbook/hello.md)
+  - [Greeter with arguments](./cookbook/greeter.md)
+  - [Uppercase filter](./cookbook/uppercase-filter.md)
+  - [Word count](./cookbook/word-count.md)
+  - [Config from environment](./cookbook/config-env.md)
+  - [Tiny calculator](./cookbook/calculator.md)
 
 # Native Compilation
 

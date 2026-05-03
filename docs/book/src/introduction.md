@@ -40,16 +40,18 @@ foreach (entry in ages) {
 
 ## How this book is organized
 
-- **Getting Started** walks through installation, the first `hello.kl`,
-  and the REPL.
-- **Language Tour** introduces every syntactic surface, one feature per
-  chapter.
-- **Native Compilation** covers the workflow for producing standalone
-  Linux executables, including file I/O, environment, and threads.
-- **The GC Heap** is the deepest chapter — it explains why the runtime
-  has its own collector, how to use heap-backed strings / lists / maps,
-  and references every `__gc_*` debug builtin.
-- **Reference** collects the comprehensive native compiler coverage and
+- 🚀 **Getting Started** — install, run your first `hello.kl`, and
+  meet the REPL.
+- 🧭 **Language Tour** — one chapter per syntactic surface (variables,
+  functions, records, type classes, …).
+- 🍳 **Cookbook** — six runnable recipes that solve real scripting
+  tasks (filter, word count, calculator, …).
+- ⚙️ **Native Compilation** — the workflow for producing standalone
+  Linux ELF executables.
+- 🧠 **The GC Heap** — why the runtime has its own collector, how to
+  use heap-backed strings / lists / maps, and a reference for every
+  `__gc_*` debug builtin.
+- 📚 **Reference** — the comprehensive native compiler coverage and
   architecture overview.
 
 ## Status
