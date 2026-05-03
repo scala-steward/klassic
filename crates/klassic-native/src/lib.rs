@@ -2832,6 +2832,14 @@ impl NativeCodeGenerator {
             "__gc_list_ptr_set" => self.compile_gc_list_ptr_set(arguments, span),
             "__gc_list_ptr_get" => self.compile_gc_list_ptr_get(arguments, span),
             "__gc_list_ptr_push" => self.compile_gc_list_ptr_push(arguments, span),
+            "__gc_list_ptr_pop" => self.compile_gc_list_ptr_pop(arguments, span),
+            "__gc_list_ptr_concat" => self.compile_gc_list_ptr_concat(arguments, span),
+            "__gc_list_ptr_reverse" => self.compile_gc_list_ptr_reverse(arguments, span),
+            "__gc_list_ptr_join" => self.compile_gc_list_ptr_join(arguments, span),
+            "__gc_list_int_sum" => self.compile_gc_list_int_sum(arguments, span),
+            "__gc_list_int_min" => self.compile_gc_list_int_min(arguments, span),
+            "__gc_list_int_max" => self.compile_gc_list_int_max(arguments, span),
+            "__gc_string_split" => self.compile_gc_string_split(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3567,6 +3575,14 @@ impl NativeCodeGenerator {
             "__gc_list_ptr_set" => self.compile_gc_list_ptr_set(arguments, span).map(Some),
             "__gc_list_ptr_get" => self.compile_gc_list_ptr_get(arguments, span).map(Some),
             "__gc_list_ptr_push" => self.compile_gc_list_ptr_push(arguments, span).map(Some),
+            "__gc_list_ptr_pop" => self.compile_gc_list_ptr_pop(arguments, span).map(Some),
+            "__gc_list_ptr_concat" => self.compile_gc_list_ptr_concat(arguments, span).map(Some),
+            "__gc_list_ptr_reverse" => self.compile_gc_list_ptr_reverse(arguments, span).map(Some),
+            "__gc_list_ptr_join" => self.compile_gc_list_ptr_join(arguments, span).map(Some),
+            "__gc_list_int_sum" => self.compile_gc_list_int_sum(arguments, span).map(Some),
+            "__gc_list_int_min" => self.compile_gc_list_int_min(arguments, span).map(Some),
+            "__gc_list_int_max" => self.compile_gc_list_int_max(arguments, span).map(Some),
+            "__gc_string_split" => self.compile_gc_string_split(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -9690,6 +9706,696 @@ impl NativeCodeGenerator {
         // rdi now points just past the copied slots — append ptr there.
         self.asm.load_rbp_slot(Reg::Rax, ptr_slot.offset);
         self.asm.store_ptr_disp32(Reg::Rdi, 0, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_ptr_pop(lst)` returns a fresh tag-4 list with the
+    /// trailing pointer removed. Popping an empty list jumps to
+    /// `gc_bounds_error`.
+    fn compile_gc_list_ptr_pop(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_pop expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_pop for non-address argument",
+            ));
+        }
+        let lst_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(lst_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::R10, lst_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::R11, Reg::R11);
+        self.asm.jcc_label(Condition::Equal, self.gc_bounds_error);
+
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R11);
+        self.asm.sub_reg_imm8(Reg::Rax, 1);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::R10, lst_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+
+        self.asm.load_rbp_slot(Reg::Rsi, lst_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.rep_movsb();
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_ptr_concat(a, b)` returns a fresh tag-4 list whose
+    /// payload is `a` followed by `b`.
+    fn compile_gc_list_ptr_concat(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_concat expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let a = self.compile_expr(&arguments[0])?;
+        if !matches!(a, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_concat for non-address first argument",
+            ));
+        }
+        let a_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(a_slot.offset, Reg::Rax);
+
+        let b = self.compile_expr(&arguments[1])?;
+        if !matches!(b, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_concat for non-address second argument",
+            ));
+        }
+        let b_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(b_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::R10, a_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::R10, b_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R8);
+        self.asm.add_reg_reg(Reg::Rax, Reg::R9);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::R10, a_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::R10, b_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R10, 0);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.add_reg_reg(Reg::Rcx, Reg::R9);
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+
+        self.asm.load_rbp_slot(Reg::Rsi, a_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.rep_movsb();
+        self.asm.load_rbp_slot(Reg::Rsi, b_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R9);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.rep_movsb();
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_ptr_reverse(lst)` returns a fresh tag-4 list whose
+    /// pointer slots are the original payload in reverse order.
+    fn compile_gc_list_ptr_reverse(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_reverse expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_reverse for non-address argument",
+            ));
+        }
+        let lst_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(lst_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::R10, lst_slot.offset);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::R10, lst_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R8);
+
+        // Zero-init the destination payload (mark phase walks tag-4
+        // payloads, so any residual free-list garbage would mislead it).
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R8);
+        let zero_loop = self.asm.create_text_label();
+        let zero_done = self.asm.create_text_label();
+        self.asm.bind_text_label(zero_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, zero_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.jmp_label(zero_loop);
+        self.asm.bind_text_label(zero_done);
+
+        let i_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_rbp_slot(i_slot.offset, Reg::Rax);
+
+        let copy_loop = self.asm.create_text_label();
+        let copy_done = self.asm.create_text_label();
+        self.asm.bind_text_label(copy_loop);
+        self.asm.load_rbp_slot(Reg::Rcx, i_slot.offset);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R8);
+        self.asm.jcc_label(Condition::AboveOrEqual, copy_done);
+        self.asm.mov_reg_reg(Reg::R10, Reg::R8);
+        self.asm.sub_reg_imm8(Reg::R10, 1);
+        self.asm.sub_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.load_rbp_slot(Reg::R11, lst_slot.offset);
+        self.asm.add_reg_imm32(Reg::R11, 8);
+        self.asm.shl_reg_imm8(Reg::R10, 3);
+        self.asm.add_reg_reg(Reg::R11, Reg::R10);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R11, 0);
+        self.asm.load_rbp_slot(Reg::R11, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::R11, 8);
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R10, 3);
+        self.asm.add_reg_reg(Reg::R11, Reg::R10);
+        self.asm.store_ptr_disp32(Reg::R11, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.store_rbp_slot(i_slot.offset, Reg::Rcx);
+        self.asm.jmp_label(copy_loop);
+        self.asm.bind_text_label(copy_done);
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_int_sum(lst)` returns the sum of all elements
+    /// (0 for an empty list).
+    fn compile_gc_list_int_sum(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_int_sum expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_int_sum for non-address argument",
+            ));
+        }
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.mov_imm64(Reg::Rcx, 0);
+        let loop_start = self.asm.create_text_label();
+        let loop_done = self.asm.create_text_label();
+        self.asm.bind_text_label(loop_start);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, loop_done);
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R8, 3);
+        self.asm.mov_reg_reg(Reg::R9, Reg::R10);
+        self.asm.add_reg_reg(Reg::R9, Reg::R8);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R9, 0);
+        self.asm.add_reg_reg(Reg::Rax, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.jmp_label(loop_start);
+        self.asm.bind_text_label(loop_done);
+        Ok(NativeValue::Int)
+    }
+
+    fn compile_gc_list_int_min_or_max(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+        is_max: bool,
+    ) -> Result<NativeValue, Diagnostic> {
+        let label = if is_max {
+            "__gc_list_int_max"
+        } else {
+            "__gc_list_int_min"
+        };
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("{label} expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let lst = self.compile_expr(&arguments[0])?;
+        if !matches!(lst, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native list min/max for non-address argument",
+            ));
+        }
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.test_reg_reg(Reg::R11, Reg::R11);
+        self.asm.jcc_label(Condition::Equal, self.gc_bounds_error);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.mov_imm64(Reg::Rcx, 1);
+        let loop_start = self.asm.create_text_label();
+        let loop_done = self.asm.create_text_label();
+        let skip = self.asm.create_text_label();
+        self.asm.bind_text_label(loop_start);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, loop_done);
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R8, 3);
+        self.asm.mov_reg_reg(Reg::R9, Reg::R10);
+        self.asm.add_reg_reg(Reg::R9, Reg::R8);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R9, 0);
+        self.asm.cmp_reg_reg(Reg::Rdi, Reg::Rax);
+        if is_max {
+            self.asm.jcc_label(Condition::LessEqual, skip);
+        } else {
+            self.asm.jcc_label(Condition::GreaterEqual, skip);
+        }
+        self.asm.mov_reg_reg(Reg::Rax, Reg::Rdi);
+        self.asm.bind_text_label(skip);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.jmp_label(loop_start);
+        self.asm.bind_text_label(loop_done);
+        Ok(NativeValue::Int)
+    }
+
+    fn compile_gc_list_int_min(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.compile_gc_list_int_min_or_max(arguments, span, false)
+    }
+
+    fn compile_gc_list_int_max(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.compile_gc_list_int_min_or_max(arguments, span, true)
+    }
+
+    /// `__gc_string_split(s, sep_byte)` splits `s` on the low byte of
+    /// `sep_byte` into a tag-4 pointer list of fresh heap strings. The
+    /// resulting list always has separator-count + 1 entries (so an
+    /// empty leading or trailing segment maps to an empty heap string).
+    /// Long-lived state lives in shadow-stack slots so the per-segment
+    /// allocations cannot reclaim it.
+    fn compile_gc_string_split(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_string_split expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let s = self.compile_expr(&arguments[0])?;
+        if !matches!(s, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_string_split for non-address source",
+            ));
+        }
+        let s_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(s_slot.offset, Reg::Rax);
+
+        let sep = self.compile_expr(&arguments[1])?;
+        if sep != NativeValue::Int {
+            return Err(unsupported(
+                span,
+                "native __gc_string_split for non-Int separator",
+            ));
+        }
+        self.asm.and_reg_imm32(Reg::Rax, 0xff);
+        let sep_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        self.asm.store_rbp_slot(sep_slot.offset, Reg::Rax);
+
+        // Pre-allocate every long-lived slot up front so no early jump
+        // can skip a `sub rsp` emission and corrupt the runtime stack.
+        let list_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        let start_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let idx_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let end_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let seg_len_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let frag_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+
+        // Count separator occurrences in s to size the destination list.
+        self.asm.load_rbp_slot(Reg::R10, s_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::R9, sep_slot.offset);
+        self.asm.mov_imm64(Reg::Rcx, 0);
+        self.asm.mov_imm64(Reg::R8, 0);
+        let count_loop = self.asm.create_text_label();
+        let count_done = self.asm.create_text_label();
+        let count_skip = self.asm.create_text_label();
+        self.asm.bind_text_label(count_loop);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, count_done);
+        self.asm.movzx_byte_indexed(Reg::Rdi, Reg::R10, Reg::Rcx);
+        self.asm.cmp_reg_reg(Reg::Rdi, Reg::R9);
+        self.asm.jcc_label(Condition::NotEqual, count_skip);
+        self.asm.add_reg_imm32(Reg::R8, 1);
+        self.asm.bind_text_label(count_skip);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.jmp_label(count_loop);
+        self.asm.bind_text_label(count_done);
+
+        // Allocate destination list_ptr(count + 1).
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R8);
+        self.asm.add_reg_imm32(Reg::Rax, 1);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.store_rbp_slot(list_slot.offset, Reg::Rax);
+
+        // Recount separator occurrences (gc_alloc may have clobbered
+        // scratch regs) and stamp len + zero pointer slots so any GC
+        // during the segment loop sees a coherent list.
+        self.asm.load_rbp_slot(Reg::R10, s_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::R9, sep_slot.offset);
+        self.asm.mov_imm64(Reg::Rcx, 0);
+        self.asm.mov_imm64(Reg::R8, 0);
+        let recount_loop = self.asm.create_text_label();
+        let recount_done = self.asm.create_text_label();
+        let recount_skip = self.asm.create_text_label();
+        self.asm.bind_text_label(recount_loop);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, recount_done);
+        self.asm.movzx_byte_indexed(Reg::Rdi, Reg::R10, Reg::Rcx);
+        self.asm.cmp_reg_reg(Reg::Rdi, Reg::R9);
+        self.asm.jcc_label(Condition::NotEqual, recount_skip);
+        self.asm.add_reg_imm32(Reg::R8, 1);
+        self.asm.bind_text_label(recount_skip);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.jmp_label(recount_loop);
+        self.asm.bind_text_label(recount_done);
+
+        self.asm.add_reg_imm32(Reg::R8, 1);
+        self.asm.load_rbp_slot(Reg::Rax, list_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R8);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        let zero_loop = self.asm.create_text_label();
+        let zero_done = self.asm.create_text_label();
+        self.asm.bind_text_label(zero_loop);
+        self.asm.test_reg_reg(Reg::R8, Reg::R8);
+        self.asm.jcc_label(Condition::Equal, zero_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::R8, 1);
+        self.asm.jmp_label(zero_loop);
+        self.asm.bind_text_label(zero_done);
+
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_rbp_slot(start_slot.offset, Reg::Rax);
+        self.asm.store_rbp_slot(idx_slot.offset, Reg::Rax);
+
+        // Outer segment loop.
+        let outer = self.asm.create_text_label();
+        let outer_done = self.asm.create_text_label();
+        let scan_loop = self.asm.create_text_label();
+        let scan_found = self.asm.create_text_label();
+        self.asm.bind_text_label(outer);
+        self.asm.load_rbp_slot(Reg::R10, s_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::R9, sep_slot.offset);
+        self.asm.load_rbp_slot(Reg::Rcx, start_slot.offset);
+        self.asm.bind_text_label(scan_loop);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, scan_found);
+        self.asm.movzx_byte_indexed(Reg::Rdi, Reg::R10, Reg::Rcx);
+        self.asm.cmp_reg_reg(Reg::Rdi, Reg::R9);
+        self.asm.jcc_label(Condition::Equal, scan_found);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.jmp_label(scan_loop);
+        self.asm.bind_text_label(scan_found);
+        // rcx = segment_end. Save and compute segment_len.
+        self.asm.store_rbp_slot(end_slot.offset, Reg::Rcx);
+        self.asm.load_rbp_slot(Reg::Rdi, start_slot.offset);
+        self.asm.sub_reg_reg(Reg::Rcx, Reg::Rdi);
+        self.asm.store_rbp_slot(seg_len_slot.offset, Reg::Rcx);
+
+        // Allocate heap string of segment_len bytes.
+        self.asm.mov_reg_reg(Reg::Rax, Reg::Rcx);
+        self.asm.add_reg_imm32(Reg::Rax, 8 + 7);
+        self.asm.and_reg_imm32(Reg::Rax, -8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.store_rbp_slot(frag_slot.offset, Reg::Rax);
+
+        // Length, then memcpy the segment bytes.
+        self.asm.load_rbp_slot(Reg::R8, seg_len_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R8);
+        self.asm.load_rbp_slot(Reg::Rsi, s_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, start_slot.offset);
+        self.asm.add_reg_reg(Reg::Rsi, Reg::Rdi);
+        self.asm.load_rbp_slot(Reg::Rdi, frag_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.load_rbp_slot(Reg::Rcx, seg_len_slot.offset);
+        self.asm.rep_movsb();
+
+        // Store fragment into list[idx].
+        self.asm.load_rbp_slot(Reg::R10, list_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::Rcx, idx_slot.offset);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.load_rbp_slot(Reg::Rax, frag_slot.offset);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+
+        // If segment_end == s_len, we're done after this final segment.
+        self.asm.load_rbp_slot(Reg::Rcx, end_slot.offset);
+        self.asm.load_rbp_slot(Reg::R10, s_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, outer_done);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.store_rbp_slot(start_slot.offset, Reg::Rcx);
+        self.asm.load_rbp_slot(Reg::Rax, idx_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rax, 1);
+        self.asm.store_rbp_slot(idx_slot.offset, Reg::Rax);
+        self.asm.jmp_label(outer);
+        self.asm.bind_text_label(outer_done);
+
+        self.asm.load_rbp_slot(Reg::Rax, list_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_list_ptr_join(parts, sep)` joins a tag-4 list of heap
+    /// strings into a single fresh heap string, separating each pair
+    /// by `sep`'s bytes. Two passes: compute total length, then copy
+    /// part / sep / part using a running destination cursor.
+    fn compile_gc_list_ptr_join(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_list_ptr_join expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let parts = self.compile_expr(&arguments[0])?;
+        if !matches!(parts, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_join for non-address parts argument",
+            ));
+        }
+        let parts_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(parts_slot.offset, Reg::Rax);
+
+        let sep = self.compile_expr(&arguments[1])?;
+        if !matches!(sep, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_list_ptr_join for non-address separator",
+            ));
+        }
+        let sep_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(sep_slot.offset, Reg::Rax);
+
+        let total_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        let dst_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let idx_slot = self.allocate_anonymous_slot(NativeValue::Int);
+
+        // Pass 1: total = sum(part_len) + (n - 1) * sep_len if n > 0.
+        self.asm.load_rbp_slot(Reg::R10, parts_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::R8, sep_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R9, Reg::R8, 0);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.mov_imm64(Reg::Rcx, 0);
+        let len_loop = self.asm.create_text_label();
+        let len_done = self.asm.create_text_label();
+        self.asm.bind_text_label(len_loop);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, len_done);
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R8, 3);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::R10);
+        self.asm.add_reg_reg(Reg::Rdi, Reg::R8);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::Rdi, 0);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::Rdi, 0);
+        self.asm.add_reg_reg(Reg::Rax, Reg::R8);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.jmp_label(len_loop);
+        self.asm.bind_text_label(len_done);
+
+        let total_done = self.asm.create_text_label();
+        self.asm.test_reg_reg(Reg::R11, Reg::R11);
+        self.asm.jcc_label(Condition::Equal, total_done);
+        self.asm.mov_reg_reg(Reg::R8, Reg::R11);
+        self.asm.sub_reg_imm8(Reg::R8, 1);
+        self.asm.imul_reg_reg(Reg::R8, Reg::R9);
+        self.asm.add_reg_reg(Reg::Rax, Reg::R8);
+        self.asm.bind_text_label(total_done);
+        self.asm.store_rbp_slot(total_slot.offset, Reg::Rax);
+
+        // Allocate destination heap string.
+        self.asm.add_reg_imm32(Reg::Rax, 8 + 7);
+        self.asm.and_reg_imm32(Reg::Rax, -8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_RAW_BYTES);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+
+        self.asm.load_rbp_slot(Reg::Rcx, total_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+
+        // Initialize dst cursor at new + 8.
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.store_rbp_slot(dst_slot.offset, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_rbp_slot(idx_slot.offset, Reg::Rax);
+
+        // Pass 2: copy parts and seps.
+        let outer = self.asm.create_text_label();
+        let outer_done = self.asm.create_text_label();
+        let no_sep = self.asm.create_text_label();
+        self.asm.bind_text_label(outer);
+        self.asm.load_rbp_slot(Reg::Rcx, idx_slot.offset);
+        self.asm.load_rbp_slot(Reg::R10, parts_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, outer_done);
+
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, no_sep);
+        self.asm.load_rbp_slot(Reg::Rsi, sep_slot.offset);
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rsi, 0);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, dst_slot.offset);
+        self.asm.rep_movsb();
+        self.asm.store_rbp_slot(dst_slot.offset, Reg::Rdi);
+        self.asm.bind_text_label(no_sep);
+
+        // Copy parts[i].
+        self.asm.load_rbp_slot(Reg::Rcx, idx_slot.offset);
+        self.asm.load_rbp_slot(Reg::R10, parts_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R8, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::R8);
+        self.asm.load_ptr_disp32(Reg::Rsi, Reg::R10, 0);
+        self.asm.load_ptr_disp32(Reg::Rcx, Reg::Rsi, 0);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, dst_slot.offset);
+        self.asm.rep_movsb();
+        self.asm.store_rbp_slot(dst_slot.offset, Reg::Rdi);
+
+        self.asm.load_rbp_slot(Reg::Rax, idx_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rax, 1);
+        self.asm.store_rbp_slot(idx_slot.offset, Reg::Rax);
+        self.asm.jmp_label(outer);
+        self.asm.bind_text_label(outer_done);
 
         self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
         Ok(NativeValue::HeapPointer)

@@ -2066,6 +2066,38 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 2, span)?;
             Ok(Value::Int(1))
         }
+        "__gc_list_ptr_pop" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_list_ptr_concat" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_list_ptr_reverse" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_list_ptr_join" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_list_int_sum" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_list_int_min" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_list_int_max" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_string_split" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)
