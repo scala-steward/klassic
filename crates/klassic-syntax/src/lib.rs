@@ -1619,10 +1619,7 @@ impl Parser {
         operator: impl Fn(&TokenKind) -> Option<BinaryOp>,
     ) -> Result<Expr, Diagnostic> {
         let mut expr = inner(self)?;
-        loop {
-            let Some(op) = operator(&self.peek().kind) else {
-                break;
-            };
+        while let Some(op) = operator(&self.peek().kind) {
             let op_token = self.bump().span;
             self.consume_separators();
             let rhs = inner(self)?;

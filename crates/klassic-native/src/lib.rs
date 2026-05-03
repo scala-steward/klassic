@@ -4334,20 +4334,17 @@ impl NativeCodeGenerator {
             Expr::Call {
                 callee, arguments, ..
             } => {
-                if let Expr::Identifier { name, .. } = callee.as_ref() {
-                    if let Some(function) = self.functions.get(name) {
-                        if !visited.contains(name) {
-                            visited.insert(name.clone());
-                            if self.lambda_body_references_dynamic_capture(
-                                &function.params,
-                                &function.body,
-                            ) {
-                                return true;
-                            }
-                            if self.expr_calls_dynamic_capturing_function(&function.body, visited) {
-                                return true;
-                            }
-                        }
+                if let Expr::Identifier { name, .. } = callee.as_ref()
+                    && let Some(function) = self.functions.get(name)
+                    && !visited.contains(name)
+                {
+                    visited.insert(name.clone());
+                    if self.lambda_body_references_dynamic_capture(&function.params, &function.body)
+                    {
+                        return true;
+                    }
+                    if self.expr_calls_dynamic_capturing_function(&function.body, visited) {
+                        return true;
                     }
                 }
                 if self.expr_calls_dynamic_capturing_function(callee, visited) {
@@ -7290,8 +7287,8 @@ impl NativeCodeGenerator {
         self.emit_append_text_to_runtime_buffer(data, offset, open, span, overflow_message);
         match kind {
             RuntimeListKind::Map => {
-                let mut chunks = elements.chunks(2).enumerate();
-                while let Some((pair_index, pair)) = chunks.next() {
+                let chunks = elements.chunks(2).enumerate();
+                for (pair_index, pair) in chunks {
                     let element_index = pair_index * 2;
                     let skip = self.begin_runtime_list_dynamic_index_guard(label, element_index);
                     if pair_index > 0 {
@@ -7307,7 +7304,7 @@ impl NativeCodeGenerator {
                         self.emit_append_compiled_literal_display_to_runtime_buffer(
                             data,
                             offset,
-                            key.clone(),
+                            *key,
                             span,
                             overflow_message,
                         );
@@ -7323,7 +7320,7 @@ impl NativeCodeGenerator {
                         self.emit_append_compiled_literal_display_to_runtime_buffer(
                             data,
                             offset,
-                            value.clone(),
+                            *value,
                             span,
                             overflow_message,
                         );
@@ -11278,7 +11275,7 @@ impl NativeCodeGenerator {
         if growth > 0 {
             let target = elements.len() + growth;
             if elements.is_empty() {
-                let kind = empty_element_kind.or_else(|| match value {
+                let kind = empty_element_kind.or(match value {
                     NativeValue::StaticIntList { .. } => Some(NativeValue::Int),
                     _ => None,
                 });
@@ -11426,10 +11423,9 @@ impl NativeCodeGenerator {
         if let Some(value) = self
             .native_value_hint_for_expr(head_expr)
             .or_else(|| native_value_hint_from_expr(head_expr))
+            && matches!(value, NativeValue::Int | NativeValue::Bool)
         {
-            if matches!(value, NativeValue::Int | NativeValue::Bool) {
-                return Some(value);
-            }
+            return Some(value);
         }
         None
     }
@@ -11573,12 +11569,11 @@ impl NativeCodeGenerator {
                         (Some(a), None) | (None, Some(a)) => Some(a),
                         (None, None) => None,
                     };
-                    if let Some(cap) = cap {
-                        if let Some(padded) =
+                    if let Some(cap) = cap
+                        && let Some(padded) =
                             self.pad_runtime_list_branch_elements(inner_compiled.clone(), cap)
-                        {
-                            inner_compiled = padded;
-                        }
+                    {
+                        inner_compiled = padded;
                     }
                     let inner_output = inner_compiled
                         .into_iter()
@@ -11622,16 +11617,15 @@ impl NativeCodeGenerator {
                         (Some(a), None) | (None, Some(a)) => Some(a),
                         (None, None) => None,
                     };
-                    if let Some(target) = inner_target {
-                        if target > inner_compiled.len() {
-                            if let Some(padded) = self.pad_runtime_list_branch_elements_with_stride(
-                                inner_compiled.clone(),
-                                target,
-                                2,
-                            ) {
-                                inner_compiled = padded;
-                            }
-                        }
+                    if let Some(target) = inner_target
+                        && target > inner_compiled.len()
+                        && let Some(padded) = self.pad_runtime_list_branch_elements_with_stride(
+                            inner_compiled.clone(),
+                            target,
+                            2,
+                        )
+                    {
+                        inner_compiled = padded;
                     }
                     let inner_output = inner_compiled
                         .into_iter()
@@ -11665,12 +11659,11 @@ impl NativeCodeGenerator {
                         (Some(a), None) | (None, Some(a)) => Some(a),
                         (None, None) => None,
                     };
-                    if let Some(cap) = cap {
-                        if let Some(padded) =
+                    if let Some(cap) = cap
+                        && let Some(padded) =
                             self.pad_runtime_list_branch_elements(inner_compiled.clone(), cap)
-                        {
-                            inner_compiled = padded;
-                        }
+                    {
+                        inner_compiled = padded;
                     }
                     let inner_output = inner_compiled
                         .into_iter()
@@ -11800,7 +11793,7 @@ impl NativeCodeGenerator {
             false
         };
         let output_capacity = output.len();
-        let pairs: Vec<_> = source.into_iter().zip(output.into_iter()).collect();
+        let pairs: Vec<_> = source.into_iter().zip(output).collect();
         let pairs: Vec<_> = if truncate_source {
             pairs.into_iter().take(output_capacity).collect()
         } else {
@@ -22628,6 +22621,7 @@ impl NativeCodeGenerator {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn expr_max_nested_list_length(&self, expr: &Expr) -> Option<usize> {
         match expr {
             Expr::ListLiteral { elements, .. } => {
@@ -22730,10 +22724,10 @@ impl NativeCodeGenerator {
     }
 
     fn expr_static_list_length_hint(&self, expr: &Expr) -> Option<usize> {
-        if let Some(value) = self.native_value_hint_for_expr(expr) {
-            if let Some(len) = self.native_value_list_length_hint(value) {
-                return Some(len);
-            }
+        if let Some(value) = self.native_value_hint_for_expr(expr)
+            && let Some(len) = self.native_value_list_length_hint(value)
+        {
+            return Some(len);
         }
         match expr {
             Expr::ListLiteral { elements, .. } => Some(elements.len()),
@@ -24026,11 +24020,10 @@ impl NativeCodeGenerator {
         } else {
             None
         };
-        let branches_yield_runtime_lines_directly =
-            else_branch.as_deref().is_some_and(|else_branch| {
-                self.expr_may_yield_runtime_lines_list(then_branch)
-                    || self.expr_may_yield_runtime_lines_list(else_branch)
-            });
+        let branches_yield_runtime_lines_directly = else_branch.is_some_and(|else_branch| {
+            self.expr_may_yield_runtime_lines_list(then_branch)
+                || self.expr_may_yield_runtime_lines_list(else_branch)
+        });
         let condition_value = self.compile_expr(condition)?;
         if condition_value != NativeValue::Bool {
             return Err(unsupported(span, "native if condition for non-Bool"));
@@ -25423,11 +25416,11 @@ impl NativeCodeGenerator {
                         self.emit_write_data(fd, self.comma_space, 2);
                     }
                     if let Some(key) = pair.first() {
-                        self.emit_print_compiled_literal_value_fragment(fd, key.clone());
+                        self.emit_print_compiled_literal_value_fragment(fd, *key);
                     }
                     self.emit_write_data(fd, self.colon_space, 2);
                     if let Some(value) = pair.get(1) {
-                        self.emit_print_compiled_literal_value_fragment(fd, value.clone());
+                        self.emit_print_compiled_literal_value_fragment(fd, *value);
                     }
                     self.end_runtime_list_dynamic_index_guard(skip);
                 }
