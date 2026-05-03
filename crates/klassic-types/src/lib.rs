@@ -588,7 +588,7 @@ impl TypeChecker {
             {
                 let head = self.unify(*left_head, *right_head, span)?;
                 let mut args = Vec::with_capacity(left_args.len());
-                for (left, right) in left_args.into_iter().zip(right_args.into_iter()) {
+                for (left, right) in left_args.into_iter().zip(right_args) {
                     args.push(self.unify(left, right, span)?);
                 }
                 Ok(Type::Applied(Box::new(head), args))
@@ -802,7 +802,7 @@ impl TypeChecker {
             ) if expected_args.len() == actual_args.len() => {
                 let head = self.enforce_assignable(*expected_head, *actual_head, span)?;
                 let mut args = Vec::with_capacity(expected_args.len());
-                for (expected, actual) in expected_args.into_iter().zip(actual_args.into_iter()) {
+                for (expected, actual) in expected_args.into_iter().zip(actual_args) {
                     args.push(self.enforce_assignable(expected, actual, span)?);
                 }
                 Ok(Type::Applied(Box::new(head), args))
@@ -894,7 +894,7 @@ impl TypeChecker {
             ));
         }
         let mut args = Vec::with_capacity(left_args.len());
-        for (left, right) in left_args.into_iter().zip(right_args.into_iter()) {
+        for (left, right) in left_args.into_iter().zip(right_args) {
             args.push(self.enforce_assignable(left, right, span)?);
         }
         Ok(Type::Record(name, args))
@@ -1711,7 +1711,7 @@ impl TypeChecker {
             let mut param_types = Vec::with_capacity(params.len());
             for ((param, expected), annotation) in params
                 .iter()
-                .zip(expected_params.into_iter())
+                .zip(expected_params)
                 .zip(param_annotations.iter())
             {
                 let param_type = if let Some(annotation) = annotation {
@@ -2922,7 +2922,7 @@ impl TypeChecker {
                 Type::Function(actual_params, actual_result),
             ) if expected_params.len() == actual_params.len() => {
                 let mut params = Vec::with_capacity(expected_params.len());
-                for (expected, actual) in expected_params.into_iter().zip(actual_params.into_iter())
+                for (expected, actual) in expected_params.into_iter().zip(actual_params)
                 {
                     params.push(self.match_generic_annotation(
                         expected,
@@ -2950,7 +2950,7 @@ impl TypeChecker {
                     substitutions,
                 )?;
                 let mut args = Vec::with_capacity(expected_args.len());
-                for (expected, actual) in expected_args.into_iter().zip(actual_args.into_iter()) {
+                for (expected, actual) in expected_args.into_iter().zip(actual_args) {
                     args.push(self.match_generic_annotation(
                         expected,
                         actual,
@@ -2965,7 +2965,7 @@ impl TypeChecker {
                 Type::Record(actual_name, actual_args),
             ) if expected_name == actual_name && expected_args.len() == actual_args.len() => {
                 let mut args = Vec::with_capacity(expected_args.len());
-                for (expected, actual) in expected_args.into_iter().zip(actual_args.into_iter()) {
+                for (expected, actual) in expected_args.into_iter().zip(actual_args) {
                     args.push(self.match_generic_annotation(
                         expected,
                         actual,

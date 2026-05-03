@@ -14,6 +14,7 @@ Rust. The implementation builds a native `klassic` executable with Cargo.
 - List, map, and set literals with comma, space, or newline separators
 - Pure Rust file, directory, string, list, map, set, time, and thread helpers
 - Native CLI and REPL
+- Precise mark-and-sweep garbage collector with multi-segment heap growth, exposed through 41 `__gc_*` debug builtins
 - Standalone Rust macro PEG subsystem
 
 ## Build And Test
@@ -433,6 +434,47 @@ FileOutput syscall failures also report source-located stderr diagnostics
 instead of continuing silently, as do Dir copy/mkdir/delete/move failures.
 Unsupported constructs fail at build time instead of falling back to the
 evaluator.
+
+## Native Garbage Collector
+
+Generated native executables embed a precise mark-and-sweep collector that
+manages a private heap separate from the static `.data` buffers used elsewhere
+by the codegen. The heap starts at 1 MiB and grows in 1 MiB segments via
+additional `mmap` calls (up to 64 segments / 64 MiB) when even a post-collection
+retry cannot satisfy the bump path. Each block carries a 16-byte header (size +
+mark bit, type tag) with five tag values: free, raw bytes, pointer record,
+pointer array, and pointer list (where the first qword is a length the mark
+phase skips). Roots come from three sources: a static 1024-entry pin table, an
+8192-entry shadow stack of every `HeapPointer`-typed stack slot, and mutable
+`HeapPointer` slot reassignment paths.
+
+Source programs reach the heap through a 41-builtin debug surface:
+
+- Allocation: `__gc_alloc(size)`, `__gc_record(num_fields)`,
+  `__gc_array(num_slots)`, `__gc_list_int(n)`, `__gc_list_ptr(n)`.
+- Heap strings: `__gc_string("text")`, `__gc_string_alloc(n)`,
+  `__gc_string_concat(a, b)`, `__gc_string_substring(s, start, end)`,
+  `__gc_string_repeat(s, n)`, `__gc_string_println(g)`,
+  `__gc_string_len(s)`, `__gc_string_eq(a, b)`,
+  `__gc_string_get_byte(s, idx)`, `__gc_string_set_byte(s, idx, byte)`,
+  `__gc_string_starts_with(s, prefix)`, `__gc_string_ends_with(s, suffix)`,
+  `__gc_string_contains(haystack, needle)`,
+  `__gc_string_index_of(s, byte)`, `__gc_string_to_int(s)`, and
+  `__gc_int_to_string(n)`.
+- List helpers: `__gc_list_int_get` / `_set` / `_push` / `_pop` /
+  `_reverse` / `_println`, `__gc_list_ptr_get` / `_set` / `_push` / `_len`,
+  and `__gc_list_concat(a, b)`.
+- Raw pointer access: `__gc_read(addr, offset)` /
+  `__gc_write(addr, offset, value)` (which double as record-field and array-
+  slot access).
+- Roots and observability: `__gc_pin(addr)` / `__gc_unpin(addr)`,
+  `__gc_collect()`, `__gc_collect_count()`, `__gc_segment_count()`,
+  `__gc_pointer_count(addr)`.
+
+All length-aware list and string-byte operations bounds-check through a shared
+`gc_bounds_error` subroutine that prints `klassic gc: index out of bounds` and
+exits with status 1; OOM, segment-limit, root-overflow, worklist-overflow, and
+shadow-overflow paths each print their own dedicated diagnostic.
 
 ## Quick Start
 
