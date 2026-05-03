@@ -1889,6 +1889,11 @@ impl TypeChecker {
             Type::Function(vec![Type::Int], Box::new(Type::Int)),
         );
         self.declare_poly(
+            "__gc_list_int_reverse".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
             "__gc_list_concat".to_string(),
             false,
             Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
@@ -1937,6 +1942,26 @@ impl TypeChecker {
             "__gc_string_to_int".to_string(),
             false,
             Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_int_to_string".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_starts_with".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Bool)),
+        );
+        self.declare_poly(
+            "__gc_string_ends_with".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Bool)),
+        );
+        self.declare_poly(
+            "__gc_string_contains".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Bool)),
         );
         self.declare_poly(
             "__gc_pointer_count".to_string(),

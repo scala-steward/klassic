@@ -591,7 +591,7 @@ cargo run -- -e "1 + 2"
   comparisons, and printing now all treat `HeapPointer` like `Int`
   so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
 
-  Thirty-six debug builtins drive the GC end-to-end:
+  Forty-one debug builtins drive the GC end-to-end:
   `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
   (type tag 2, packed heap pointers, fixed shape); `__gc_array(num_slots)`
   (type tag 3, packed heap pointers, indexed); `__gc_string("text")`
@@ -617,6 +617,16 @@ cargo run -- -e "1 + 2"
   `__gc_string_to_int(s)` (permissive base-10 parser with
   optional leading `-` that stops at the first non-digit and
   returns 0 on empty / no-digit inputs);
+  `__gc_int_to_string(n)` (renders a signed integer to a fresh
+  heap string via a digit-counting pass followed by a render-
+  backwards pass into the exact-sized destination);
+  `__gc_string_starts_with(s, prefix)` and
+  `__gc_string_ends_with(s, suffix)` (length precheck plus
+  `repe cmpsb` against the leading or trailing bytes);
+  `__gc_string_contains(haystack, needle)` (naive O(n*m) search
+  via an outer i-loop and inner `repe cmpsb`, with all loop
+  scratch slots allocated up front so no early conditional
+  return skips a `sub rsp` emission);
   `__gc_pointer_count(addr)` (derives the slot count of a record or
   array from the GC header — note that the count reflects the
   16-byte-aligned actual allocation, not the user-requested fields);
@@ -644,6 +654,8 @@ cargo run -- -e "1 + 2"
   `__gc_list_int_pop(lst)` (returns a fresh list with the
   trailing element removed; popping an empty list jumps to
   `gc_bounds_error`);
+  `__gc_list_int_reverse(lst)` (returns a fresh list with the
+  same payload in reverse order);
   `__gc_list_concat(a, b)` (returns a fresh int list whose
   payload is `a` followed by `b`, both copied via two rep movsb
   passes);
@@ -663,7 +675,7 @@ cargo run -- -e "1 + 2"
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Thirty-one integration tests cover the lifecycle: reclamation when
+  Thirty-five integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -719,7 +731,17 @@ cargo run -- -e "1 + 2"
   partial-parse, invalid-leading, large), `__gc_list_int_pop`
   (round-trip down to `[]` plus an empty-list bounds error), and
   `__gc_list_concat` (both non-empty plus three empty-side
-  combinations).
+  combinations), and a four-test sweep covering
+  `__gc_int_to_string` (zero, single digit, multi digit,
+  negative, large), combined `__gc_string_starts_with` /
+  `__gc_string_ends_with` (matching / non-matching / empty /
+  longer-than-string / equal-length), `__gc_string_contains`
+  (start / mid / end / missing / empty needle / longer needle /
+  empty haystack — this test exposed a stack-tracker bug where
+  an early conditional jump skipped a `sub rsp` emission and
+  corrupted successive callers, fixed by allocating loop scratch
+  slots before any control-flow split), and
+  `__gc_list_int_reverse` (5 element, single, empty).
   The next phase of integration is wiring the existing
   structural string / list / record builtins onto the heap so
   any source program participates in GC without going through

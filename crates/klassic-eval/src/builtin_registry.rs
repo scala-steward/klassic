@@ -98,6 +98,10 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_string_repeat" => Some("__gc_string_repeat"),
         "__gc_string_index_of" => Some("__gc_string_index_of"),
         "__gc_string_to_int" => Some("__gc_string_to_int"),
+        "__gc_int_to_string" => Some("__gc_int_to_string"),
+        "__gc_string_starts_with" => Some("__gc_string_starts_with"),
+        "__gc_string_ends_with" => Some("__gc_string_ends_with"),
+        "__gc_string_contains" => Some("__gc_string_contains"),
         "__gc_pointer_count" => Some("__gc_pointer_count"),
         "__gc_segment_count" => Some("__gc_segment_count"),
         "__gc_collect_count" => Some("__gc_collect_count"),
@@ -107,6 +111,7 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_list_int_println" => Some("__gc_list_int_println"),
         "__gc_list_int_push" => Some("__gc_list_int_push"),
         "__gc_list_int_pop" => Some("__gc_list_int_pop"),
+        "__gc_list_int_reverse" => Some("__gc_list_int_reverse"),
         "__gc_list_concat" => Some("__gc_list_concat"),
         "__gc_list_ptr" => Some("__gc_list_ptr"),
         "__gc_list_ptr_len" => Some("__gc_list_ptr_len"),
@@ -157,9 +162,11 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_string_len"
         | "__gc_string_alloc"
         | "__gc_string_to_int"
+        | "__gc_int_to_string"
         | "__gc_pointer_count"
         | "__gc_list_int"
         | "__gc_list_int_pop"
+        | "__gc_list_int_reverse"
         | "__gc_list_int_println"
         | "__gc_list_ptr"
         | "__gc_list_ptr_len"
@@ -170,6 +177,9 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_string_concat"
         | "__gc_string_repeat"
         | "__gc_string_index_of"
+        | "__gc_string_starts_with"
+        | "__gc_string_ends_with"
+        | "__gc_string_contains"
         | "__gc_list_int_get"
         | "__gc_list_int_push"
         | "__gc_list_concat"

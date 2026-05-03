@@ -1974,6 +1974,10 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 1, span)?;
             Ok(Value::Int(1))
         }
+        "__gc_list_int_reverse" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_list_concat" => {
             ensure_arity(name, arguments, 2, span)?;
             Ok(Value::Int(1))
@@ -2014,6 +2018,22 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
         "__gc_string_to_int" => {
             ensure_arity(name, arguments, 1, span)?;
             Ok(Value::Int(0))
+        }
+        "__gc_int_to_string" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_string_starts_with" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Bool(false))
+        }
+        "__gc_string_ends_with" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Bool(false))
+        }
+        "__gc_string_contains" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Bool(false))
         }
         "__gc_pointer_count" => {
             ensure_arity(name, arguments, 1, span)?;
