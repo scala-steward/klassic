@@ -591,7 +591,7 @@ cargo run -- -e "1 + 2"
   comparisons, and printing now all treat `HeapPointer` like `Int`
   so `val a = __gc_alloc(...); println(a > 0)` compiles cleanly.
 
-  Thirty-one debug builtins drive the GC end-to-end:
+  Thirty-six debug builtins drive the GC end-to-end:
   `__gc_alloc(size)` (type tag 1, raw bytes); `__gc_record(num_fields)`
   (type tag 2, packed heap pointers, fixed shape); `__gc_array(num_slots)`
   (type tag 3, packed heap pointers, indexed); `__gc_string("text")`
@@ -608,6 +608,15 @@ cargo run -- -e "1 + 2"
   `__gc_string_substring(s, start, end)` (allocates a fresh heap
   string holding bytes `[start, end)` with three bounds checks
   before the destination allocation runs);
+  `__gc_string_repeat(s, n)` (concatenates `s` with itself `n`
+  times in a single allocation; negative `n` jumps to
+  `gc_bounds_error`);
+  `__gc_string_index_of(s, byte)` (returns the first index of
+  the low-byte of `byte` in `s`, or `-1` if absent — no
+  allocation, just a movzx/cmp loop);
+  `__gc_string_to_int(s)` (permissive base-10 parser with
+  optional leading `-` that stops at the first non-digit and
+  returns 0 on empty / no-digit inputs);
   `__gc_pointer_count(addr)` (derives the slot count of a record or
   array from the GC header — note that the count reflects the
   16-byte-aligned actual allocation, not the user-requested fields);
@@ -632,6 +641,12 @@ cargo run -- -e "1 + 2"
   list one slot longer with `v` appended — both inputs spill
   into shadow-stack slots so a collection inside the destination
   allocation cannot reclaim the source mid-copy);
+  `__gc_list_int_pop(lst)` (returns a fresh list with the
+  trailing element removed; popping an empty list jumps to
+  `gc_bounds_error`);
+  `__gc_list_concat(a, b)` (returns a fresh int list whose
+  payload is `a` followed by `b`, both copied via two rep movsb
+  passes);
   `__gc_list_int_println(lst)` (prints `[a, b, c]\n`
   by driving `print_i64` per element through two anonymous stack
   slots that are released on exit); `__gc_collect()`;
@@ -648,7 +663,7 @@ cargo run -- -e "1 + 2"
   the payload qword by qword recursively visiting every non-null
   pointer field.
 
-  Twenty-four integration tests cover the lifecycle: reclamation when
+  Thirty-one integration tests cover the lifecycle: reclamation when
   nothing is rooted, explicit-pin survival across a heap stress
   loop, recursive marking through a pointer record's two child
   blocks, automatic stack-slot retention so a `val a = __gc_alloc(...)`
@@ -692,11 +707,19 @@ cargo run -- -e "1 + 2"
   pair of `__gc_list_int_push` tests that build a five-element
   list incrementally and confirm it survives interleaved
   heap-pressure collections that drop every previous version,
-  and a pair of `__gc_list_ptr_push` tests covering the same
+  a pair of `__gc_list_ptr_push` tests covering the same
   incremental-grow scenario for tag-4 pointer lists — the second
   test appends inline `__gc_alloc(...)` results never bound to a
   `val`, so the only reason the children survive a heap-pressure
-  collection is the list's mark-phase trace through its slots.
+  collection is the list's mark-phase trace through its slots,
+  plus a seven-test sweep of higher-level operations:
+  `__gc_string_repeat` (basic + negative-count rejection),
+  `__gc_string_index_of` (start / mid / end / missing / empty),
+  `__gc_string_to_int` (positive, zero, negative, empty,
+  partial-parse, invalid-leading, large), `__gc_list_int_pop`
+  (round-trip down to `[]` plus an empty-list bounds error), and
+  `__gc_list_concat` (both non-empty plus three empty-side
+  combinations).
   The next phase of integration is wiring the existing
   structural string / list / record builtins onto the heap so
   any source program participates in GC without going through

@@ -1884,6 +1884,16 @@ impl TypeChecker {
             Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
         );
         self.declare_poly(
+            "__gc_list_int_pop".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_list_concat".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
             "__gc_string_len".to_string(),
             false,
             Type::Function(vec![Type::Int], Box::new(Type::Int)),
@@ -1912,6 +1922,21 @@ impl TypeChecker {
             "__gc_string_substring".to_string(),
             false,
             Type::Function(vec![Type::Int, Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_repeat".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_index_of".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_string_to_int".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
         );
         self.declare_poly(
             "__gc_pointer_count".to_string(),
