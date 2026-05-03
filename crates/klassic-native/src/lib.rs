@@ -2846,6 +2846,13 @@ impl NativeCodeGenerator {
             "__gc_string_to_lower" => self.compile_gc_string_to_lower(arguments, span),
             "__gc_string_to_upper" => self.compile_gc_string_to_upper(arguments, span),
             "__gc_list_int_to_string" => self.compile_gc_list_int_to_string(arguments, span),
+            "__gc_smap_new" => self.compile_gc_smap_new(arguments, span),
+            "__gc_smap_size" => self.compile_gc_smap_size(arguments, span),
+            "__gc_smap_has" => self.compile_gc_smap_has(arguments, span),
+            "__gc_smap_get" => self.compile_gc_smap_get(arguments, span),
+            "__gc_smap_set" => self.compile_gc_smap_set(arguments, span),
+            "__gc_smap_keys" => self.compile_gc_smap_keys(arguments, span),
+            "__gc_smap_values" => self.compile_gc_smap_values(arguments, span),
             "__gc_collect" => self.compile_gc_collect(arguments, span),
             "__gc_pin" => self.compile_gc_pin(arguments, span),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span),
@@ -3597,6 +3604,13 @@ impl NativeCodeGenerator {
             "__gc_list_int_to_string" => self
                 .compile_gc_list_int_to_string(arguments, span)
                 .map(Some),
+            "__gc_smap_new" => self.compile_gc_smap_new(arguments, span).map(Some),
+            "__gc_smap_size" => self.compile_gc_smap_size(arguments, span).map(Some),
+            "__gc_smap_has" => self.compile_gc_smap_has(arguments, span).map(Some),
+            "__gc_smap_get" => self.compile_gc_smap_get(arguments, span).map(Some),
+            "__gc_smap_set" => self.compile_gc_smap_set(arguments, span).map(Some),
+            "__gc_smap_keys" => self.compile_gc_smap_keys(arguments, span).map(Some),
+            "__gc_smap_values" => self.compile_gc_smap_values(arguments, span).map(Some),
             "__gc_collect" => self.compile_gc_collect(arguments, span).map(Some),
             "__gc_pin" => self.compile_gc_pin(arguments, span).map(Some),
             "__gc_unpin" => self.compile_gc_unpin(arguments, span).map(Some),
@@ -11126,6 +11140,492 @@ impl NativeCodeGenerator {
 
         self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
         Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_smap_new()` returns an empty heap-backed string-keyed map.
+    /// The underlying representation is a tag-4 pointer list with
+    /// interleaved `[k0, v0, k1, v1, ...]` entries.
+    fn compile_gc_smap_new(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if !arguments.is_empty() {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_smap_new expects 0 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let synth = vec![Expr::Int {
+            value: 0,
+            kind: IntLiteralKind::Int,
+            span,
+        }];
+        self.compile_gc_list_ptr(&synth, span)
+    }
+
+    /// `__gc_smap_size(m)` returns the number of key-value pairs.
+    fn compile_gc_smap_size(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_smap_size expects 1 argument but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let value = self.compile_expr(&arguments[0])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_size for non-address argument",
+            ));
+        }
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::Rax, 0);
+        self.asm.shr_reg_imm8(Reg::Rax, 1);
+        Ok(NativeValue::Int)
+    }
+
+    /// Common scan: walks the map looking for a string-equal key. On a
+    /// match, falls through to `match_label` with the matching entry
+    /// index in `i_slot`. On exhausted scan, falls through to
+    /// `not_found_label`.
+    fn emit_smap_scan(
+        &mut self,
+        m_slot: VarSlot,
+        key_slot: VarSlot,
+        i_slot: VarSlot,
+        match_label: TextLabel,
+        not_found_label: TextLabel,
+    ) {
+        // i = 0
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_rbp_slot(i_slot.offset, Reg::Rax);
+
+        let scan_loop = self.asm.create_text_label();
+        let next_iter = self.asm.create_text_label();
+        self.asm.bind_text_label(scan_loop);
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::Rcx, i_slot.offset);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, not_found_label);
+
+        // candidate = map[i]
+        self.asm.mov_reg_reg(Reg::Rdx, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::Rdx, 3);
+        self.asm.mov_reg_reg(Reg::Rsi, Reg::R10);
+        self.asm.add_reg_reg(Reg::Rsi, Reg::Rdx);
+        self.asm.load_ptr_disp32(Reg::R8, Reg::Rsi, 0);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R8, 0);
+        self.asm.load_rbp_slot(Reg::R9, key_slot.offset);
+        self.asm.load_ptr_disp32(Reg::Rdx, Reg::R9, 0);
+        self.asm.cmp_reg_reg(Reg::Rax, Reg::Rdx);
+        self.asm.jcc_label(Condition::NotEqual, next_iter);
+        self.asm.test_reg_reg(Reg::Rax, Reg::Rax);
+        self.asm.jcc_label(Condition::Equal, match_label);
+        self.asm.mov_reg_reg(Reg::Rsi, Reg::R8);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::R9);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::Rax);
+        self.asm.repe_cmpsb();
+        self.asm.jcc_label(Condition::Equal, match_label);
+
+        self.asm.bind_text_label(next_iter);
+        self.asm.load_rbp_slot(Reg::Rcx, i_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rcx, 2);
+        self.asm.store_rbp_slot(i_slot.offset, Reg::Rcx);
+        self.asm.jmp_label(scan_loop);
+    }
+
+    /// `__gc_smap_has(m, key)` returns 1 if key is present, 0 otherwise.
+    fn compile_gc_smap_has(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_smap_has expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let m = self.compile_expr(&arguments[0])?;
+        if !matches!(m, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_has for non-address map",
+            ));
+        }
+        let m_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(m_slot.offset, Reg::Rax);
+        let key = self.compile_expr(&arguments[1])?;
+        if !matches!(key, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_has for non-address key",
+            ));
+        }
+        let key_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(key_slot.offset, Reg::Rax);
+        let i_slot = self.allocate_anonymous_slot(NativeValue::Int);
+
+        let match_label = self.asm.create_text_label();
+        let not_found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.emit_smap_scan(m_slot, key_slot, i_slot, match_label, not_found);
+        self.asm.bind_text_label(not_found);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(match_label);
+        self.asm.mov_imm64(Reg::Rax, 1);
+        self.asm.bind_text_label(done);
+        Ok(NativeValue::Bool)
+    }
+
+    /// `__gc_smap_get(m, key)` returns the associated value, or 0 (null)
+    /// when the key is absent.
+    fn compile_gc_smap_get(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 2 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_smap_get expects 2 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let m = self.compile_expr(&arguments[0])?;
+        if !matches!(m, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_get for non-address map",
+            ));
+        }
+        let m_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(m_slot.offset, Reg::Rax);
+        let key = self.compile_expr(&arguments[1])?;
+        if !matches!(key, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_get for non-address key",
+            ));
+        }
+        let key_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(key_slot.offset, Reg::Rax);
+        let i_slot = self.allocate_anonymous_slot(NativeValue::Int);
+
+        let match_label = self.asm.create_text_label();
+        let not_found = self.asm.create_text_label();
+        let done = self.asm.create_text_label();
+        self.emit_smap_scan(m_slot, key_slot, i_slot, match_label, not_found);
+        self.asm.bind_text_label(not_found);
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.jmp_label(done);
+        self.asm.bind_text_label(match_label);
+        // value = map[i + 1]
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::Rcx, i_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.load_ptr_disp32(Reg::Rax, Reg::R10, 0);
+        self.asm.bind_text_label(done);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    /// `__gc_smap_set(m, key, value)` returns a fresh map with the
+    /// key/value association applied. If the key already exists the
+    /// matching value is overwritten in the new copy; otherwise a new
+    /// pair is appended.
+    fn compile_gc_smap_set(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        if arguments.len() != 3 {
+            return Err(Diagnostic::compile(
+                span,
+                format!(
+                    "__gc_smap_set expects 3 arguments but got {}",
+                    arguments.len()
+                ),
+            ));
+        }
+        let m = self.compile_expr(&arguments[0])?;
+        if !matches!(m, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_set for non-address map",
+            ));
+        }
+        let m_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(m_slot.offset, Reg::Rax);
+        let key = self.compile_expr(&arguments[1])?;
+        if !matches!(key, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_set for non-address key",
+            ));
+        }
+        let key_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(key_slot.offset, Reg::Rax);
+        let value = self.compile_expr(&arguments[2])?;
+        if !matches!(value, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_set for non-address value",
+            ));
+        }
+        let value_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(value_slot.offset, Reg::Rax);
+
+        let i_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let found_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        let new_len_slot = self.allocate_anonymous_slot(NativeValue::Int);
+
+        // found = -1
+        self.asm.mov_imm64(Reg::Rax, (-1_i64) as u64);
+        self.asm.store_rbp_slot(found_slot.offset, Reg::Rax);
+
+        let match_label = self.asm.create_text_label();
+        let after_scan = self.asm.create_text_label();
+        let not_found = self.asm.create_text_label();
+        self.emit_smap_scan(m_slot, key_slot, i_slot, match_label, not_found);
+        self.asm.bind_text_label(match_label);
+        // found = i_slot
+        self.asm.load_rbp_slot(Reg::Rax, i_slot.offset);
+        self.asm.store_rbp_slot(found_slot.offset, Reg::Rax);
+        self.asm.jmp_label(after_scan);
+        self.asm.bind_text_label(not_found);
+        self.asm.bind_text_label(after_scan);
+
+        // Pick destination size.
+        let append_path = self.asm.create_text_label();
+        let allocate = self.asm.create_text_label();
+        self.asm.load_rbp_slot(Reg::Rax, found_slot.offset);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Less, append_path);
+        // Replace path: new_len = map_len.
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.jmp_label(allocate);
+        self.asm.bind_text_label(append_path);
+        // Append path: new_len = map_len + 2.
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.add_reg_imm32(Reg::R11, 2);
+        self.asm.bind_text_label(allocate);
+        self.asm.store_rbp_slot(new_len_slot.offset, Reg::R11);
+        // payload_size = 8 + new_len * 8
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R11);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+        // Stamp len.
+        self.asm.load_rbp_slot(Reg::Rcx, new_len_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::Rcx);
+
+        // Zero-init pointer slots (defensive against any future GC
+        // trigger between alloc and the upcoming memcpy).
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::Rcx);
+        let zero_loop = self.asm.create_text_label();
+        let zero_done = self.asm.create_text_label();
+        self.asm.bind_text_label(zero_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, zero_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.jmp_label(zero_loop);
+        self.asm.bind_text_label(zero_done);
+
+        // memcpy old payload (map_len * 8 bytes).
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::Rsi, m_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rsi, 8);
+        self.asm.load_rbp_slot(Reg::Rdi, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rdi, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.rep_movsb();
+
+        // Apply update.
+        let do_replace = self.asm.create_text_label();
+        let do_append = self.asm.create_text_label();
+        let end = self.asm.create_text_label();
+        self.asm.load_rbp_slot(Reg::Rax, found_slot.offset);
+        self.asm.cmp_reg_imm8(Reg::Rax, 0);
+        self.asm.jcc_label(Condition::Less, do_append);
+        self.asm.bind_text_label(do_replace);
+        // new[found+1] = value
+        self.asm.load_rbp_slot(Reg::R10, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.load_rbp_slot(Reg::Rcx, found_slot.offset);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.load_rbp_slot(Reg::Rax, value_slot.offset);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+        self.asm.jmp_label(end);
+        self.asm.bind_text_label(do_append);
+        // new[old_len] = key, new[old_len+1] = value
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.load_rbp_slot(Reg::R10, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.shl_reg_imm8(Reg::Rcx, 3);
+        self.asm.add_reg_reg(Reg::R10, Reg::Rcx);
+        self.asm.load_rbp_slot(Reg::Rax, key_slot.offset);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rax);
+        self.asm.load_rbp_slot(Reg::Rax, value_slot.offset);
+        self.asm.store_ptr_disp32(Reg::R10, 8, Reg::Rax);
+        self.asm.bind_text_label(end);
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    fn compile_gc_smap_keys_or_values(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+        is_values: bool,
+    ) -> Result<NativeValue, Diagnostic> {
+        let label = if is_values {
+            "__gc_smap_values"
+        } else {
+            "__gc_smap_keys"
+        };
+        if arguments.len() != 1 {
+            return Err(Diagnostic::compile(
+                span,
+                format!("{label} expects 1 argument but got {}", arguments.len()),
+            ));
+        }
+        let m = self.compile_expr(&arguments[0])?;
+        if !matches!(m, NativeValue::HeapPointer | NativeValue::Int) {
+            return Err(unsupported(
+                span,
+                "native __gc_smap_keys/values for non-address",
+            ));
+        }
+        let m_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        self.asm.store_rbp_slot(m_slot.offset, Reg::Rax);
+        let new_slot = self.allocate_anonymous_slot(NativeValue::HeapPointer);
+        let pair_count_slot = self.allocate_anonymous_slot(NativeValue::Int);
+        let i_slot = self.allocate_anonymous_slot(NativeValue::Int);
+
+        // pair_count = map_len / 2
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.load_ptr_disp32(Reg::R11, Reg::R10, 0);
+        self.asm.shr_reg_imm8(Reg::R11, 1);
+        self.asm.store_rbp_slot(pair_count_slot.offset, Reg::R11);
+
+        // Allocate.
+        self.asm.mov_reg_reg(Reg::Rax, Reg::R11);
+        self.asm.shl_reg_imm8(Reg::Rax, 3);
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::Rdi, Reg::Rax);
+        self.asm.mov_imm64(Reg::Rsi, Self::GC_TYPE_POINTER_LIST);
+        self.asm.call_label(self.gc_alloc);
+        self.asm.store_rbp_slot(new_slot.offset, Reg::Rax);
+        self.asm.load_rbp_slot(Reg::R11, pair_count_slot.offset);
+        self.asm.store_ptr_disp32(Reg::Rax, 0, Reg::R11);
+
+        // Zero-init.
+        self.asm.add_reg_imm32(Reg::Rax, 8);
+        self.asm.mov_reg_reg(Reg::R10, Reg::Rax);
+        self.asm.mov_reg_reg(Reg::Rcx, Reg::R11);
+        let zero_loop = self.asm.create_text_label();
+        let zero_done = self.asm.create_text_label();
+        self.asm.bind_text_label(zero_loop);
+        self.asm.test_reg_reg(Reg::Rcx, Reg::Rcx);
+        self.asm.jcc_label(Condition::Equal, zero_done);
+        self.asm.mov_imm64(Reg::Rdi, 0);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.sub_reg_imm8(Reg::Rcx, 1);
+        self.asm.jmp_label(zero_loop);
+        self.asm.bind_text_label(zero_done);
+
+        // Copy loop.
+        self.asm.mov_imm64(Reg::Rax, 0);
+        self.asm.store_rbp_slot(i_slot.offset, Reg::Rax);
+        let copy_loop = self.asm.create_text_label();
+        let copy_done = self.asm.create_text_label();
+        self.asm.bind_text_label(copy_loop);
+        self.asm.load_rbp_slot(Reg::Rcx, i_slot.offset);
+        self.asm.load_rbp_slot(Reg::R11, pair_count_slot.offset);
+        self.asm.cmp_reg_reg(Reg::Rcx, Reg::R11);
+        self.asm.jcc_label(Condition::AboveOrEqual, copy_done);
+        // src bytes = i*16 (+ 8 for values).
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R8, 4);
+        if is_values {
+            self.asm.add_reg_imm32(Reg::R8, 8);
+        }
+        self.asm.load_rbp_slot(Reg::R10, m_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.add_reg_reg(Reg::R10, Reg::R8);
+        self.asm.load_ptr_disp32(Reg::Rdi, Reg::R10, 0);
+        // dst at new[i].
+        self.asm.mov_reg_reg(Reg::R8, Reg::Rcx);
+        self.asm.shl_reg_imm8(Reg::R8, 3);
+        self.asm.load_rbp_slot(Reg::R10, new_slot.offset);
+        self.asm.add_reg_imm32(Reg::R10, 8);
+        self.asm.add_reg_reg(Reg::R10, Reg::R8);
+        self.asm.store_ptr_disp32(Reg::R10, 0, Reg::Rdi);
+        self.asm.add_reg_imm32(Reg::Rcx, 1);
+        self.asm.store_rbp_slot(i_slot.offset, Reg::Rcx);
+        self.asm.jmp_label(copy_loop);
+        self.asm.bind_text_label(copy_done);
+
+        self.asm.load_rbp_slot(Reg::Rax, new_slot.offset);
+        Ok(NativeValue::HeapPointer)
+    }
+
+    fn compile_gc_smap_keys(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.compile_gc_smap_keys_or_values(arguments, span, false)
+    }
+
+    fn compile_gc_smap_values(
+        &mut self,
+        arguments: &[Expr],
+        span: Span,
+    ) -> Result<NativeValue, Diagnostic> {
+        self.compile_gc_smap_keys_or_values(arguments, span, true)
     }
 
     /// `__gc_collect()` triggers a stop-the-world mark-and-sweep cycle.

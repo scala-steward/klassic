@@ -4462,6 +4462,69 @@ println(__gc_segment_count())
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+fn builds_native_executable_for_gc_smap_round_trip() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let source_path = std::env::temp_dir().join(format!("klassic-native-gc-smap-{unique}.kl"));
+    let output_path = std::env::temp_dir().join(format!("klassic-native-gc-smap-{unique}"));
+    fs::write(
+        &source_path,
+        r#"mutable m = __gc_smap_new()
+println(__gc_smap_size(m))
+m = __gc_smap_set(m, __gc_string("alice"), __gc_string("engineer"))
+m = __gc_smap_set(m, __gc_string("bob"), __gc_string("designer"))
+m = __gc_smap_set(m, __gc_string("carol"), __gc_string("manager"))
+println(__gc_smap_size(m))
+println(__gc_smap_has(m, __gc_string("alice")))
+println(__gc_smap_has(m, __gc_string("dave")))
+__gc_string_println(__gc_smap_get(m, __gc_string("bob")))
+m = __gc_smap_set(m, __gc_string("alice"), __gc_string("CEO"))
+__gc_string_println(__gc_smap_get(m, __gc_string("alice")))
+println(__gc_smap_size(m))
+val keys = __gc_smap_keys(m)
+val vals = __gc_smap_values(m)
+__gc_string_println(__gc_list_ptr_join(keys, __gc_string(",")))
+__gc_string_println(__gc_list_ptr_join(vals, __gc_string(",")))
+println(__gc_smap_get(m, __gc_string("missing")))
+"#,
+    )
+    .expect("source should write");
+
+    let build = Command::new(klassic_bin())
+        .args([
+            "build",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .expect("klassic build should run");
+    assert!(
+        build.status.success(),
+        "gc smap build failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let run = Command::new(&output_path)
+        .output()
+        .expect("generated executable should run");
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&output_path);
+
+    assert!(run.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0\n3\ntrue\nfalse\ndesigner\nCEO\n3\nalice,bob,carol\nCEO,designer,manager\n0\n"
+    );
+    assert!(run.stderr.is_empty());
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
 fn builds_native_executable_for_gc_string_replace_basic() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

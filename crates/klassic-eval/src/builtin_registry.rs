@@ -132,6 +132,13 @@ pub(crate) fn builtin_name(name: &str) -> Option<&'static str> {
         "__gc_string_to_lower" => Some("__gc_string_to_lower"),
         "__gc_string_to_upper" => Some("__gc_string_to_upper"),
         "__gc_list_int_to_string" => Some("__gc_list_int_to_string"),
+        "__gc_smap_new" => Some("__gc_smap_new"),
+        "__gc_smap_size" => Some("__gc_smap_size"),
+        "__gc_smap_has" => Some("__gc_smap_has"),
+        "__gc_smap_get" => Some("__gc_smap_get"),
+        "__gc_smap_set" => Some("__gc_smap_set"),
+        "__gc_smap_keys" => Some("__gc_smap_keys"),
+        "__gc_smap_values" => Some("__gc_smap_values"),
         "__gc_collect" => Some("__gc_collect"),
         "__gc_pin" => Some("__gc_pin"),
         "__gc_unpin" => Some("__gc_unpin"),
@@ -193,9 +200,12 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_list_ptr_len"
         | "__gc_list_ptr_pop"
         | "__gc_list_ptr_reverse"
+        | "__gc_smap_size"
+        | "__gc_smap_keys"
+        | "__gc_smap_values"
         | "__gc_pin"
         | "__gc_unpin" => Some(1),
-        "__gc_collect" | "__gc_segment_count" | "__gc_collect_count" => Some(0),
+        "__gc_collect" | "__gc_segment_count" | "__gc_collect_count" | "__gc_smap_new" => Some(0),
         "__gc_read"
         | "__gc_string_concat"
         | "__gc_string_repeat"
@@ -212,6 +222,8 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_list_ptr_push"
         | "__gc_list_ptr_concat"
         | "__gc_list_ptr_join"
+        | "__gc_smap_has"
+        | "__gc_smap_get"
         | "__gc_string_get_byte"
         | "__gc_string_eq" => Some(2),
         "__gc_write"
@@ -219,7 +231,8 @@ pub(crate) fn builtin_arity(name: &str) -> Option<usize> {
         | "__gc_list_ptr_set"
         | "__gc_string_set_byte"
         | "__gc_string_substring"
-        | "__gc_string_replace" => Some(3),
+        | "__gc_string_replace"
+        | "__gc_smap_set" => Some(3),
         "assertResult" | "at" | "matches" | "split" | "join" | "startsWith" | "endsWith"
         | "contains" | "indexOf" | "lastIndexOf" | "repeat" | "cons" | "map" => Some(2),
         "substring" | "replace" | "replaceAll" | "foldLeft" => Some(3),

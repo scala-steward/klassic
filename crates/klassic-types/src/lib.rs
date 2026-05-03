@@ -2074,6 +2074,41 @@ impl TypeChecker {
             Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
         );
         self.declare_poly(
+            "__gc_smap_new".to_string(),
+            false,
+            Type::Function(vec![], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_smap_size".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_smap_has".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Bool)),
+        );
+        self.declare_poly(
+            "__gc_smap_get".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_smap_set".to_string(),
+            false,
+            Type::Function(vec![Type::Int, Type::Int, Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_smap_keys".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
+            "__gc_smap_values".to_string(),
+            false,
+            Type::Function(vec![Type::Int], Box::new(Type::Int)),
+        );
+        self.declare_poly(
             "__gc_collect".to_string(),
             false,
             Type::Function(vec![], Box::new(Type::Unit)),

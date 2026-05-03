@@ -2122,6 +2122,34 @@ fn eval_builtin(name: &str, arguments: &[Value], span: Span) -> Result<Value, Di
             ensure_arity(name, arguments, 2, span)?;
             Ok(Value::Int(1))
         }
+        "__gc_smap_new" => {
+            ensure_arity(name, arguments, 0, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_smap_size" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_smap_has" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Bool(false))
+        }
+        "__gc_smap_get" => {
+            ensure_arity(name, arguments, 2, span)?;
+            Ok(Value::Int(0))
+        }
+        "__gc_smap_set" => {
+            ensure_arity(name, arguments, 3, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_smap_keys" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
+        "__gc_smap_values" => {
+            ensure_arity(name, arguments, 1, span)?;
+            Ok(Value::Int(1))
+        }
         "__gc_collect" => {
             ensure_arity(name, arguments, 0, span)?;
             Ok(Value::Unit)
