@@ -281,7 +281,7 @@ fn infer_known_type_bindings(
         && let KnownType::Record(actual_name, actual_args) = actual
         && actual_name == name
     {
-        for (expected, actual) in expected_args.into_iter().zip(actual_args.into_iter()) {
+        for (expected, actual) in expected_args.into_iter().zip(actual_args) {
             infer_known_type_bindings(&expected, actual, substitutions);
         }
     }

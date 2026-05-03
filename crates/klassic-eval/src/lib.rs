@@ -1229,13 +1229,11 @@ fn eval_sequence(
 
 fn predeclare_proof_placeholders(expressions: &[Expr], environment: &mut Environment) {
     for expression in expressions {
-        match expression {
-            Expr::TheoremDeclaration { name, .. } | Expr::AxiomDeclaration { name, .. } => {
-                if environment.get_binding(name).is_none() {
-                    environment.declare_placeholder(name.clone(), false);
-                }
-            }
-            _ => {}
+        if let Expr::TheoremDeclaration { name, .. } | Expr::AxiomDeclaration { name, .. } =
+            expression
+            && environment.get_binding(name).is_none()
+        {
+            environment.declare_placeholder(name.clone(), false);
         }
     }
 }
@@ -1735,7 +1733,7 @@ fn partially_apply_callable(
             let bound_count = argument_values.len();
             let mut partial_env = function.env.clone();
             partial_env.push_scope();
-            for (param, value) in function.params.iter().zip(argument_values.into_iter()) {
+            for (param, value) in function.params.iter().zip(argument_values) {
                 partial_env.declare_with_value(param.clone(), false, value);
             }
             Ok(Value::Function(Rc::new(FunctionValue {
